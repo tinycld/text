@@ -132,3 +132,45 @@ func TestRealtimeWAL_ReplayAfterSimulatedCrash(t *testing.T) {
 		t.Fatalf("YText after replay: got %q, want %q", got, sampleText)
 	}
 }
+
+// TestRealtimeWAL_FlushTruncatesJournal verifies the truncate-after-
+// successful-flush contract at the journal layer: rows up to the
+// snapshot's high-water seq disappear from PB after Truncate, so the
+// next Replay sees no work to do.
+//
+// The full chain (SaveCoordinator → PocketBaseJournal.Truncate) is
+// covered by save_coordinator_test.go with a recording journal mock;
+// this test confirms the bottom of the chain (PB rows actually go
+// away) end-to-end against a real PB test app.
+func TestRealtimeWAL_FlushTruncatesJournal(t *testing.T) {
+	app := setupTestApp(t)
+	addWALCollection(t, app)
+	journal := realtime.NewPocketBaseJournal(app)
+
+	item := seedDriveItem(t, app, "wal-truncate.docx", nil)
+
+	// Append three rows. Real broker traffic would produce more, but
+	// three is plenty to verify the "<=N" semantics.
+	for seq := int64(1); seq <= 3; seq++ {
+		if err := journal.Append(roomKindText, item.Id, seq, []byte{byte(seq)}); err != nil {
+			t.Fatalf("Append seq=%d: %v", seq, err)
+		}
+	}
+
+	// Simulate a successful flush whose snapshotSeq captured seq=3.
+	if err := journal.Truncate(roomKindText, item.Id, 3); err != nil {
+		t.Fatalf("Truncate: %v", err)
+	}
+
+	// Confirm replay now sees nothing — the broker can boot fresh.
+	calls := 0
+	if err := journal.Replay(roomKindText, item.Id, func(int64, []byte) error {
+		calls++
+		return nil
+	}); err != nil {
+		t.Fatalf("Replay after truncate: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Replay called apply %d times after truncate; want 0", calls)
+	}
+}

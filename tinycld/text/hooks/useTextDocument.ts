@@ -1,4 +1,4 @@
-import { useDocumentEditor } from '@tinycld/core/lib/editor/use-document-editor'
+import { useDocumentEditor } from './use-document-editor'
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
 import { typedServerHello, typedServerSlot } from './useTextRoom'
 

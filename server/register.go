@@ -2,6 +2,7 @@ package text
 
 import (
 	"encoding/json"
+	"math"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -51,6 +52,18 @@ func Register(app *pocketbase.PocketBase) {
 		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
 		OnEmpty:         saveCoordinator.OnRoomEmpty,
 		OnConnect:       makeOnConnect(app, runtime),
+	})
+
+	// Cascade-clean WAL rows when a drive_items record (text doc) is
+	// deleted. Scoped to room_kind = "text-doc"; other kinds (calc)
+	// register their own parallel hook. math.MaxInt64 as the upper
+	// bound effectively truncates every row regardless of seq.
+	app.OnRecordAfterDeleteSuccess("drive_items").BindFunc(func(e *core.RecordEvent) error {
+		if err := journal.Truncate(roomKindText, e.Record.Id, math.MaxInt64); err != nil {
+			app.Logger().Warn("text: WAL cleanup on drive_items delete failed",
+				"itemID", e.Record.Id, "err", err)
+		}
+		return e.Next()
 	})
 }
 

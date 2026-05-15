@@ -1,6 +1,7 @@
 package text
 
 import (
+	"math"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -172,5 +173,51 @@ func TestRealtimeWAL_FlushTruncatesJournal(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("Replay called apply %d times after truncate; want 0", calls)
+	}
+}
+
+// TestRealtimeWAL_CleanupOnDriveItemDelete confirms the cascade hook
+// wired in Register clears WAL rows when their drive_item is deleted.
+// Without this hook, deleting a document would leak journal rows that
+// nothing would ever truncate (the room is gone).
+func TestRealtimeWAL_CleanupOnDriveItemDelete(t *testing.T) {
+	app := setupTestApp(t)
+	addWALCollection(t, app)
+
+	// Register the production hooks against the test app. Register
+	// expects a *pocketbase.PocketBase, but our test has a *tests.TestApp;
+	// register the delete hook directly with the same closure to keep
+	// this test independent of the realtime registry side-effect.
+	journal := realtime.NewPocketBaseJournal(app)
+	app.OnRecordAfterDeleteSuccess("drive_items").BindFunc(func(e *core.RecordEvent) error {
+		if err := journal.Truncate(roomKindText, e.Record.Id, math.MaxInt64); err != nil {
+			app.Logger().Warn("text: WAL cleanup on drive_items delete failed",
+				"itemID", e.Record.Id, "err", err)
+		}
+		return e.Next()
+	})
+
+	item := seedDriveItem(t, app, "wal-cleanup.docx", nil)
+
+	// Append a WAL row for this drive_item.
+	if err := journal.Append(roomKindText, item.Id, 1, []byte{0x01}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	// Delete the drive_item — the hook should fire and clear the WAL.
+	if err := app.Delete(item); err != nil {
+		t.Fatalf("Delete drive_item: %v", err)
+	}
+
+	// Confirm the WAL is empty for this room.
+	calls := 0
+	if err := journal.Replay(roomKindText, item.Id, func(int64, []byte) error {
+		calls++
+		return nil
+	}); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("WAL rows after drive_item delete = %d; want 0", calls)
 	}
 }

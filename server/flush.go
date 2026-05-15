@@ -3,7 +3,7 @@ package text
 import (
 	"fmt"
 
-	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 
 	"tinycld.org/core/realtime"
@@ -26,7 +26,7 @@ import (
 // + deferred recover here converts any panic into an error so the
 // SaveCoordinator's retry/backoff path can handle it instead of the
 // broker goroutine going down.
-func makeProductionFlush(app *pocketbase.PocketBase, _ *Runtime) realtime.FlushFn {
+func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 	return func(driveItemID string, handle realtime.DocHandle) (returnedErr error) {
 		defer func() {
 			if r := recover(); r != nil {

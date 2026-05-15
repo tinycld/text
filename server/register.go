@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/packages/text/translate"
@@ -83,7 +84,7 @@ type importWarningJSON struct {
 // freshly-bootstrapped room sees them — that's by design; the
 // warnings describe an import event that happened once at room start,
 // and a later reload should see a clean slate.
-func makeOnConnect(app *pocketbase.PocketBase, runtime *Runtime) realtime.ServerHelloFn {
+func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 	return func(roomID string, conn *realtime.Client) ([]byte, error) {
 		readOnly := isReadOnlyForConn(app, roomID, conn)
 		warnings := runtime.PopImportWarnings(roomID)
@@ -124,6 +125,6 @@ func convertWarnings(in []translate.Warning) []importWarningJSON {
 // write predicate lands, the realtime layer will likely grow an
 // `auth *core.Record` parameter on this hook; until then there's
 // no point doing partial enforcement here.
-func isReadOnlyForConn(_ *pocketbase.PocketBase, _ string, _ *realtime.Client) bool {
+func isReadOnlyForConn(_ core.App, _ string, _ *realtime.Client) bool {
 	return false
 }

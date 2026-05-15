@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	ycrdt "github.com/skyterra/y-crdt"
 
@@ -34,7 +33,7 @@ const driveItemsCollection = "drive_items"
 // Parser warnings (tracked changes stripped, unsupported nodes coerced,
 // etc.) are stashed on the runtime keyed by roomID for the OnConnect
 // ServerHelloFn to surface to the joining client via MsgServerHello.
-func makeDocxBootstrap(app *pocketbase.PocketBase, runtime *Runtime) func(roomID string, doc *ycrdt.Doc) error {
+func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *ycrdt.Doc) error {
 	return func(roomID string, doc *ycrdt.Doc) error {
 		item, err := app.FindRecordById(driveItemsCollection, roomID)
 		if err != nil {
@@ -68,7 +67,7 @@ func makeDocxBootstrap(app *pocketbase.PocketBase, runtime *Runtime) func(roomID
 // record. Mirrors calc/server/persist.go::readDriveItemBytes verbatim —
 // both packages read drive_items the same way; the only divergence is
 // what's done with the bytes after.
-func readDriveItemBytes(app *pocketbase.PocketBase, item *core.Record) ([]byte, error) {
+func readDriveItemBytes(app core.App, item *core.Record) ([]byte, error) {
 	filename := item.GetString("file")
 	if filename == "" {
 		return nil, nil

@@ -3,7 +3,6 @@ package text
 import (
 	"errors"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -30,7 +29,7 @@ var errNoShare = errors.New("text: no drive_shares row for this user/item")
 // *any* share row exists for this (user, item) pair — role-level
 // distinctions are enforced elsewhere (or will be, once
 // isReadOnlyForConn is wired up).
-func makeAuthorize(app *pocketbase.PocketBase) func(*core.Record, string) error {
+func makeAuthorize(app core.App) func(*core.Record, string) error {
 	return func(auth *core.Record, roomID string) error {
 		if auth == nil || auth.Id == "" {
 			return errNoShare
@@ -43,7 +42,7 @@ func makeAuthorize(app *pocketbase.PocketBase) func(*core.Record, string) error 
 // connecting userID to driveItemID through any of their user_org
 // records. Equivalent to calc's checkDriveItemAccess; both packages
 // gate on the same drive permission predicate.
-func checkDriveItemAccess(app *pocketbase.PocketBase, userID, driveItemID string) error {
+func checkDriveItemAccess(app core.App, userID, driveItemID string) error {
 	rows, err := app.FindRecordsByFilter(
 		"drive_shares",
 		"item = {:item} && user_org.user = {:user}",

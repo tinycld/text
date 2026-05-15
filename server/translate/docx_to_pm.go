@@ -3,10 +3,12 @@ package translate
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -44,6 +46,7 @@ func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
 	numbering := parseNumberingFormats(parts["word/numbering.xml"])
 
 	parser := docxParser{
+		zip:       zr,
 		rels:      rels,
 		numbering: numbering,
 		hasComments: hasPart(parts, "word/comments.xml") ||
@@ -93,6 +96,7 @@ func hasContent(b []byte, needle string) bool {
 // docxParser holds the state shared across paragraph/run/table parses
 // so we don't have to thread a half-dozen arguments through every call.
 type docxParser struct {
+	zip         *zip.Reader              // open docx zip for reading media bytes
 	rels        map[string]relationship  // rId -> relationship target
 	numbering   map[string]string        // numId -> "bullet" or "decimal"
 	hasComments bool                     // true if comments.xml or commentRange* present
@@ -250,7 +254,7 @@ func (p *docxParser) parseBodyChildren(dec *xml.Decoder, body xml.StartElement) 
 				return nil, err
 			}
 			if node != nil {
-				out = append(out, *node)
+				out = append(out, liftInlineImages(*node)...)
 			}
 		case xml.EndElement:
 			if t.Name.Local == body.Name.Local {
@@ -258,6 +262,64 @@ func (p *docxParser) parseBodyChildren(dec *xml.Decoder, body xml.StartElement) 
 			}
 		}
 	}
+}
+
+// liftInlineImages splits a paragraph that mixes text and image runs
+// into a sequence of sibling block-level nodes: one paragraph per text
+// span, plus the bare image node between/around them. PM treats image
+// as a block-level node and pm_to_docx emits it via WordZero's
+// AddImageFromData, which always writes the image into its own
+// top-level <w:p>. Lifting at parse time keeps round-trip stable —
+// otherwise the inline-mixed pass-1 tree always diverges from the
+// post-emit pass-3 tree.
+//
+// Non-paragraph nodes (tables, headings, image-only paragraphs)
+// pass through unchanged. Empty-after-lift paragraphs are dropped.
+func liftInlineImages(node PMNode) []PMNode {
+	if node.Type != NodeTypeParagraph {
+		return []PMNode{node}
+	}
+	hasImage := false
+	for _, c := range node.Content {
+		if c.Type == NodeTypeImage {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return []PMNode{node}
+	}
+	var out []PMNode
+	var buf []PMNode
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		para := PMNode{Type: NodeTypeParagraph, Content: buf, Attrs: cloneAttrs(node.Attrs)}
+		out = append(out, para)
+		buf = nil
+	}
+	for _, c := range node.Content {
+		if c.Type == NodeTypeImage {
+			flush()
+			out = append(out, c)
+			continue
+		}
+		buf = append(buf, c)
+	}
+	flush()
+	return out
+}
+
+func cloneAttrs(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // parseBodyChild handles one direct child of <w:body>.
@@ -546,7 +608,16 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 // flushRun applies the run's marks (plus any inherited extras from a
 // hyperlink wrapper) to each text node in the run. Image nodes pass
 // through without marks.
+//
+// When the run is wrapped by a <w:hyperlink>, drop any underline mark
+// the run picked up from <w:u>: pm_to_docx.marksToTextFormat emits
+// <w:u> alongside every link mark as a visual cue, so on round-trip we
+// would otherwise re-import that derived underline as a real mark and
+// the tree would gain a mark that wasn't in the source.
 func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras []PMMark) error {
+	if hasMark(extras, MarkTypeLink) {
+		marks = stripMark(marks, MarkTypeUnderline)
+	}
 	combined := mergeMarks(marks, extras)
 	for _, c := range collected {
 		if c.Type == NodeTypeText {
@@ -557,6 +628,26 @@ func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras [
 		*out = append(*out, c)
 	}
 	return nil
+}
+
+func hasMark(marks []PMMark, t string) bool {
+	for _, m := range marks {
+		if m.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
+func stripMark(marks []PMMark, t string) []PMMark {
+	out := marks[:0]
+	for _, m := range marks {
+		if m.Type == t {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // mergeMarks returns the union of two mark slices, deduplicated by
@@ -689,9 +780,17 @@ func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, ru
 }
 
 // parseDrawing handles <w:drawing> (inline or anchor) and produces a
-// PM image node. We extract the rId from the nested a:blip and look
-// up the media filename via rels — the filename is exposed as src
-// (e.g. "media/image1.png"). Alt text comes from wp:docPr@descr.
+// PM image node. We extract the rId from the nested a:blip, look up
+// the media filename via rels, and inline the image bytes from the
+// docx zip as a self-contained data: URI. Embedding the bytes (rather
+// than copying the in-zip path verbatim into src) keeps the PM tree
+// round-trippable: PMJSONToDocx accepts only data: URIs because the
+// emitter has no way to re-resolve in-zip paths from a tree that's
+// been edited and re-serialized. Alt text comes from wp:docPr@descr.
+//
+// If the rels lookup or zip read fails, the image is dropped silently
+// (no PM node emitted) — losing an unresolvable image is preferable
+// to producing a tree that fails round-trip.
 //
 // Image dimensions are deliberately NOT preserved in v1: OOXML
 // stores them as EMUs (1 inch = 914400 EMU) on the wp:extent
@@ -722,21 +821,98 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 			// regardless of where it appears.
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				img := &PMNode{Type: NodeTypeImage, Attrs: map[string]any{}}
-				if blipRid != "" {
-					if rel, ok := p.rels[blipRid]; ok {
-						img.Attrs["src"] = rel.Target
-					}
+				if blipRid == "" {
+					return nil, nil
 				}
-				if alt != "" {
+				rel, ok := p.rels[blipRid]
+				if !ok {
+					return nil, nil
+				}
+				src := p.resolveMediaSrc(rel.Target)
+				if src == "" {
+					return nil, nil
+				}
+				img := &PMNode{
+					Type:  NodeTypeImage,
+					Attrs: map[string]any{"src": src},
+				}
+				if alt != "" && alt != wordZeroDefaultImageLabel {
 					img.Attrs["alt"] = alt
 				}
-				if title != "" {
+				if title != "" && title != wordZeroDefaultImageLabel {
 					img.Attrs["title"] = title
 				}
 				return img, nil
 			}
 		}
+	}
+}
+
+// wordZeroDefaultImageLabel is the literal Chinese string ("image")
+// that WordZero hard-codes into wp:docPr@descr / @title whenever an
+// image's ImageConfig leaves AltText / Title empty (see
+// createImageParagraph in image.go in WordZero v1.6.0). When we round-
+// trip an image whose alt/title were absent in the source, WordZero
+// re-emits the default — the parser drops it on import to keep the
+// PMNode attribute set stable across passes.
+const wordZeroDefaultImageLabel = "图片"
+
+// resolveMediaSrc converts an in-zip media reference (the Target field
+// from word/_rels/document.xml.rels — e.g. "media/image1.gif" or
+// "../media/image1.gif") into a self-contained data: URI suitable for
+// round-tripping back through PMJSONToDocx. Returns the data: URI on
+// success, or empty string on failure (caller drops the image rather
+// than emitting an unresolvable reference).
+//
+// rels Targets are relative to the location of the .rels file
+// (word/_rels/document.xml.rels), so they're rooted at "word/".
+// path.Clean(path.Join("word", target)) collapses any "../" prefixes
+// the way Word writes them when the media is already inside word/.
+func (p *docxParser) resolveMediaSrc(relTarget string) string {
+	if p.zip == nil || relTarget == "" {
+		return ""
+	}
+	cleaned := strings.TrimPrefix(path.Clean(path.Join("word", relTarget)), "/")
+	for _, f := range p.zip.File {
+		if f.Name != cleaned {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return ""
+		}
+		buf, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			return ""
+		}
+		return "data:" + mimeFromExt(path.Ext(cleaned)) + ";base64," +
+			base64.StdEncoding.EncodeToString(buf)
+	}
+	return ""
+}
+
+// mimeFromExt maps a file extension (with leading dot, any case) to a
+// MIME type suitable for a data: URI. Unknown extensions fall through
+// to application/octet-stream — pm_to_docx.decodeImageSrc will reject
+// those at emit time, which is the correct behavior since we can't
+// guess the format.
+func mimeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
 	}
 }
 
@@ -766,8 +942,35 @@ func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNo
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
+				padTableRowsToMaxWidth(tbl)
 				return tbl, nil
 			}
+		}
+	}
+}
+
+// padTableRowsToMaxWidth normalizes a parsed table so every row has
+// the same cell count, padding shorter rows with empty cells. The
+// emitter (pm_to_docx.emitTable) already creates a uniform-width
+// WordZero table by computing max(cols) across rows, so on round-trip
+// any short row gains empty cells regardless of what we do here. We
+// pad on import so pass-1 and pass-3 trees match structurally.
+func padTableRowsToMaxWidth(tbl *PMNode) {
+	maxCols := 0
+	for _, row := range tbl.Content {
+		if c := len(row.Content); c > maxCols {
+			maxCols = c
+		}
+	}
+	for i := range tbl.Content {
+		row := &tbl.Content[i]
+		for len(row.Content) < maxCols {
+			row.Content = append(row.Content, PMNode{
+				Type: NodeTypeTableCell,
+				Content: []PMNode{
+					{Type: NodeTypeParagraph},
+				},
+			})
 		}
 	}
 }
@@ -830,7 +1033,7 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement) (*
 							para.Attrs = nil
 						}
 					}
-					cell.Content = append(cell.Content, *para)
+					cell.Content = append(cell.Content, liftInlineImages(*para)...)
 				}
 			case "tbl":
 				nested, err := p.parseTable(dec, t)
@@ -847,10 +1050,43 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement) (*
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
+				cell.Content = collapseLeadingEmptyParagraphs(cell.Content)
 				return cell, nil
 			}
 		}
 	}
+}
+
+// collapseLeadingEmptyParagraphs normalizes the placeholder paragraphs
+// WordZero leaves behind in cells. WordZero's AddCellParagraph does
+// not replace the empty placeholder it seeds into each new cell, so
+// every emitted cell ends up with a leading empty paragraph plus the
+// appended one. Stripping it on import keeps the round-trip stable;
+// visually a leading empty paragraph in a cell is rarely intentional.
+//
+// Two normalizations:
+//
+//   - If the cell mixes empty leading paragraphs with at least one
+//     non-empty sibling, drop the leading empties.
+//   - If the cell is entirely empty paragraphs, collapse to a single
+//     empty paragraph (PM tableCell requires at least one paragraph).
+func collapseLeadingEmptyParagraphs(content []PMNode) []PMNode {
+	idx := 0
+	for idx < len(content) && isEmptyParagraph(content[idx]) {
+		idx++
+	}
+	if idx == len(content) && idx > 1 {
+		// Entirely-empty cell: collapse to a single empty paragraph.
+		return content[:1]
+	}
+	if idx == 0 || idx == len(content) {
+		return content
+	}
+	return content[idx:]
+}
+
+func isEmptyParagraph(n PMNode) bool {
+	return n.Type == NodeTypeParagraph && len(n.Content) == 0 && len(n.Attrs) == 0
 }
 
 // parseSdt unwraps <w:sdt> by recursively descending into its

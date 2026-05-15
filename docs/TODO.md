@@ -17,8 +17,7 @@ A checked box means the item is fixed on `main`. The session that introduced thi
 ## Critical (deferred — pick up next)
 
 ### Incremental persistence / write-ahead journal
-- [ ] **CRITICAL** — `server/flush.go` only persists by serializing the whole Y.Doc back to .docx via the SaveCoordinator's 3s debounce / 15s ceiling. A crash mid-debounce drops every edit since the last successful flush; if docx serialization fails repeatedly, edits accumulate in memory indefinitely with no durable copy.
-- Plan: persist raw Yjs updates incrementally on `OnDocUpdate` into a sidecar `text_doc_updates` collection; flush docx as compaction. Rebootstrap by replaying updates if a sidecar exists.
+- [x] **CRITICAL** — done. Core now ships a per-room WAL: every accepted `MsgDocUpdate` is appended to `realtime_doc_updates` synchronously before fan-out, so SIGKILL between accept and snapshot does not lose the edit. On room create, the broker replays journal rows after the docx bootstrap. SaveCoordinator truncates the journal after every successful docx flush. Text and calc are wired up, including cascade-delete hooks. See plan `~/Documents/plans/2026-05-15-realtime-wal-plan.md`.
 
 ### Server-side write enforcement for viewers
 - [ ] **CRITICAL** — the read-only signal we now ship in `MsgServerHello` is *advisory*. A viewer client that ignores `readOnly=true` can still POST `MsgDocUpdate` frames and the broker will apply them. Need a server-side write filter in core's realtime layer (per-room write predicate) or text needs to reject `MsgDocUpdate` frames from viewer connections.

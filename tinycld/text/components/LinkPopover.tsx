@@ -31,12 +31,7 @@ export function LinkPopover({ isOpen, initialUrl, onCancel, onInsert }: LinkPopo
     if (!isOpen) return null
 
     return (
-        <Modal
-            transparent
-            animationType="fade"
-            visible={isOpen}
-            onRequestClose={onCancel}
-        >
+        <Modal transparent animationType="fade" visible={isOpen} onRequestClose={onCancel}>
             <Pressable
                 className="flex-1 items-center justify-center bg-black/30"
                 onPress={onCancel}

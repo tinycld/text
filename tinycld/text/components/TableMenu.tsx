@@ -1,5 +1,5 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
-import { Modal, Pressable, Text, View } from 'react-native'
+import { Modal, Pressable, Text } from 'react-native'
 
 interface TableMenuProps {
     isOpen: boolean
@@ -30,16 +30,8 @@ export function TableMenu({ isOpen, isInTable, onClose, commands }: TableMenuPro
     }
 
     return (
-        <Modal
-            transparent
-            animationType="fade"
-            visible={isOpen}
-            onRequestClose={onClose}
-        >
-            <Pressable
-                className="flex-1 items-center justify-center bg-black/30"
-                onPress={onClose}
-            >
+        <Modal transparent animationType="fade" visible={isOpen} onRequestClose={onClose}>
+            <Pressable className="flex-1 items-center justify-center bg-black/30" onPress={onClose}>
                 <Pressable className="w-[260px] gap-1 p-2 rounded-lg bg-background border border-border">
                     <MenuRow
                         label="Insert 3×3 table"

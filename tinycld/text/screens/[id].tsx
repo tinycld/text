@@ -39,26 +39,27 @@ export default function TextDetail() {
         return <CenteredMessage label="Opening…" spinner />
     }
 
-    return <DocumentScreen itemName={item.name} room={room} />
+    return <DocumentScreen itemName={item.name} room={room} driveItemId={item.id} />
 }
 
 interface DocumentScreenProps {
     itemName: string
     room: NonNullable<ReturnType<typeof useTextRoom>>
+    driveItemId: string
 }
 
-function DocumentScreen({ itemName, room }: DocumentScreenProps) {
-    const { EditorComponent, commands, toolbarState, saveStatus } = useTextDocument(room)
+function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
+    const { EditorComponent, commands, toolbarState, saveStatus } = useTextDocument(
+        room,
+        driveItemId
+    )
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
 
     return (
         <View className="flex-1 bg-background">
             <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
-                <Text
-                    className="text-base font-semibold text-foreground flex-1"
-                    numberOfLines={1}
-                >
+                <Text className="text-base font-semibold text-foreground flex-1" numberOfLines={1}>
                     {itemName}
                 </Text>
                 <PresenceAvatars awareness={room.awareness} />
@@ -66,11 +67,7 @@ function DocumentScreen({ itemName, room }: DocumentScreenProps) {
                 <ReconnectingIndicator isVisible={!room.isConnected} />
             </View>
             <ImportWarningBanner warnings={hello.importWarnings} />
-            <DocumentToolbar
-                commands={commands}
-                state={toolbarState}
-                disabled={isReadOnly}
-            />
+            <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
             <ScrollView className="flex-1">
                 <View className="p-6 max-w-[800px] w-full self-center">
                     <EditorComponent />

@@ -1,3 +1,10 @@
+import type {
+    EditorCommands,
+    EditorHandle,
+    EditorResult,
+    EditorToolbarState,
+} from '@tinycld/core/lib/editor/types'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import Image from '@tiptap/extension-image'
@@ -12,13 +19,6 @@ import { useMemo } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import type {
-    EditorCommands,
-    EditorHandle,
-    EditorResult,
-    EditorToolbarState,
-} from '@tinycld/core/lib/editor/types'
 
 export interface UseDocumentEditorOptions {
     // Required: the Collaboration extension (yjs binding via Tiptap's
@@ -45,6 +45,10 @@ export interface UseDocumentEditorOptions {
     editable?: boolean
     // Optional placeholder shown when the doc is empty.
     placeholder?: string
+    // Accepted for parity with the native variant; ignored on web,
+    // where the parent useRealtimeRoom already passes us a connected
+    // Y.Doc.
+    driveItemId?: string
 }
 
 // useDocumentEditor returns a Tiptap editor configured for collaborative

@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import {
     formatImportWarning,
-    importWarningTitle,
     type ImportWarning,
+    importWarningTitle,
 } from './import-warning-format'
 
 export type { ImportWarning } from './import-warning-format'

@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { bundleWebViewEditor } from '@tinycld/core/lib/editor/webview-bundler/build'
 
 // Text's WebView-editor build entry. Called by:
@@ -13,18 +13,26 @@ const here = dirname(fileURLToPath(import.meta.url))
 const sourceDir = resolve(here, 'source')
 const buildDir = resolve(here, 'build')
 
+// The source/ folder lives in the @tinycld/text sibling repo, which
+// has no node_modules of its own by design. The entry script imports
+// from @tinycld/core/*, yjs, y-protocols, @tiptap/*, etc., all of
+// which only exist in the app shell's node_modules. Pointing esbuild
+// at that tree via nodePaths lets module resolution succeed.
+const appShellNodeModules = resolve(here, '../../../../tinycld/node_modules')
+
 async function main() {
     const result = await bundleWebViewEditor({
         entryHtml: resolve(sourceDir, 'index.html'),
-        entryScript: resolve(sourceDir, 'entry.ts'),
+        entryScript: resolve(sourceDir, 'entry.tsx'),
         outFile: resolve(buildDir, 'editorHtml.ts'),
+        nodePaths: [appShellNodeModules],
     })
-    console.log(
-        `[text webview-editor] bundled ${result.htmlSize} bytes → ${result.outFile}`
-    )
+    // biome-ignore lint/suspicious/noConsole: build-time helper; surfacing the bundle size is intentional
+    console.log(`[text webview-editor] bundled ${result.htmlSize} bytes → ${result.outFile}`)
 }
 
-main().catch((err) => {
+main().catch(err => {
+    // biome-ignore lint/suspicious/noConsole: build-time helper; reporting the failure is intentional
     console.error('[text webview-editor] build failed:', err)
     process.exit(1)
 })

@@ -28,8 +28,7 @@ export function buildOpenInTextAction(
         id: 'text.open',
         icon: ExternalLink,
         label: 'Open in Text',
-        isApplicable: (source: FilePreviewSource) =>
-            source.mimeType === DOCX_MIME_TYPE,
+        isApplicable: (source: FilePreviewSource) => source.mimeType === DOCX_MIME_TYPE,
         onPress: (source: FilePreviewSource, ctx: PreviewActionContext) => {
             router.push(orgHref('text/[id]', { id: source.recordId }))
             // Dismiss the preview modal — otherwise it sits open

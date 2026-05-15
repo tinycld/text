@@ -1,20 +1,70 @@
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Text, View } from 'react-native'
+import { and, eq } from '@tanstack/db'
+import {
+    SidebarActionButton,
+    SidebarHeading,
+    SidebarItem,
+    SidebarNav,
+} from '@tinycld/core/components/sidebar-primitives'
+import { useOrgHref } from '@tinycld/core/lib/org-routes'
+import { useStore } from '@tinycld/core/lib/pocketbase'
+import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
+import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
+import { router, usePathname } from 'expo-router'
+import { useCallback } from 'react'
+import { DOCX_MIME_TYPE } from './lib/mime'
 
-// Sidebar for the Text package. Rendered in the workspace drawer
-// when a user is on any /a/<orgSlug>/text/... route.
-//
-// Replace with real navigation (folders, favorites, filters, etc). See
-// @tinycld/calendar or @tinycld/mail sidebars for richer examples.
+interface TextSidebarProps {
+    isCollapsed: boolean
+}
 
-export default function TextSidebar() {
-    const fg = useThemeColor('foreground')
-    const muted = useThemeColor('muted-foreground')
+function blankDocxBlob(): Blob {
+    return new Blob([], { type: DOCX_MIME_TYPE })
+}
+
+export default function TextSidebar(_props: TextSidebarProps) {
+    const orgHref = useOrgHref()
+    const pathname = usePathname()
+    const [driveItemsCollection] = useStore('drive_items')
+    const create = useCreateDriveItem()
+
+    const { data: items = [] } = useOrgLiveQuery((query, { orgId }) =>
+        query
+            .from({ item: driveItemsCollection })
+            .where(({ item }) =>
+                and(
+                    eq(item.org, orgId),
+                    eq(item.mime_type, DOCX_MIME_TYPE),
+                    eq(item.is_folder, false)
+                )
+            )
+            .orderBy(({ item }) => item.updated, 'desc')
+    )
+
+    const handleCreate = useCallback(async () => {
+        const result = await create.mutateAsync({
+            body: blankDocxBlob(),
+            name: 'Untitled.docx',
+            mimeType: DOCX_MIME_TYPE,
+        })
+        router.push(orgHref('text/[id]', { id: result.itemId }))
+    }, [create, orgHref])
+
+    const recentItems = items.slice(0, 10)
 
     return (
-        <View className="p-3 gap-2">
-            <Text style={{ color: fg, fontSize: 14, fontWeight: '600' }}>Text</Text>
-            <Text style={{ color: muted, fontSize: 12 }}>Replace this with your package's sidebar nav.</Text>
-        </View>
+        <SidebarNav>
+            <SidebarActionButton label="+ New document" onPress={handleCreate} />
+
+            <SidebarHeading>Recent</SidebarHeading>
+            {recentItems.map(item => (
+                <SidebarItem
+                    key={item.id}
+                    label={item.name}
+                    isActive={pathname.endsWith(`/text/${item.id}`)}
+                    closesDrawer
+                    onPress={() => router.push(orgHref('text/[id]', { id: item.id }))}
+                />
+            ))}
+        </SidebarNav>
     )
 }

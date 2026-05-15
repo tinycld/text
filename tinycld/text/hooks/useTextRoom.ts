@@ -22,6 +22,29 @@ export interface TextServerSlot {
 // The server (text/server) populates the room's Y.Doc from the source
 // .docx before the first SyncReply goes out, so the client never needs
 // to fetch or parse docx bytes.
+//
+// On native, the in-WebView editor opens its own realtime room
+// connection inside the WebView's JS context (see
+// use-document-editor.native.tsx for the architecture). This native-
+// side room is kept open purely for:
+//   - hello.readOnly: the share-role gate that disables the editor
+//   - hello.importWarnings: surfaced via ImportWarningBanner
+//   - slot.saveStatus: surfaced via the save-status indicator
+// The native room's Y.Doc is NOT bound to the WebView editor; the
+// WebView holds the canonical editing Y.Doc.
+//
+// TODO(text-native v1.1): on native, the in-WebView editor opens a
+// SEPARATE realtime connection with its OWN awareness identity. That
+// means the local user appears as TWO collaborators to remote peers
+// (one native client, one WebView client). To dedupe, either:
+//   1. Suppress this native room's awareness slot (don't pass
+//      initialAwareness) and route presence through a message-bus
+//      relay from the WebView to PresenceAvatars.
+//   2. Tag awareness records with a clientGroupId and dedupe in
+//      PresenceAvatars.
+// Option 1 is cleaner but requires touching the PresenceAvatars
+// consumer. Picking the right approach depends on what other native
+// callers need from the native-side room's awareness.
 export function useTextRoom(driveItemId: string): RealtimeRoomHandle | null {
     const { user } = useAuth()
     const userId = user?.id ?? ''

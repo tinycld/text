@@ -3,6 +3,17 @@
 // in esbuild — avoids needing a separate pipeline step just for this
 // one stylesheet and keeps the bundle a single .js artifact that the
 // existing scriptTagPattern inliner handles unchanged.
+//
+// TODO(text-native v1.1): the in-WebView stylesheet hardcodes
+// light-mode hex colors. Switching the host app to dark mode
+// leaves the editor pane stuck light. To fix:
+//   1. Extend InitPayload with `theme: { foreground, background,
+//      muted, accent, ... }` (consumed from useThemeColor on the
+//      native side).
+//   2. Pass theme tokens through the init message.
+//   3. Re-render styles.ts as a function of the theme and
+//      hot-swap the <style> tag's textContent when the host
+//      app's color scheme changes.
 export const STYLES = `
 html, body {
     margin: 0;

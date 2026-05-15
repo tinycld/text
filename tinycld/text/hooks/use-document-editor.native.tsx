@@ -1,4 +1,17 @@
-import { CoreBridge } from '@10play/tentap-editor'
+import {
+    BlockquoteBridge,
+    BoldBridge,
+    BulletListBridge,
+    CoreBridge,
+    HardBreakBridge,
+    HeadingBridge,
+    HistoryBridge,
+    ItalicBridge,
+    LinkBridge,
+    OrderedListBridge,
+    PlaceholderBridge,
+    UnderlineBridge,
+} from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
 import type { EditorResult } from '@tinycld/core/lib/editor/types'
@@ -36,13 +49,20 @@ export interface UseDocumentEditorOptions {
 // serverHello / serverSlot to other native UI (save status indicator,
 // readOnly flag).
 //
-// CoreBridge is the only TenTap bridge we pass to useWebViewEditor.
-// It's the one responsible for translating the incoming 'stateUpdate'
-// messages into BridgeState updates that useBridgeState observes.
-// The other TenTap bridges (BoldBridge, etc.) are unnecessary here
-// because we use customSource — our in-WebView React app owns its
-// own TipTap configuration, and the bridges' tiptapExtension wiring
-// is only relevant to TenTap's default editor HTML.
+// We register the full set of per-feature TenTap bridges (not just
+// CoreBridge). Each bridge's extendEditorInstance hook attaches its
+// command method (toggleBold, toggleItalic, setLink, ...) to the
+// native-side bridge object. useWebViewEditor's commands call those
+// methods, so without the bridges registered, every format button
+// throws "bridge.toggleBold is not a function" at runtime.
+//
+// The bridges' tiptapExtension fields are unused on the WebView side
+// (customSource means our in-WebView React app owns its own TipTap
+// configuration) — only the native-side message-emit machinery
+// matters here. The emitted action-type strings (e.g. 'toggle-bold')
+// must match the cases handled in webview-editor/source/Editor.tsx;
+// note that TenTap emits camelCase for some list types
+// ('toggle-bulletList', 'toggle-orderedList').
 export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult {
     const { user } = useAuth()
     const userId = user?.id ?? ''
@@ -64,7 +84,20 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
 
     return useWebViewEditor({
         editorHtml,
-        bridgeExtensions: [CoreBridge],
+        bridgeExtensions: [
+            CoreBridge,
+            BoldBridge,
+            ItalicBridge,
+            UnderlineBridge,
+            HeadingBridge,
+            BulletListBridge,
+            OrderedListBridge,
+            BlockquoteBridge,
+            LinkBridge,
+            HistoryBridge,
+            HardBreakBridge,
+            PlaceholderBridge,
+        ],
         initPayload,
         editable: options.editable ?? true,
     })

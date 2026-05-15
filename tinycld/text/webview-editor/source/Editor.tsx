@@ -137,40 +137,57 @@ function EditorMounted({ init }: EditorMountedProps) {
     // consumes — we mirror its shape so the native side's useBridgeState
     // picks up our state. The exact wire type string is 'stateUpdate'
     // (from CoreEditorActionType.StateUpdate).
+    //
+    // Coalesced with requestAnimationFrame so a burst of transactions
+    // (bulk paste, initial Y.Doc sync, undo of a large change) at most
+    // produces one stateUpdate per frame. A serialized-payload identity
+    // skip further suppresses sends when the toolbar state is unchanged
+    // (e.g. remote-only edits that don't move the local selection).
     useEffect(() => {
         if (!editor) return
+        let scheduled = false
+        let lastSerialized = ''
         function sendState() {
             if (!editor) return
-            postToNative({
-                type: 'stateUpdate',
-                payload: {
-                    isReady: true,
-                    editable: editor.isEditable,
-                    isFocused: editor.isFocused,
-                    empty: editor.isEmpty,
-                    selection: {
-                        from: editor.state.selection.from,
-                        to: editor.state.selection.to,
-                    },
-                    isBoldActive: editor.isActive('bold'),
-                    isItalicActive: editor.isActive('italic'),
-                    isUnderlineActive: editor.isActive('underline'),
-                    isBulletListActive: editor.isActive('bulletList'),
-                    isOrderedListActive: editor.isActive('orderedList'),
-                    isBlockquoteActive: editor.isActive('blockquote'),
-                    isLinkActive: editor.isActive('link'),
-                    activeLink: (editor.getAttributes('link')?.href as string) ?? null,
+            const payload = {
+                isReady: true,
+                editable: editor.isEditable,
+                isFocused: editor.isFocused,
+                empty: editor.isEmpty,
+                selection: {
+                    from: editor.state.selection.from,
+                    to: editor.state.selection.to,
                 },
+                isBoldActive: editor.isActive('bold'),
+                isItalicActive: editor.isActive('italic'),
+                isUnderlineActive: editor.isActive('underline'),
+                isBulletListActive: editor.isActive('bulletList'),
+                isOrderedListActive: editor.isActive('orderedList'),
+                isBlockquoteActive: editor.isActive('blockquote'),
+                isLinkActive: editor.isActive('link'),
+                activeLink: (editor.getAttributes('link')?.href as string) ?? null,
+            }
+            const serialized = JSON.stringify({ type: 'stateUpdate', payload })
+            if (serialized === lastSerialized) return
+            lastSerialized = serialized
+            window.ReactNativeWebView?.postMessage(serialized)
+        }
+        function schedule() {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                sendState()
             })
         }
-        sendState()
-        editor.on('transaction', sendState)
-        editor.on('focus', sendState)
-        editor.on('blur', sendState)
+        schedule()
+        editor.on('transaction', schedule)
+        editor.on('focus', schedule)
+        editor.on('blur', schedule)
         return () => {
-            editor.off('transaction', sendState)
-            editor.off('focus', sendState)
-            editor.off('blur', sendState)
+            editor.off('transaction', schedule)
+            editor.off('focus', schedule)
+            editor.off('blur', schedule)
         }
     }, [editor])
 
@@ -203,17 +220,23 @@ function EditorMounted({ init }: EditorMountedProps) {
                 case 'toggle-underline':
                     editor.chain().focus().toggleUnderline().run()
                     break
-                case 'toggle-bullet-list':
+                // TenTap's BulletListBridge and OrderedListBridge emit
+                // camelCase action strings ('toggle-bulletList' /
+                // 'toggle-orderedList'), not kebab-case. We must match
+                // the exact emitted literal or the message is dropped.
+                case 'toggle-bulletList':
                     editor.chain().focus().toggleBulletList().run()
                     break
-                case 'toggle-ordered-list':
+                case 'toggle-orderedList':
                     editor.chain().focus().toggleOrderedList().run()
                     break
                 case 'toggle-blockquote':
                     editor.chain().focus().toggleBlockquote().run()
                     break
                 case 'toggle-heading': {
-                    const level = (parsed.payload as { level: number } | undefined)?.level ?? 1
+                    // TenTap's HeadingBridge sends the level number
+                    // directly as payload, not wrapped in { level }.
+                    const level = (parsed.payload as number | undefined) ?? 1
                     editor
                         .chain()
                         .focus()
@@ -244,6 +267,41 @@ function EditorMounted({ init }: EditorMountedProps) {
                 case 'set-editable': {
                     const next = parsed.payload as boolean
                     editor.setEditable(next)
+                    break
+                }
+                case 'insert-table': {
+                    const { rows, cols } = parsed.payload as { rows: number; cols: number }
+                    editor
+                        .chain()
+                        .focus()
+                        .insertTable({ rows, cols, withHeaderRow: true })
+                        .run()
+                    break
+                }
+                case 'add-row-before':
+                    editor.chain().focus().addRowBefore().run()
+                    break
+                case 'add-row-after':
+                    editor.chain().focus().addRowAfter().run()
+                    break
+                case 'add-column-before':
+                    editor.chain().focus().addColumnBefore().run()
+                    break
+                case 'add-column-after':
+                    editor.chain().focus().addColumnAfter().run()
+                    break
+                case 'delete-row':
+                    editor.chain().focus().deleteRow().run()
+                    break
+                case 'delete-column':
+                    editor.chain().focus().deleteColumn().run()
+                    break
+                case 'delete-table':
+                    editor.chain().focus().deleteTable().run()
+                    break
+                case 'insert-image': {
+                    const { src, alt } = parsed.payload as { src: string; alt?: string }
+                    editor.chain().focus().setImage({ src, alt }).run()
                     break
                 }
             }

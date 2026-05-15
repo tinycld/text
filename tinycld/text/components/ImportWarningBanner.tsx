@@ -2,11 +2,13 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { AlertTriangle, X } from 'lucide-react-native'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
+import {
+    formatImportWarning,
+    importWarningTitle,
+    type ImportWarning,
+} from './import-warning-format'
 
-export interface ImportWarning {
-    code: string
-    detail?: string
-}
+export type { ImportWarning } from './import-warning-format'
 
 interface ImportWarningBannerProps {
     warnings: ImportWarning[]
@@ -30,12 +32,11 @@ export function ImportWarningBanner({ warnings }: ImportWarningBannerProps) {
             <AlertTriangle size={16} color={warningColor} />
             <View className="flex-1 gap-1">
                 <Text className="text-sm font-medium text-foreground">
-                    Import warnings ({warnings.length})
+                    {importWarningTitle(warnings.length)}
                 </Text>
                 {warnings.map((w, i) => (
                     <Text key={`${w.code}-${i}`} className="text-xs text-muted-foreground">
-                        {w.code}
-                        {w.detail ? `: ${w.detail}` : ''}
+                        {formatImportWarning(w)}
                     </Text>
                 ))}
             </View>

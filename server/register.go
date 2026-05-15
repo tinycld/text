@@ -56,9 +56,8 @@ func Register(app *pocketbase.PocketBase) {
 // TS type in @tinycld/text/lib/realtime.
 //
 //   - ReadOnly toggles the editor between read-only and editable mode.
-//     Currently always false (see isReadOnlyForConn for why); the
-//     plumbing exists so a future drive-write predicate is a one-line
-//     change.
+//     True for viewer-role users or anyone whose share role can't be
+//     resolved (fail closed); false for owner/editor.
 //   - ImportWarnings is non-nil only for the connection that triggered
 //     the bootstrap; later joiners on the same room see []. Each
 //     warning is a {code, detail} pair the client renders as a
@@ -96,6 +95,36 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 	}
 }
 
+// isReadOnlyForConn determines whether the connecting user has edit
+// rights on the underlying drive_item, based on their highest-privilege
+// drive_shares role:
+//
+//   - owner / editor → writable (returns false)
+//   - viewer        → read-only (returns true)
+//   - missing / unknown role → fail-closed read-only (returns true)
+//
+// The connection has already been admitted by makeAuthorize at this
+// point, so any error from resolveShareRole here is unexpected — we
+// log and return true (deny writes) rather than silently granting
+// edit access on a transient DB error.
+//
+// Note: this is the CLIENT-side enforcement signal. The Yjs broker
+// has no per-message write predicate today, so a viewer that ignores
+// readOnly=true can still POST MsgDocUpdate frames. Until core grows
+// a write-side filter, this gates the editor UI only — server-side
+// rejection of viewer writes is a follow-up tracked in TODO.md.
+func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool {
+	userID := conn.AuthID()
+	if userID == "" {
+		return true
+	}
+	role, err := resolveShareRole(app, userID, roomID)
+	if err != nil {
+		return true
+	}
+	return !role.canWrite()
+}
+
 // convertWarnings maps the internal translate.Warning slice to the
 // wire shape. Always returns a non-nil slice (possibly empty) so the
 // JSON marshals as `[]` instead of `null` — keeps client decode
@@ -108,23 +137,3 @@ func convertWarnings(in []translate.Warning) []importWarningJSON {
 	return out
 }
 
-// isReadOnlyForConn determines whether the connecting user has edit
-// rights on the underlying drive_item.
-//
-// v1 STUB: always returns false.
-//
-// Drive's permission model doesn't yet expose a clean "may write"
-// predicate (drive_shares carries roles but the role taxonomy is
-// still in flux); viewer-role users can edit through the realtime
-// broker today. The MsgServerHello plumbing is in place so that
-// when drive surfaces a write predicate, this function becomes a
-// one-line change to query that predicate and return its negation.
-//
-// Note: ServerHelloFn currently has signature (roomID, conn) — the
-// authenticated user record isn't threaded through. When drive's
-// write predicate lands, the realtime layer will likely grow an
-// `auth *core.Record` parameter on this hook; until then there's
-// no point doing partial enforcement here.
-func isReadOnlyForConn(_ core.App, _ string, _ *realtime.Client) bool {
-	return false
-}

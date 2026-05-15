@@ -18,7 +18,7 @@ import {
 } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import { useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { Platform, Pressable, ScrollView, View } from 'react-native'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { TableMenu } from './TableMenu'
@@ -238,6 +238,7 @@ function FormatButton({
             onPress={onPress}
             className="rounded-md p-1.5"
             style={{ backgroundColor, opacity }}
+            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
         >
             <Icon size={16} color={color} />
         </Pressable>

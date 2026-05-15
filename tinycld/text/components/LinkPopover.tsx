@@ -1,6 +1,6 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useEffect, useState } from 'react'
-import { Modal, Pressable, Text, TextInput, View } from 'react-native'
+import { Modal, Platform, Pressable, Text, TextInput, View } from 'react-native'
 
 interface LinkPopoverProps {
     isOpen: boolean
@@ -56,6 +56,11 @@ export function LinkPopover({ isOpen, initialUrl, onCancel, onInsert }: LinkPopo
                             accessibilityLabel="Cancel"
                             onPress={onCancel}
                             className="px-3 py-1.5 rounded-md bg-surface-secondary"
+                            hitSlop={
+                                Platform.OS === 'web'
+                                    ? undefined
+                                    : { top: 6, bottom: 6, left: 4, right: 4 }
+                            }
                         >
                             <Text className="text-sm text-foreground">Cancel</Text>
                         </Pressable>
@@ -64,6 +69,11 @@ export function LinkPopover({ isOpen, initialUrl, onCancel, onInsert }: LinkPopo
                             accessibilityLabel="Insert link"
                             onPress={() => onInsert(url.trim())}
                             className="px-3 py-1.5 rounded-md bg-accent"
+                            hitSlop={
+                                Platform.OS === 'web'
+                                    ? undefined
+                                    : { top: 6, bottom: 6, left: 4, right: 4 }
+                            }
                         >
                             <Text className="text-sm font-medium text-accent-foreground">
                                 Insert

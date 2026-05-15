@@ -6,6 +6,7 @@ import { useLocalSearchParams } from 'expo-router'
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
+import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { useTextDocument } from '../hooks/useTextDocument'
@@ -73,6 +74,11 @@ function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
                     <EditorComponent />
                 </View>
             </ScrollView>
+            <MobileToolbarAccessory
+                commands={commands}
+                toolbarState={toolbarState}
+                editable={!isReadOnly}
+            />
         </View>
     )
 }

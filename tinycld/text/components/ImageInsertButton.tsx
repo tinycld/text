@@ -38,6 +38,7 @@ export function ImageInsertButton({
             onPress={handlePress}
             className="rounded-md p-1.5"
             style={disabled ? { opacity: 0.4 } : undefined}
+            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
         >
             <Icon size={16} color={iconColor} />
         </Pressable>

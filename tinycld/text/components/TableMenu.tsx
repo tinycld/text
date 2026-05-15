@@ -1,5 +1,5 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
-import { Modal, Pressable, Text } from 'react-native'
+import { Modal, Platform, Pressable, Text } from 'react-native'
 
 interface TableMenuProps {
     isOpen: boolean
@@ -88,6 +88,7 @@ function MenuRow({ label, disabled = false, onPress }: MenuRowProps) {
             onPress={onPress}
             className="px-3 py-2 rounded-md hover:bg-surface-secondary"
             style={disabled ? { opacity: 0.4 } : undefined}
+            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
         >
             <Text className="text-sm text-foreground">{label}</Text>
         </Pressable>

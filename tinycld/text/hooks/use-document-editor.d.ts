@@ -1,6 +1,6 @@
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import type { EditorResult } from './types'
+import type { EditorResult } from '@tinycld/core/lib/editor/types'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc

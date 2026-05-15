@@ -12,8 +12,13 @@ import { useMemo } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import { useThemeColor } from '../use-app-theme'
-import type { EditorCommands, EditorHandle, EditorResult, EditorToolbarState } from './types'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import type {
+    EditorCommands,
+    EditorHandle,
+    EditorResult,
+    EditorToolbarState,
+} from '@tinycld/core/lib/editor/types'
 
 export interface UseDocumentEditorOptions {
     // Required: the Collaboration extension (yjs binding via Tiptap's

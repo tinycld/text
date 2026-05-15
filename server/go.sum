@@ -1,3 +1,5 @@
+github.com/ZeroHawkeye/wordZero v1.6.0 h1:W8vplhq8lzBk/7FDKbNOhW4pCS79llf8YfPhIZAObV4=
+github.com/ZeroHawkeye/wordZero v1.6.0/go.mod h1:kKgjyYeSShSVygQ1YEdXdbkgkkkR3EEvQS8gi2Bld7E=
 github.com/bytedance/mockey v1.2.13 h1:jokWZAm/pUEbD939Rhznz615MKUCZNuvCFQlJ2+ntoo=
 github.com/bytedance/mockey v1.2.13/go.mod h1:1BPHF9sol5R1ud/+0VEHGQq/+i2lN+GTsr3O2Q9IENY=
 github.com/gopherjs/gopherjs v1.12.80 h1:aC68NT6VK715WeUapxcPSFq/a3gZdS32HdtghdOIgAo=

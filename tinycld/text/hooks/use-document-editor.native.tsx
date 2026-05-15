@@ -1,7 +1,9 @@
-import { Text, View } from 'react-native'
+import { WebView } from 'react-native-webview'
+import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import type { EditorResult } from './types'
+import type { EditorResult } from '@tinycld/core/lib/editor/types'
+import { editorHtml } from '../webview-editor/build/editorHtml'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -11,15 +13,14 @@ export interface UseDocumentEditorOptions {
     placeholder?: string
 }
 
-// useDocumentEditor (native) — v1 stub.
+// useDocumentEditor (native) — Phase 3 stage: prove the bundle pipeline.
+// This wires a bare WebView with our customSource HTML, no TenTap, no
+// Yjs hookup, no message bus. iPad users see a "Hello World — Phase 3
+// bundle is alive" message inside the WebView. Phase 4 swaps this for
+// useWebViewEditor + the real TipTap+Yjs config.
 //
-// The native variant requires a TenTap-backed editor with custom bridge
-// extensions for collaboration, tables, and images. None of those are
-// wired for v1; this stub returns an EditorResult with no-op commands
-// and a placeholder EditorComponent so the package's type contract holds.
-//
-// v1 native users see a "Document editing on mobile is coming soon"
-// placeholder. The web editor is the v1 target surface.
+// (Previously this file was a "Document editing on mobile is coming
+// soon" RN placeholder; see git history for that version.)
 export function useDocumentEditor(_options: UseDocumentEditorOptions): EditorResult {
     return {
         editor: {
@@ -30,13 +31,14 @@ export function useDocumentEditor(_options: UseDocumentEditorOptions): EditorRes
             clear: () => {},
             getSelection: () => Promise.resolve(null),
         },
-        EditorComponent: function NativeDocumentEditorPlaceholder() {
+        EditorComponent: function Phase3HelloWorld() {
             return (
-                <View className="flex-1 items-center justify-center p-8">
-                    <Text className="text-muted-foreground text-center">
-                        Document editing on mobile is coming soon. For now, please use a desktop
-                        browser.
-                    </Text>
+                <View style={{ flex: 1 }}>
+                    <WebView
+                        originWhitelist={['*']}
+                        source={{ html: editorHtml }}
+                        style={{ flex: 1, backgroundColor: 'transparent' }}
+                    />
                 </View>
             )
         },

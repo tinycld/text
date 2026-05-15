@@ -37,14 +37,18 @@ func Register(app *pocketbase.PocketBase) {
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 
+	journal := realtime.NewPocketBaseJournal(app)
 	flush := makeProductionFlush(app, runtime)
 	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator.SetJournal(roomKindText, journal)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       makeAuthorize(app),
 		RuntimeProvider: runtime,
+		Journal:         journal,
 		OnRoomCreate:    saveCoordinator.OnRoomCreate,
 		OnDocUpdate:     saveCoordinator.OnDocUpdate,
+		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
 		OnEmpty:         saveCoordinator.OnRoomEmpty,
 		OnConnect:       makeOnConnect(app, runtime),
 	})

@@ -1,8 +1,17 @@
+import { EDITOR_CONTENT_STYLES } from '../../lib/editor-content-styles'
+
 // Editor stylesheet kept as a TS string constant. Inlined at runtime
 // via a <style> tag injection rather than going through a CSS loader
 // in esbuild — avoids needing a separate pipeline step just for this
 // one stylesheet and keeps the bundle a single .js artifact that the
 // existing scriptTagPattern inliner handles unchanged.
+//
+// The bulk of the rules (.ProseMirror content styling — headings,
+// lists, links, tables, etc.) are shared with the web-side editor via
+// EDITOR_CONTENT_STYLES. This file adds the WebView-specific html/body
+// wrapper rules and the collaboration-cursor styles, plus hardcoded
+// light-mode color fallbacks since the WebView doesn't have the host
+// app's CSS variables.
 //
 // TODO(text-native v1.1): the in-WebView stylesheet hardcodes
 // light-mode hex colors. Switching the host app to dark mode
@@ -15,6 +24,14 @@
 //      hot-swap the <style> tag's textContent when the host
 //      app's color scheme changes.
 export const STYLES = `
+:root {
+    --editor-foreground: #1a1a1a;
+    --editor-muted: #555;
+    --editor-border: #ddd;
+    --editor-link: #1d4ed8;
+    --editor-placeholder: #999;
+    --editor-table-header: #f3f4f6;
+}
 html, body {
     margin: 0;
     padding: 0;
@@ -23,8 +40,6 @@ html, body {
     -webkit-tap-highlight-color: transparent;
 }
 body {
-    font: 14px / 1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #1a1a1a;
     background: #fff;
 }
 #root {
@@ -32,46 +47,7 @@ body {
     min-height: 100%;
     box-sizing: border-box;
 }
-.ProseMirror {
-    outline: none;
-    min-height: 200px;
-}
-.ProseMirror p { margin: 0 0 0.75em 0; }
-.ProseMirror h1 { font-size: 24px; margin: 0.5em 0; }
-.ProseMirror h2 { font-size: 20px; margin: 0.5em 0; }
-.ProseMirror h3 { font-size: 16px; margin: 0.5em 0; }
-.ProseMirror blockquote {
-    border-left: 3px solid #ccc;
-    margin: 0 0 0.75em 0;
-    padding-left: 1em;
-    color: #555;
-}
-.ProseMirror ul, .ProseMirror ol {
-    padding-left: 1.5em;
-    margin: 0 0 0.75em 0;
-}
-.ProseMirror a {
-    color: #1d4ed8;
-    text-decoration: underline;
-}
-.ProseMirror table {
-    border-collapse: collapse;
-    margin: 0 0 0.75em 0;
-    width: 100%;
-}
-.ProseMirror th, .ProseMirror td {
-    border: 1px solid #ddd;
-    padding: 6px 8px;
-    text-align: left;
-}
-.ProseMirror img { max-width: 100%; height: auto; }
-.ProseMirror.is-editor-empty:first-child::before {
-    content: attr(data-placeholder);
-    color: #999;
-    pointer-events: none;
-    float: left;
-    height: 0;
-}
+${EDITOR_CONTENT_STYLES}
 /* CollaborationCaret styles - peers' cursors and labels */
 .collaboration-cursor__caret {
     border-left: 2px solid;

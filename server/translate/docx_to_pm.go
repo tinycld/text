@@ -266,27 +266,37 @@ func (p *docxParser) parseBodyChildren(dec *xml.Decoder, body xml.StartElement) 
 
 // liftInlineImages splits a paragraph that mixes text and image runs
 // into a sequence of sibling block-level nodes: one paragraph per text
-// span, plus the bare image node between/around them. PM treats image
-// as a block-level node and pm_to_docx emits it via WordZero's
-// AddImageFromData, which always writes the image into its own
-// top-level <w:p>. Lifting at parse time keeps round-trip stable —
-// otherwise the inline-mixed pass-1 tree always diverges from the
-// post-emit pass-3 tree.
+// span, plus an image-only paragraph (image wrapped in its own
+// <p>) between/around them.
 //
-// Non-paragraph nodes (tables, headings, image-only paragraphs)
-// pass through unchanged. Empty-after-lift paragraphs are dropped.
+// Why the image stays inside a paragraph wrapper: the PM schema
+// treats image as an inline node (so floated images can sit beside
+// text inside one paragraph and CSS float works). A block-level
+// image at top-level would be schema-invalid; wrapping each
+// "standalone" image in its own paragraph keeps the tree valid.
+//
+// Exception: images with wrap="left" or wrap="right" stay inline as
+// the first child of the original paragraph. The emitter writes them
+// with WordZero's floatLeft/floatRight position, which produces an
+// <wp:anchor> inside the same <w:p> as the surrounding text — so the
+// pass-3 tree is also a single paragraph containing image + text.
+// Hoisting these out would break round-trip AND lose the visual
+// wrapping that's the whole point of the float.
+//
+// Non-paragraph nodes (tables, headings) pass through unchanged.
+// Empty-after-lift paragraphs are dropped.
 func liftInlineImages(node PMNode) []PMNode {
 	if node.Type != NodeTypeParagraph {
 		return []PMNode{node}
 	}
-	hasImage := false
+	hasLiftableImage := false
 	for _, c := range node.Content {
-		if c.Type == NodeTypeImage {
-			hasImage = true
+		if c.Type == NodeTypeImage && !isFloatedImage(c) {
+			hasLiftableImage = true
 			break
 		}
 	}
-	if !hasImage {
+	if !hasLiftableImage {
 		return []PMNode{node}
 	}
 	var out []PMNode
@@ -300,15 +310,28 @@ func liftInlineImages(node PMNode) []PMNode {
 		buf = nil
 	}
 	for _, c := range node.Content {
-		if c.Type == NodeTypeImage {
+		if c.Type == NodeTypeImage && !isFloatedImage(c) {
 			flush()
-			out = append(out, c)
+			// Wrap the standalone image in its own paragraph; PM
+			// schema requires inline image to live inside a block.
+			out = append(out, PMNode{Type: NodeTypeParagraph, Content: []PMNode{c}})
 			continue
 		}
 		buf = append(buf, c)
 	}
 	flush()
 	return out
+}
+
+// isFloatedImage reports whether an image PM node has a wrap attr
+// of "left" or "right" — i.e., it should stay inline inside its
+// surrounding paragraph so text flows around it.
+func isFloatedImage(node PMNode) bool {
+	if node.Type != NodeTypeImage {
+		return false
+	}
+	wrap, _ := node.Attrs["wrap"].(string)
+	return wrap == "left" || wrap == "right"
 }
 
 func cloneAttrs(in map[string]any) map[string]any {
@@ -610,13 +633,15 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 // through without marks.
 //
 // When the run is wrapped by a <w:hyperlink>, drop any underline mark
-// the run picked up from <w:u>: pm_to_docx.marksToTextFormat emits
-// <w:u> alongside every link mark as a visual cue, so on round-trip we
-// would otherwise re-import that derived underline as a real mark and
-// the tree would gain a mark that wasn't in the source.
+// and textStyle (color) mark the run picked up from <w:u>/<w:color>:
+// pm_to_docx.marksToTextFormat emits both <w:u> and <w:color> on every
+// link as a visual cue, so on round-trip we would otherwise re-import
+// those derived attributes as real marks and the tree would gain
+// marks that weren't in the source.
 func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras []PMMark) error {
 	if hasMark(extras, MarkTypeLink) {
 		marks = stripMark(marks, MarkTypeUnderline)
+		marks = stripMark(marks, MarkTypeTextStyle)
 	}
 	combined := mergeMarks(marks, extras)
 	for _, c := range collected {
@@ -701,6 +726,15 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 					marks = append(marks, PMMark{Type: MarkTypeUnderline})
 				} else if v == "" {
 					marks = append(marks, PMMark{Type: MarkTypeUnderline})
+				}
+			case "color":
+				// w:val is a hex RRGGBB (no leading "#") or "auto".
+				// "auto" means "follow the theme default" — drop it.
+				if v := attrValue(t, "val"); v != "" && !strings.EqualFold(v, "auto") {
+					marks = append(marks, PMMark{
+						Type:  MarkTypeTextStyle,
+						Attrs: map[string]any{"color": "#" + strings.ToUpper(v)},
+					})
 				}
 			case "rStyle":
 				// A character style. We pick up the "Hyperlink"
@@ -788,6 +822,14 @@ func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, ru
 // emitter has no way to re-resolve in-zip paths from a tree that's
 // been edited and re-serialized. Alt text comes from wp:docPr@descr.
 //
+// Anchor drawings (<wp:anchor>) carry text-wrapping info via
+// <wp:wrapSquare>/<wp:wrapTight>/<wp:wrapThrough> plus a
+// <wp:positionH><wp:align>{left|right|center}</...></...> sibling.
+// We collapse all "text flows around image" wrap modes to
+// wrap=left|right, and inline + wrapNone + wrapTopAndBottom to
+// wrap=none. Used by the emitter to round-trip and by the editor
+// CSS to apply float:left / float:right.
+//
 // If the rels lookup or zip read fails, the image is dropped silently
 // (no PM node emitted) — losing an unresolvable image is preferable
 // to producing a tree that fails round-trip.
@@ -799,6 +841,14 @@ func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, ru
 // Sizing is a v2 concern.
 func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
 	var blipRid, alt, title string
+	hasAnchor := false
+	hasWrap := false
+	posHAlign := ""
+	// Track depth inside <wp:positionH> so we only read the <wp:align>
+	// that belongs to the horizontal positioner. Word writes both
+	// <wp:positionH> and <wp:positionV>, each with an <wp:align> child;
+	// vertical alignment is irrelevant to our left/right decision.
+	posHDepth := 0
 
 	for {
 		tok, err := dec.Token()
@@ -808,6 +858,8 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "anchor":
+				hasAnchor = true
 			case "docPr":
 				alt = attrValue(t, "descr")
 				title = attrValue(t, "title")
@@ -815,11 +867,27 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 				if v := attrValue(t, "embed"); v != "" {
 					blipRid = v
 				}
+			case "wrapSquare", "wrapTight", "wrapThrough":
+				hasWrap = true
+			case "positionH":
+				posHDepth++
+			case "align":
+				if posHDepth > 0 {
+					// CharData inside <wp:align> is "left"/"right"/"center".
+					txt, err := readElementText(dec, t)
+					if err != nil {
+						return nil, err
+					}
+					posHAlign = strings.TrimSpace(txt)
+				}
 			}
 			// Drawings nest very deep; we walk forward on every
 			// StartElement (no skip) so we see the inner blip
 			// regardless of where it appears.
 		case xml.EndElement:
+			if t.Name.Local == "positionH" && posHDepth > 0 {
+				posHDepth--
+			}
 			if t.Name.Local == start.Name.Local {
 				if blipRid == "" {
 					return nil, nil
@@ -842,10 +910,38 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 				if title != "" && title != wordZeroDefaultImageLabel {
 					img.Attrs["title"] = title
 				}
+				if wrap := resolveWrap(hasAnchor, hasWrap, posHAlign); wrap != "" {
+					img.Attrs["wrap"] = wrap
+				}
 				return img, nil
 			}
 		}
 	}
+}
+
+// resolveWrap turns the collected anchor/wrap/position state into
+// the PM image's `wrap` attribute. We only emit the attr when it's
+// not the default ("none") so unwrapped images stay attribute-free
+// and round-trip identically through the existing test fixtures.
+//
+// Mapping rules:
+//   - Inline drawing (no <wp:anchor>) -> "" (no wrap attr; default
+//     "none" applies).
+//   - Anchor with no wrap*Square/Tight/Through child -> "" (treated
+//     as none — wrapNone and wrapTopAndBottom both fall here).
+//   - Anchor with wrap* present -> "left" or "right" based on
+//     <wp:positionH><wp:align>. "center" falls back to "left" since
+//     CSS float has no first-class "center" mode and Word renders
+//     centered floats by treating them as floatLeft visually.
+//     Missing align defaults to "left" (Word's default for new floats).
+func resolveWrap(hasAnchor, hasWrap bool, posHAlign string) string {
+	if !hasAnchor || !hasWrap {
+		return ""
+	}
+	if posHAlign == "right" {
+		return "right"
+	}
+	return "left"
 }
 
 // wordZeroDefaultImageLabel is the literal Chinese string ("image")
@@ -916,9 +1012,15 @@ func mimeFromExt(ext string) string {
 	}
 }
 
-// parseTable reads <w:tbl> into a PM table node.
+// parseTable reads <w:tbl> into a PM table node. We capture the
+// <w:tblGrid>'s per-column dxa widths up-front and pass them down to
+// each cell so cells that span columns get the exact per-column widths
+// from the source (rather than evenly splitting their <w:tcW>, which
+// would drift on round-trip when grid columns aren't equal).
 func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
 	tbl := &PMNode{Type: NodeTypeTable}
+	var gridCols []int
+	col := 0
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -927,14 +1029,20 @@ func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNo
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "tblGrid":
+				gridCols, err = parseTableGrid(dec, t)
+				if err != nil {
+					return nil, err
+				}
 			case "tr":
-				row, err := p.parseTableRow(dec, t)
+				row, err := p.parseTableRow(dec, t, gridCols, &col)
 				if err != nil {
 					return nil, err
 				}
 				if row != nil {
 					tbl.Content = append(tbl.Content, *row)
 				}
+				col = 0
 			default:
 				if err := skipElement(dec, t); err != nil {
 					return nil, err
@@ -949,22 +1057,66 @@ func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNo
 	}
 }
 
-// padTableRowsToMaxWidth normalizes a parsed table so every row has
-// the same cell count, padding shorter rows with empty cells. The
-// emitter (pm_to_docx.emitTable) already creates a uniform-width
-// WordZero table by computing max(cols) across rows, so on round-trip
-// any short row gains empty cells regardless of what we do here. We
-// pad on import so pass-1 and pass-3 trees match structurally.
+// parseTableGrid reads <w:tblGrid> into an int slice of per-column dxa
+// widths. Word emits one <w:gridCol w:w="…"/> per physical column;
+// these are authoritative for the table's column layout and are what
+// we want to round-trip back out so widths don't drift cell-by-cell.
+func parseTableGrid(dec *xml.Decoder, start xml.StartElement) ([]int, error) {
+	var cols []int
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "gridCol" {
+				if v := attrValue(t, "w"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil {
+						cols = append(cols, n)
+					}
+				}
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return cols, nil
+			}
+		}
+	}
+}
+
+// padTableRowsToMaxWidth normalizes a parsed table so every row spans
+// the same number of physical columns, padding shorter rows with empty
+// cells. The emitter (pm_to_docx.emitTable) creates a uniform-width
+// WordZero table by computing max(cols) across rows; padding on import
+// keeps pass-1 and pass-3 trees structurally identical.
+//
+// Physical-column count means: sum of colspan across cells in the row,
+// not len(Content). A row with one normal cell plus two cells of
+// colspan=2 covers 5 physical columns even though len(Content) is 3.
+// Padding by physical count is what makes a complex (merged-header)
+// table emit correctly: the emitter walks logical cells and slides the
+// physical-column cursor by colspan as it goes.
 func padTableRowsToMaxWidth(tbl *PMNode) {
+	physical := func(row PMNode) int {
+		n := 0
+		for _, cell := range row.Content {
+			n += cellColspanForPad(cell)
+		}
+		return n
+	}
 	maxCols := 0
 	for _, row := range tbl.Content {
-		if c := len(row.Content); c > maxCols {
+		if c := physical(row); c > maxCols {
 			maxCols = c
 		}
 	}
 	for i := range tbl.Content {
 		row := &tbl.Content[i]
-		for len(row.Content) < maxCols {
+		for physical(*row) < maxCols {
 			row.Content = append(row.Content, PMNode{
 				Type: NodeTypeTableCell,
 				Content: []PMNode{
@@ -975,7 +1127,29 @@ func padTableRowsToMaxWidth(tbl *PMNode) {
 	}
 }
 
-func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
+// cellColspanForPad reads colspan off a tableCell, defaulting to 1.
+// Parallel to cellColspan in pm_to_docx.go — kept separate so docx_to_pm
+// doesn't depend on the export side of the package.
+func cellColspanForPad(cell PMNode) int {
+	if cell.Attrs == nil {
+		return 1
+	}
+	if v, ok := cell.Attrs["colspan"]; ok {
+		switch n := v.(type) {
+		case int:
+			if n > 0 {
+				return n
+			}
+		case float64:
+			if n > 0 {
+				return int(n)
+			}
+		}
+	}
+	return 1
+}
+
+func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement, gridCols []int, colCursor *int) (*PMNode, error) {
 	row := &PMNode{Type: NodeTypeTableRow}
 	for {
 		tok, err := dec.Token()
@@ -986,12 +1160,13 @@ func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement) (*P
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "tc":
-				cell, err := p.parseTableCell(dec, t)
+				cell, err := p.parseTableCell(dec, t, gridCols, *colCursor)
 				if err != nil {
 					return nil, err
 				}
 				if cell != nil {
 					row.Content = append(row.Content, *cell)
+					*colCursor += cellColspanForPad(*cell)
 				}
 			default:
 				if err := skipElement(dec, t); err != nil {
@@ -1006,8 +1181,10 @@ func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement) (*P
 	}
 }
 
-func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
+func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gridCols []int, colIdx int) (*PMNode, error) {
 	cell := &PMNode{Type: NodeTypeTableCell}
+	var tcWDxa int       // <w:tcW w:w="..."> in dxa (twentieths of a point); 0 if missing or non-dxa.
+	var gridSpan = 1     // <w:gridSpan w:val="..."> default 1.
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1016,6 +1193,18 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement) (*
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "tcPr":
+				var bordersAttr map[string]any
+				tcWDxa, gridSpan, bordersAttr, err = p.parseTableCellProperties(dec, t)
+				if err != nil {
+					return nil, err
+				}
+				if bordersAttr != nil {
+					if cell.Attrs == nil {
+						cell.Attrs = map[string]any{}
+					}
+					cell.Attrs["borders"] = bordersAttr
+				}
 			case "p":
 				para, err := p.parseParagraph(dec, t)
 				if err != nil {
@@ -1051,10 +1240,137 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement) (*
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
 				cell.Content = collapseLeadingEmptyParagraphs(cell.Content)
+				applyTableCellWidth(cell, tcWDxa, gridSpan, gridCols, colIdx)
 				return cell, nil
 			}
 		}
 	}
+}
+
+// parseTableCellProperties pulls the cell width (in dxa), gridSpan,
+// and (optionally) the border map out of a <w:tcPr> block. Cell widths
+// drive TipTap's `colwidth` attribute; gridSpan becomes the cell's
+// colspan; borders become the `borders` attr. Returns zero/nil values
+// for any field that's missing.
+func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, map[string]any, error) {
+	tcWDxa := 0
+	gridSpan := 1
+	var borders map[string]any
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "tcW":
+				// w:type="dxa" is the common case (twentieths of a point).
+				// w:type="auto" / "nil" / "pct" are intentionally ignored:
+				// for "auto" Word lays out by content so we want no fixed
+				// width; pct% would need the table's total width to be
+				// known, which we don't carry through.
+				wType := attrValue(t, "type")
+				if wType == "" || wType == "dxa" {
+					if v := attrValue(t, "w"); v != "" {
+						if n, err := strconv.Atoi(v); err == nil {
+							tcWDxa = n
+						}
+					}
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, nil, err
+				}
+			case "gridSpan":
+				if v := attrValue(t, "val"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						gridSpan = n
+					}
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, nil, err
+				}
+			case "tcBorders":
+				b, err := parseTcBorders(dec, t)
+				if err != nil {
+					return 0, 0, nil, err
+				}
+				borders = b
+			default:
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, nil, err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return tcWDxa, gridSpan, borders, nil
+			}
+		}
+	}
+}
+
+// applyTableCellWidth converts a cell's dxa width into TipTap's
+// `colwidth` attribute (array of px widths, one per spanned column)
+// and stamps it on the cell along with `colspan` if it spans columns.
+// Skips when dxa is 0 (no explicit width — auto-sized).
+//
+// When the table's <w:tblGrid> per-column widths are available AND
+// they align with the cell (colIdx + gridSpan ≤ len(gridCols)), each
+// spanned column's px width is taken straight from the grid. This is
+// what avoids round-trip drift: re-importing an emitted table sees
+// the same per-column widths instead of evenly-split derived ones.
+//
+// Falls back to evenly splitting <w:tcW> across spanned columns when
+// the grid is missing or misaligned (e.g. malformed source).
+func applyTableCellWidth(cell *PMNode, tcWDxa, gridSpan int, gridCols []int, colIdx int) {
+	if gridSpan > 1 {
+		if cell.Attrs == nil {
+			cell.Attrs = map[string]any{}
+		}
+		cell.Attrs["colspan"] = gridSpan
+	}
+	// Prefer <w:tblGrid> per-column widths — they are the canonical
+	// source of column layout in OOXML and round-trip cleanly.
+	if colIdx+gridSpan <= len(gridCols) {
+		widths := make([]int, gridSpan)
+		for i := 0; i < gridSpan; i++ {
+			widths[i] = dxaToPx(gridCols[colIdx+i])
+		}
+		if cell.Attrs == nil {
+			cell.Attrs = map[string]any{}
+		}
+		cell.Attrs["colwidth"] = widths
+		return
+	}
+	if tcWDxa <= 0 {
+		return
+	}
+	totalPx := dxaToPx(tcWDxa)
+	if totalPx <= 0 {
+		return
+	}
+	widths := make([]int, gridSpan)
+	base := totalPx / gridSpan
+	rem := totalPx - base*gridSpan
+	for i := range widths {
+		widths[i] = base
+		if i < rem {
+			widths[i]++
+		}
+	}
+	if cell.Attrs == nil {
+		cell.Attrs = map[string]any{}
+	}
+	cell.Attrs["colwidth"] = widths
+}
+
+func dxaToPx(dxa int) int {
+	if dxa <= 0 {
+		return 0
+	}
+	// Integer division matches Word's perceived sizing closely enough
+	// for the editor (we don't need sub-pixel accuracy on screen).
+	return dxa / 15
 }
 
 // collapseLeadingEmptyParagraphs normalizes the placeholder paragraphs
@@ -1253,8 +1569,20 @@ func ilvlToInt(s string) int {
 // of paragraphs sharing the same numId are bundled into one list
 // node, and ilvl is honored to nest sub-lists inside their parent
 // listItem.
+//
+// Numbering continuation: in OOXML, a numbered list can be visually
+// interrupted (e.g. by a nested bulleted list with a different numId)
+// and then resume with the same numId. Word renders the resumption
+// continuing the previous numbering (1..5, bullets, 6.). We honor
+// this by tracking the running level-0 item count per ordered numId
+// and emitting `start` on each resumed list so it picks up where the
+// previous one left off.
 func groupListParagraphs(blocks []PMNode) []PMNode {
 	var out []PMNode
+	// Level-0 items emitted so far for each ordered-list numId. Only
+	// level-0 items contribute to the visible number on the resumed
+	// list; nested items reset their own counter inside the sub-list.
+	emitted := map[string]int{}
 	i := 0
 	for i < len(blocks) {
 		if numID, ok := listNumID(blocks[i]); ok {
@@ -1267,7 +1595,23 @@ func groupListParagraphs(blocks []PMNode) []PMNode {
 				run = append(run, blocks[i])
 				i++
 			}
-			out = append(out, buildListTree(run))
+			startAt := 0
+			if listTypeFromFmt(listFmt(run[0])) == NodeTypeOrderedList {
+				startAt = emitted[numID]
+			}
+			tree := buildListTree(run)
+			if startAt > 0 && tree.Type == NodeTypeOrderedList {
+				if tree.Attrs == nil {
+					tree.Attrs = map[string]any{}
+				}
+				tree.Attrs["start"] = startAt + 1
+			}
+			for _, para := range run {
+				if paraLevel(para) == 0 {
+					emitted[numID]++
+				}
+			}
+			out = append(out, tree)
 			continue
 		}
 		out = append(out, blocks[i])

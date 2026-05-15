@@ -130,7 +130,7 @@ func seedChildIntoFragment(parent *ycrdt.YXmlFragment, node PMNode) error {
 	default:
 		el := newXmlElement(node.Type)
 		for k, v := range node.Attrs {
-			el.SetAttribute(k, v)
+			el.SetAttribute(k, normalizeAttrValue(v))
 		}
 		parent.Push([]any{el})
 		// el now has a Doc; recursively push children into it. We
@@ -143,6 +143,30 @@ func seedChildIntoFragment(parent *ycrdt.YXmlFragment, node PMNode) error {
 		}
 		return nil
 	}
+}
+
+// normalizeAttrValue coerces JSON-decoded numbers into the concrete
+// types ycrdt.TypeMapSet's type switch accepts. y-crdt's TypeMapSet
+// only encodes Number (= int), Object, bool, ArrayAny, and string —
+// any other type falls through to a silent error from a deferred
+// goroutine path, which means attributes set with a float64 value
+// (the default JSON-number type) vanish without surfacing an error.
+// JSON numbers that are integral integers (e.g. heading level, list
+// start) become ints; non-integral floats stay float64 with a
+// best-effort cast (they'll still fail upstream, but that's a callsite
+// programming error we'd want to see, not a number we should round).
+func normalizeAttrValue(v any) any {
+	switch n := v.(type) {
+	case float64:
+		if n == float64(int(n)) {
+			return int(n)
+		}
+	case float32:
+		if n == float32(int(n)) {
+			return int(n)
+		}
+	}
+	return v
 }
 
 // buildXMLText builds a YXmlText preloaded with the node's text and
@@ -203,8 +227,15 @@ func marksToAttributes(marks []PMMark) ycrdt.Object {
 			continue
 		}
 		// Mark with attrs (e.g. link href) — store the attrs map
-		// as the value so decode can reverse the same shape.
-		attrs[mark.Type] = mark.Attrs
+		// as the value so decode can reverse the same shape. Number
+		// values get the same normalization treatment as element
+		// attrs (see normalizeAttrValue) so any future numeric mark
+		// attribute survives the Y.Doc encoder's strict type switch.
+		normalized := make(map[string]any, len(mark.Attrs))
+		for k, v := range mark.Attrs {
+			normalized[k] = normalizeAttrValue(v)
+		}
+		attrs[mark.Type] = normalized
 	}
 	return attrs
 }

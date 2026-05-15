@@ -67,6 +67,36 @@ func TestDocxToPMJSON_NotADocx(t *testing.T) {
 	}
 }
 
+// TestResolveWrap covers the matrix of <wp:anchor> / wrap*
+// presence × <wp:positionH><wp:align> that decides the PM image's
+// `wrap` attribute. Locks in the mapping so a parser-side refactor
+// can't silently flip floated images back to inline.
+func TestResolveWrap(t *testing.T) {
+	cases := []struct {
+		name      string
+		hasAnchor bool
+		hasWrap   bool
+		align     string
+		want      string
+	}{
+		{"inline drawing, no anchor", false, false, "", ""},
+		{"anchor without wrap (wrapNone)", true, false, "left", ""},
+		{"anchor with wrap, align=left", true, true, "left", "left"},
+		{"anchor with wrap, align=right", true, true, "right", "right"},
+		{"anchor with wrap, align=center -> left", true, true, "center", "left"},
+		{"anchor with wrap, no align -> left", true, true, "", "left"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := resolveWrap(c.hasAnchor, c.hasWrap, c.align)
+			if got != c.want {
+				t.Errorf("resolveWrap(anchor=%v, wrap=%v, align=%q) = %q, want %q",
+					c.hasAnchor, c.hasWrap, c.align, got, c.want)
+			}
+		})
+	}
+}
+
 // prettifyJSON re-marshals JSON with 2-space indentation so the
 // generated file is reviewable.
 func prettifyJSON(b []byte) []byte {

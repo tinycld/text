@@ -125,6 +125,13 @@ type emitter struct {
 	linkRels  []linkRel
 	linkSeq   int      // monotonic id for marker tokens
 	listScope []string // numIds keyed by depth — one entry per nested list
+	// lastOrderedNumIDAtLevel0 is the most recent level-0 ordered-list
+	// numId we've emitted in this document, surviving across sibling
+	// lists. When a later orderedList carries start > 1, we reuse this
+	// numId so OOXML's natural numbering continuation produces the
+	// expected resumed numbers (Word's behavior when an ordered list is
+	// visually interrupted by a nested bulleted list and then resumed).
+	lastOrderedNumIDAtLevel0 string
 }
 
 type linkRel struct {
@@ -273,6 +280,17 @@ func (em *emitter) emitList(node PMNode, listLevel int, listType string) error {
 	em.listScope = makeFreshScope(prevScope, listLevel)
 	defer func() { em.listScope = prevScope }()
 
+	// Resumed ordered list: if PM has marked this list with start > 1
+	// AND we have a prior level-0 ordered-list numId available, seed
+	// the scope with it so all items in this list reuse that same numId.
+	// In OOXML, sharing a numId across visually separate lists is how
+	// Word implements numbering continuation past nested interruptions.
+	if listLevel == 0 && listType == NodeTypeOrderedList && em.lastOrderedNumIDAtLevel0 != "" {
+		if startVal, ok := node.Attrs["start"]; ok && asInt(startVal) > 1 {
+			em.recordListNumID(0, em.lastOrderedNumIDAtLevel0)
+		}
+	}
+
 	for _, item := range node.Content {
 		if item.Type != NodeTypeListItem {
 			return fmt.Errorf("translate: %s child must be listItem, got %q", listType, item.Type)
@@ -292,7 +310,27 @@ func (em *emitter) emitList(node PMNode, listLevel int, listType string) error {
 			}
 		}
 	}
+
+	// After emitting a level-0 ordered list, remember its numId so a
+	// subsequent resumed list can reuse it.
+	if listLevel == 0 && listType == NodeTypeOrderedList && listLevel < len(em.listScope) {
+		if numID := em.listScope[0]; numID != "" {
+			em.lastOrderedNumIDAtLevel0 = numID
+		}
+	}
 	return nil
+}
+
+// asInt coerces a JSON-decoded number (float64) or int to int. Returns
+// 0 for any other type.
+func asInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+	return 0
 }
 
 // makeFreshScope returns a copy of prev with the slot at level
@@ -330,41 +368,195 @@ func (em *emitter) emitBlockquote(node PMNode) error {
 
 // emitTable creates a WordZero table sized to the PM rows/cols and
 // pours each cell's content into AddCellParagraph / AddFormattedText.
+//
+// Column widths: PM tableCell.colwidth (px, one entry per spanned
+// column) is converted back to dxa and seeded into the table's grid
+// + per-cell <w:tcW>. We compute the per-column dxa array by walking
+// the first row and unrolling each cell's colwidth across colspan
+// slots. Cells with colspan > 1 are then merged with
+// MergeCellsHorizontal so OOXML re-derives the same grid layout.
 func (em *emitter) emitTable(node PMNode) error {
 	rows := len(node.Content)
 	if rows == 0 {
 		return nil
 	}
-	cols := 0
-	for _, row := range node.Content {
-		if row.Type != NodeTypeTableRow {
-			continue
-		}
-		if c := len(row.Content); c > cols {
-			cols = c
-		}
-	}
+	cols, colDxa := tableGeometry(node)
 	if cols == 0 {
 		return nil
 	}
-	tbl, err := em.doc.AddTable(&document.TableConfig{Rows: rows, Cols: cols})
+	cfg := &document.TableConfig{Rows: rows, Cols: cols}
+	if len(colDxa) == cols {
+		cfg.ColWidths = colDxa
+	}
+	tbl, err := em.doc.AddTable(cfg)
 	if err != nil {
 		return fmt.Errorf("translate: create table: %w", err)
 	}
+
 	for r, row := range node.Content {
 		if row.Type != NodeTypeTableRow {
 			continue
 		}
-		for c, cell := range row.Content {
+		col := 0
+		// Defer merges so we can run them right-to-left after the
+		// row's content is in place. WordZero's MergeCellsHorizontal
+		// reindexes physical columns on each call (the merged cells
+		// are spliced out), so merging left-to-right would shift the
+		// surviving cells out from under the next planned merge.
+		type merge struct{ start, end int }
+		var merges []merge
+		for _, cell := range row.Content {
 			if cell.Type != NodeTypeTableCell {
 				continue
 			}
-			if err := em.emitTableCell(tbl, r, c, cell); err != nil {
+			span := cellColspan(cell)
+			if err := em.emitTableCell(tbl, r, col, cell); err != nil {
 				return err
+			}
+			if span > 1 {
+				end := col + span - 1
+				if end >= cols {
+					end = cols - 1
+				}
+				merges = append(merges, merge{col, end})
+			}
+			col += span
+		}
+		for i := len(merges) - 1; i >= 0; i-- {
+			m := merges[i]
+			// Sum the spanned dxa widths so the surviving cell's <w:tcW>
+			// reflects the full merged width. Without this, WordZero
+			// keeps the start cell's own (unmerged) width and re-import
+			// would split the visible width across gridSpan, halving
+			// each spanned column's recorded size every round-trip.
+			merged := 0
+			if len(colDxa) == cols {
+				for c := m.start; c <= m.end && c < len(colDxa); c++ {
+					merged += colDxa[c]
+				}
+			}
+			if err := tbl.MergeCellsHorizontal(r, m.start, m.end); err != nil {
+				return fmt.Errorf("translate: merge cells %d,[%d..%d]: %w", r, m.start, m.end, err)
+			}
+			if merged > 0 {
+				if c, err := tbl.GetCell(r, m.start); err == nil {
+					if c.Properties == nil {
+						c.Properties = &document.TableCellProperties{}
+					}
+					if c.Properties.TableCellW == nil {
+						c.Properties.TableCellW = &document.TableCellW{Type: "dxa"}
+					}
+					c.Properties.TableCellW.W = strconv.Itoa(merged)
+					c.Properties.TableCellW.Type = "dxa"
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// tableGeometry counts physical columns and computes a per-column dxa
+// width array, both derived from the first row that carries colwidth
+// data. Falls back to (max cell count across rows, no widths) when no
+// row carries widths, which yields a default auto-sized table.
+func tableGeometry(table PMNode) (int, []int) {
+	maxCells := 0
+	for _, row := range table.Content {
+		if row.Type == NodeTypeTableRow {
+			if c := len(row.Content); c > maxCells {
+				maxCells = c
+			}
+		}
+	}
+	// Look for the first row that has colwidth on every cell — that's
+	// the row we trust to define the physical grid. The first row of
+	// a Word table almost always carries widths even if downstream
+	// rows have merged cells; that's the row we want.
+	for _, row := range table.Content {
+		if row.Type != NodeTypeTableRow {
+			continue
+		}
+		widths := []int{}
+		ok := true
+		totalCols := 0
+		for _, cell := range row.Content {
+			if cell.Type != NodeTypeTableCell {
+				continue
+			}
+			span := cellColspan(cell)
+			cw, hasCW := cellColwidthPx(cell)
+			if !hasCW || len(cw) == 0 {
+				ok = false
+				break
+			}
+			// colwidth is per-spanned-col in PM. Translate each entry
+			// back to dxa and place it into the column grid.
+			for i := 0; i < span; i++ {
+				if i < len(cw) {
+					widths = append(widths, pxToDxa(cw[i]))
+				} else {
+					// Fewer colwidth entries than span — duplicate the
+					// last one across the remainder.
+					widths = append(widths, pxToDxa(cw[len(cw)-1]))
+				}
+			}
+			totalCols += span
+		}
+		if ok && totalCols > 0 {
+			if totalCols > maxCells {
+				maxCells = totalCols
+			}
+			return totalCols, widths
+		}
+	}
+	return maxCells, nil
+}
+
+// cellColspan reads colspan off a tableCell, defaulting to 1.
+func cellColspan(cell PMNode) int {
+	if cell.Attrs == nil {
+		return 1
+	}
+	if v, ok := cell.Attrs["colspan"]; ok {
+		if n := asInt(v); n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
+// cellColwidthPx reads colwidth off a tableCell as an int slice (px).
+// Returns (nil, false) if the attr is missing or shaped unexpectedly.
+func cellColwidthPx(cell PMNode) ([]int, bool) {
+	if cell.Attrs == nil {
+		return nil, false
+	}
+	raw, ok := cell.Attrs["colwidth"]
+	if !ok {
+		return nil, false
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		// Already an []int (when called from internal Go code rather
+		// than after JSON unmarshal).
+		if a, ok2 := raw.([]int); ok2 {
+			return a, true
+		}
+		return nil, false
+	}
+	out := make([]int, 0, len(arr))
+	for _, v := range arr {
+		out = append(out, asInt(v))
+	}
+	return out, true
+}
+
+// pxToDxa is the inverse of dxaToPx (1 dxa ≈ 1/15 px at 96 dpi).
+func pxToDxa(px int) int {
+	if px <= 0 {
+		return 0
+	}
+	return px * 15
 }
 
 // emitTableCell writes one cell. We clear the default placeholder
@@ -394,12 +586,33 @@ func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode)
 			return err
 		}
 	}
+	// Borders attached to the cell flow through to <w:tcBorders>. We do
+	// this after the paragraph emission because GetCell expects the
+	// cell to exist in the underlying table model already.
+	if borders := tcBordersFromAttr(cell.Attrs); borders != nil {
+		c, err := tbl.GetCell(row, col)
+		if err == nil && c != nil {
+			if c.Properties == nil {
+				c.Properties = &document.TableCellProperties{}
+			}
+			c.Properties.TcBorders = borders
+		}
+	}
 	return nil
 }
 
 // emitImageBlock embeds a block-level image. v1 supports data: URIs
 // and embedded images via AddImageFromData. Network URLs are
 // rejected for now (caller should pre-fetch); see report.
+//
+// PM attrs map to WordZero's ImageConfig:
+//   - wrap="left"  -> Position: floatLeft,  WrapText: square
+//   - wrap="right" -> Position: floatRight, WrapText: square
+//   - wrap absent / "none" -> default inline drawing
+//
+// We choose `square` (not `tight`) for the wrap mode because square
+// requires no wrap polygon and renders identically for rectangular
+// images. tight requires a per-image polygon we don't store.
 func (em *emitter) emitImageBlock(node PMNode) error {
 	src, _ := node.Attrs["src"].(string)
 	if src == "" {
@@ -416,11 +629,27 @@ func (em *emitter) emitImageBlock(node PMNode) error {
 	if title, ok := node.Attrs["title"].(string); ok && title != "" {
 		cfg.Title = title
 	}
+	applyImageWrap(cfg, node.Attrs)
 	_, err = em.doc.AddImageFromData(data, deriveImageName(src, format), format, 0, 0, cfg)
 	if err != nil {
 		return fmt.Errorf("translate: add image: %w", err)
 	}
 	return nil
+}
+
+// applyImageWrap reads the image's `wrap` attribute and configures
+// the WordZero ImageConfig to produce the matching anchor drawing.
+// Unknown values are treated as no-op (default inline).
+func applyImageWrap(cfg *document.ImageConfig, attrs map[string]any) {
+	wrap, _ := attrs["wrap"].(string)
+	switch wrap {
+	case "left":
+		cfg.Position = document.ImagePositionFloatLeft
+		cfg.WrapText = document.ImageWrapSquare
+	case "right":
+		cfg.Position = document.ImagePositionFloatRight
+		cfg.WrapText = document.ImageWrapSquare
+	}
 }
 
 // decodeImageSrc accepts either a data: URI ("data:image/png;base64,…")
@@ -492,7 +721,10 @@ func deriveImageName(src string, format document.ImageFormat) string {
 // supplied paragraph. Text nodes become AddFormattedText runs;
 // link-marked text is wrapped in marker tokens that are post-
 // processed into <w:hyperlink>; image nodes inside a paragraph are
-// added via AddImageFromData (inline anchor).
+// added via AddImageFromData and (when floated) transplanted onto
+// the host paragraph so the resulting <w:p> contains both image and
+// text — this is what lets the importer reconstruct the original
+// "image inline with text" PM tree on round-trip.
 func (em *emitter) emitInlineRuns(p *document.Paragraph, runs []PMNode) error {
 	for _, r := range runs {
 		switch r.Type {
@@ -501,7 +733,7 @@ func (em *emitter) emitInlineRuns(p *document.Paragraph, runs []PMNode) error {
 				return err
 			}
 		case NodeTypeImage:
-			if err := em.emitInlineImage(r); err != nil {
+			if err := em.emitInlineImage(p, r); err != nil {
 				return err
 			}
 		default:
@@ -546,13 +778,38 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	return nil
 }
 
-// emitInlineImage adds an inline image to the document. WordZero's
-// AddImageFromData attaches to the document body, not to a specific
-// paragraph — for v1 we accept that limitation (inline images
-// appear next to, not strictly inside, the paragraph they're
-// declared in).
-func (em *emitter) emitInlineImage(node PMNode) error {
-	return em.emitImageBlock(node)
+// emitInlineImage adds an image that appeared inside a paragraph's
+// inline runs. WordZero's AddImageFromData always appends a NEW
+// <w:p> to Body.Elements containing the drawing — that's the wrong
+// shape for round-trip when the PM tree placed the image as a child
+// of an existing paragraph (typical for wrap=left/right). To fix:
+// we call AddImageFromData, then transplant its drawing run onto
+// the host paragraph and drop the orphan paragraph from the body.
+//
+// Plain unwrapped inline images (no wrap attr) get the same
+// treatment — keeping them inside their host paragraph matches what
+// the parser produces and keeps the lifting/round-trip rules
+// consistent. (At parse time, only unwrapped images get lifted into
+// their own block; wrapped ones stay inline.)
+func (em *emitter) emitInlineImage(p *document.Paragraph, node PMNode) error {
+	bodyLenBefore := len(em.doc.Body.Elements)
+	if err := em.emitImageBlock(node); err != nil {
+		return err
+	}
+	bodyLenAfter := len(em.doc.Body.Elements)
+	// AddImageFromData appends exactly one Paragraph element on success.
+	if bodyLenAfter != bodyLenBefore+1 {
+		return fmt.Errorf("translate: emitInlineImage expected 1 new body element, got %d", bodyLenAfter-bodyLenBefore)
+	}
+	added, ok := em.doc.Body.Elements[bodyLenAfter-1].(*document.Paragraph)
+	if !ok || added == nil || len(added.Runs) == 0 || added.Runs[0].Drawing == nil {
+		return fmt.Errorf("translate: emitInlineImage could not locate WordZero-generated drawing")
+	}
+	// Splice the drawing run onto the host paragraph and drop the
+	// orphan from the body.
+	p.Runs = append(p.Runs, added.Runs[0])
+	em.doc.Body.Elements = em.doc.Body.Elements[:bodyLenAfter-1]
+	return nil
 }
 
 // marksToTextFormat builds a TextFormat reflecting the bold/italic/
@@ -564,6 +821,19 @@ func marksToTextFormat(marks []PMMark) *document.TextFormat {
 	}
 	fmt := &document.TextFormat{}
 	any := false
+	// TextStyle.color is applied first so a Link mark (which forces the
+	// accent color) wins for hyperlinks, matching Word's behavior of
+	// hyperlinks always being the accent blue regardless of any
+	// explicit color set on the same run.
+	for _, m := range marks {
+		if m.Type != MarkTypeTextStyle {
+			continue
+		}
+		if c, ok := m.Attrs["color"].(string); ok && c != "" {
+			fmt.FontColor = strings.TrimPrefix(c, "#")
+			any = true
+		}
+	}
 	for _, m := range marks {
 		switch m.Type {
 		case MarkTypeBold:

@@ -1,13 +1,39 @@
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
+import { Color } from '@tiptap/extension-color'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
-import TableCell from '@tiptap/extension-table-cell'
-import TableHeader from '@tiptap/extension-table-header'
 import TableRow from '@tiptap/extension-table-row'
+import { applyCellBorders } from '../../lib/apply-cell-borders'
+import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
+import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
+import { TextStyle } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+
+// Inline image variant carrying a `wrap` attr (left|right|none) on
+// the rendered <img> as data-wrap, so editor-content-styles can
+// apply float:left / float:right. Matches the shape produced by the
+// .docx importer in translate/docx_to_pm.go. See the longer notes in
+// the web editor's WrappedImage definition.
+const WrappedImage = Image.extend({
+    inline: true,
+    group: 'inline',
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            wrap: {
+                default: null,
+                parseHTML: (el: HTMLElement) => el.getAttribute('data-wrap'),
+                renderHTML: (attrs: { wrap?: string | null }) => {
+                    if (!attrs.wrap) return {}
+                    return { 'data-wrap': attrs.wrap }
+                },
+            },
+        }
+    },
+})
 import { useEffect, useState } from 'react'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
@@ -116,14 +142,19 @@ function EditorMounted({ init }: EditorMountedProps) {
                 undoRedo: false,
                 link: { openOnClick: false },
             }),
+            // See use-document-editor.web.tsx for the rationale — both
+            // editor mounts must share the same schema so a doc seeded
+            // by one is readable by the other.
+            TextStyle,
+            Color,
             Placeholder.configure({
                 placeholder: init.placeholder ?? 'Start writing…',
             }),
             Table.configure({ resizable: false }),
             TableRow,
-            TableHeader,
-            TableCell,
-            Image,
+            BorderedTableHeader,
+            BorderedTableCell,
+            WrappedImage,
             Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
             CollaborationCaret.configure({
                 provider: { awareness },
@@ -166,6 +197,8 @@ function EditorMounted({ init }: EditorMountedProps) {
                 isBlockquoteActive: editor.isActive('blockquote'),
                 isLinkActive: editor.isActive('link'),
                 activeLink: (editor.getAttributes('link')?.href as string) ?? null,
+                isInTable: editor.isActive('table'),
+                selectionEmpty: editor.state.selection.empty,
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
             if (serialized === lastSerialized) return
@@ -299,11 +332,48 @@ function EditorMounted({ init }: EditorMountedProps) {
                 case 'delete-table':
                     editor.chain().focus().deleteTable().run()
                     break
+                case 'set-cell-borders': {
+                    const payload = parsed.payload as {
+                        preset: CellBorderPreset
+                        border?: Partial<CellBorder>
+                    }
+                    editor.commands.focus()
+                    applyCellBorders(editor, { preset: payload.preset, border: payload.border })
+                    break
+                }
                 case 'insert-image': {
                     const { src, alt } = parsed.payload as { src: string; alt?: string }
                     editor.chain().focus().setImage({ src, alt }).run()
                     break
                 }
+                case 'cut':
+                    editor.commands.focus()
+                    document.execCommand('cut')
+                    break
+                case 'copy':
+                    editor.commands.focus()
+                    document.execCommand('copy')
+                    break
+                case 'paste':
+                    // execCommand('paste') is blocked in WebView contexts
+                    // unless the host grants special permission. Fall
+                    // back to the async clipboard API and insert via
+                    // Tiptap so the change rides through one collab tx.
+                    editor.commands.focus()
+                    navigator.clipboard
+                        ?.readText()
+                        .then(text => {
+                            if (!text) return
+                            editor.chain().focus().insertContent(text).run()
+                        })
+                        .catch(() => undefined)
+                    break
+                case 'delete-selection':
+                    editor.chain().focus().deleteSelection().run()
+                    break
+                case 'select-all':
+                    editor.chain().focus().selectAll().run()
+                    break
             }
         }
         window.addEventListener('message', onMessage)

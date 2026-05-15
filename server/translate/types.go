@@ -66,11 +66,21 @@ const (
 	MarkTypeItalic    = "italic"
 	MarkTypeUnderline = "underline"
 	MarkTypeLink      = "link"
+	// MarkTypeTextStyle carries the @tiptap/extension-text-style mark,
+	// which currently exposes a single attribute: `color`. Word's
+	// <w:color w:val="RRGGBB"> on a run flows into this mark on import,
+	// and back out to <w:color> on export. Schema: requires the
+	// TextStyle + Color extensions in both editor configs.
+	MarkTypeTextStyle = "textStyle"
 )
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
 var SupportedMarks = map[string]bool{
-	MarkTypeBold: true, MarkTypeItalic: true, MarkTypeUnderline: true, MarkTypeLink: true,
+	MarkTypeBold:      true,
+	MarkTypeItalic:    true,
+	MarkTypeUnderline: true,
+	MarkTypeLink:      true,
+	MarkTypeTextStyle: true,
 }
 
 // Warning is a typed signal that an OOXML import succeeded but

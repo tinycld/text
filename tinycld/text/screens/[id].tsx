@@ -3,9 +3,12 @@ import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { useLocalSearchParams } from 'expo-router'
+import { useState } from 'react'
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
+import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
+import { LinkPopover } from '../components/LinkPopover'
 import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
@@ -56,6 +59,11 @@ function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
     )
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
+    // Link popover is reached from two surfaces — the toolbar's link
+    // button and the context menu's "Insert link" item. We hoist its
+    // open state here so both surfaces can drive it; the toolbar still
+    // owns its own internal popover for the in-toolbar button path.
+    const [contextLinkOpen, setContextLinkOpen] = useState(false)
 
     return (
         <View className="flex-1 bg-background">
@@ -69,11 +77,32 @@ function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
             </View>
             <ImportWarningBanner warnings={hello.importWarnings} />
             <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
-            <ScrollView className="flex-1">
-                <View className="p-6 max-w-[800px] w-full self-center">
-                    <EditorComponent />
-                </View>
-            </ScrollView>
+            <DocumentContextMenu
+                commands={commands}
+                toolbarState={toolbarState}
+                editable={!isReadOnly}
+                onRequestInsertLink={() => setContextLinkOpen(true)}
+                className="flex-1"
+            >
+                <ScrollView className="flex-1">
+                    <View className="p-6 max-w-[800px] w-full self-center">
+                        <EditorComponent />
+                    </View>
+                </ScrollView>
+            </DocumentContextMenu>
+            <LinkPopover
+                isOpen={contextLinkOpen}
+                initialUrl={toolbarState.currentLink ?? ''}
+                onCancel={() => setContextLinkOpen(false)}
+                onInsert={url => {
+                    if (url) {
+                        commands.setLink(url)
+                    } else {
+                        commands.removeLink()
+                    }
+                    setContextLinkOpen(false)
+                }}
+            />
             <MobileToolbarAccessory
                 commands={commands}
                 toolbarState={toolbarState}

@@ -7,18 +7,65 @@ import type {
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
+import { Color } from '@tiptap/extension-color'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
-import TableCell from '@tiptap/extension-table-cell'
-import TableHeader from '@tiptap/extension-table-header'
 import TableRow from '@tiptap/extension-table-row'
+import { TextStyle } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useMemo } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
+import { applyCellBorders } from '../lib/apply-cell-borders'
+import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
+import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
+
+// WrappedImage extends TipTap's default Image with:
+//   - inline=true so the node can live inside a paragraph (required
+//     by the importer's tree shape: images sit alongside text inside
+//     the surrounding paragraph, with `wrap` driving CSS float).
+//   - a `wrap` attribute serialized to `data-wrap` on the rendered
+//     <img> so editor-content-styles.ts can match img[data-wrap=…]
+//     and apply float:left / float:right.
+//
+// The importer (translate/docx_to_pm.go) reads OOXML wrap modes off
+// <wp:anchor> + <wp:positionH><wp:align> and emits wrap=left|right;
+// the emitter rewrites the same attr back to ImagePositionFloatLeft/
+// FloatRight + ImageWrapSquare on save.
+const WrappedImage = Image.extend({
+    inline: true,
+    group: 'inline',
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            wrap: {
+                default: null,
+                parseHTML: (el) => el.getAttribute('data-wrap'),
+                renderHTML: (attrs) => {
+                    if (!attrs.wrap) return {}
+                    return { 'data-wrap': attrs.wrap as string }
+                },
+            },
+        }
+    },
+})
+
+// Inject the document-editor content stylesheet once per page. Tailwind/
+// Uniwind preflight strips browser defaults for h1–h6, ul, ol, a, etc.,
+// so without this stylesheet an imported .docx renders as a wall of
+// 14px text with no heading hierarchy, list markers, or link styling.
+// The rules live in editor-content-styles.ts and are shared with the
+// WebView editor used on native.
+const EDITOR_STYLE_TAG_ID = 'tinycld-text-editor-styles'
+if (typeof document !== 'undefined' && !document.getElementById(EDITOR_STYLE_TAG_ID)) {
+    const style = document.createElement('style')
+    style.id = EDITOR_STYLE_TAG_ID
+    style.textContent = EDITOR_CONTENT_STYLES
+    document.head.appendChild(style)
+}
 
 export interface UseDocumentEditorOptions {
     // Required: the Collaboration extension (yjs binding via Tiptap's
@@ -62,6 +109,11 @@ export interface UseDocumentEditorOptions {
 export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult {
     const placeholderColor = useThemeColor('field-placeholder')
     const primaryColor = useThemeColor('primary')
+    const foregroundColor = useThemeColor('foreground')
+    const mutedColor = useThemeColor('muted-foreground')
+    const borderColor = useThemeColor('border')
+    const linkColor = useThemeColor('link')
+    const surfaceSecondaryColor = useThemeColor('surface-secondary')
 
     const tiptapEditor = useEditor(
         {
@@ -81,12 +133,18 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
                     undoRedo: false,
                     link: { openOnClick: false },
                 }),
+                // TextStyle + Color provide the `textStyle` mark with a
+                // `color` attribute. The .docx importer maps <w:color> on
+                // a run to this mark, so headings/runs that carry an
+                // explicit color in Word render with the same color here.
+                TextStyle,
+                Color,
                 Placeholder.configure({ placeholder: options.placeholder ?? 'Start writing…' }),
                 Table.configure({ resizable: false }),
                 TableRow,
-                TableHeader,
-                TableCell,
-                Image,
+                BorderedTableHeader,
+                BorderedTableCell,
+                WrappedImage,
                 Collaboration.configure({
                     document: options.yDoc,
                     field: 'prosemirror',
@@ -166,6 +224,36 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
             deleteTable: () => tiptapEditor?.chain().focus().deleteTable().run(),
             insertImage: (src: string, alt?: string) =>
                 tiptapEditor?.chain().focus().setImage({ src, alt }).run(),
+            setCellBorders: (preset, border) => {
+                if (!tiptapEditor) return
+                tiptapEditor.commands.focus()
+                applyCellBorders(tiptapEditor, { preset, border })
+            },
+            cut: () => {
+                tiptapEditor?.commands.focus()
+                document.execCommand('cut')
+            },
+            copy: () => {
+                tiptapEditor?.commands.focus()
+                document.execCommand('copy')
+            },
+            paste: () => {
+                // execCommand('paste') is blocked in modern browsers
+                // outside of dedicated extensions, so reach for the
+                // async Clipboard API. Inserting through Tiptap's
+                // insertContent keeps the change as a single
+                // collaborative transaction.
+                tiptapEditor?.commands.focus()
+                navigator.clipboard
+                    ?.readText()
+                    .then(text => {
+                        if (!text) return
+                        tiptapEditor?.chain().focus().insertContent(text).run()
+                    })
+                    .catch(() => undefined)
+            },
+            deleteSelection: () => tiptapEditor?.chain().focus().deleteSelection().run(),
+            selectAll: () => tiptapEditor?.chain().focus().selectAll().run(),
         }),
         [tiptapEditor]
     )
@@ -186,6 +274,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
             return null
         })(),
         isInTable: tiptapEditor?.isActive('table') ?? false,
+        selectionEmpty: tiptapEditor?.state.selection.empty ?? true,
     }
 
     const EditorComponent = useMemo(
@@ -198,13 +287,28 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
                             // @ts-expect-error CSS custom properties for web
                             '--editor-placeholder-color': placeholderColor,
                             '--editor-primary-color': primaryColor,
+                            '--editor-foreground': foregroundColor,
+                            '--editor-muted': mutedColor,
+                            '--editor-border': borderColor,
+                            '--editor-link': linkColor,
+                            '--editor-placeholder': placeholderColor,
+                            '--editor-table-header': surfaceSecondaryColor,
                         }}
                     >
                         <EditorContent editor={tiptapEditor} />
                     </View>
                 )
             },
-        [tiptapEditor, placeholderColor, primaryColor]
+        [
+            tiptapEditor,
+            placeholderColor,
+            primaryColor,
+            foregroundColor,
+            mutedColor,
+            borderColor,
+            linkColor,
+            surfaceSecondaryColor,
+        ]
     )
 
     return { editor, EditorComponent, commands, toolbarState }

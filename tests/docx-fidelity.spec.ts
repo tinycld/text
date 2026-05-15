@@ -1,0 +1,351 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { expect, type Page, test } from '@playwright/test'
+import {
+    login,
+    ORG_SLUG,
+    TEST_USER_EMAIL,
+    TEST_USER_PASSWORD,
+} from '../../../../tests/e2e/helpers'
+
+// Bootstrap (docx parse + Y.Doc seed + realtime SyncReply + Tiptap mount)
+// can take ~30s under parallel-worker contention; mirror text-document.spec.ts.
+const TEST_TIMEOUT = 120_000
+
+const PB_URL = 'http://127.0.0.1:7200'
+
+const DOCX_MIME =
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+const FEATURE_DOC_HEADING = 'Sample Document'
+
+// Hex color the Heading 1 run carries in feature-test.docx. The translator
+// reads <w:color w:val="C00000"> into a textStyle mark; TextStyle+Color
+// extensions in the editor schema render this as `color: rgb(192, 0, 0)`
+// on the inline <span>.
+const HEADING1_RED_RGB = 'rgb(192, 0, 0)'
+
+interface OrgContext {
+    orgId: string
+    userOrgId: string
+    userId: string
+}
+
+let cachedAuthToken: string | null = null
+let cachedOrgContext: OrgContext | null = null
+
+async function authAsTestUser(): Promise<string> {
+    if (cachedAuthToken) return cachedAuthToken
+    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: TEST_USER_EMAIL, password: TEST_USER_PASSWORD }),
+    })
+    if (!res.ok) {
+        throw new Error(`PB auth failed: ${res.status} ${await res.text()}`)
+    }
+    const { token } = (await res.json()) as { token: string }
+    cachedAuthToken = token
+    return token
+}
+
+async function resolveOrgContext(token: string): Promise<OrgContext> {
+    if (cachedOrgContext) return cachedOrgContext
+    const me = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, {
+        method: 'POST',
+        headers: { Authorization: token },
+    })
+    const meBody = (await me.json()) as { record?: { id: string } }
+    const userId = meBody.record?.id
+    if (!userId) throw new Error('auth-refresh returned no user record')
+
+    const orgs = await fetch(
+        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
+        { headers: { Authorization: token } }
+    )
+    const orgItems = (await orgs.json()) as { items: { id: string }[] }
+    if (!orgItems.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
+    const orgId = orgItems.items[0].id
+
+    const userOrgs = await fetch(
+        `${PB_URL}/api/collections/user_org/records?filter=${encodeURIComponent(
+            `org='${orgId}' && user='${userId}'`
+        )}`,
+        { headers: { Authorization: token } }
+    )
+    const userOrgItems = (await userOrgs.json()) as { items: { id: string }[] }
+    if (!userOrgItems.items[0]) throw new Error(`user_org for ${ORG_SLUG} not found`)
+    cachedOrgContext = { orgId, userOrgId: userOrgItems.items[0].id, userId }
+    return cachedOrgContext
+}
+
+async function uploadDocxAsDriveItem(name: string): Promise<string> {
+    const token = await authAsTestUser()
+    const ctx = await resolveOrgContext(token)
+    const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
+    const bytes = readFileSync(fixturePath)
+    const form = new FormData()
+    form.append('org', ctx.orgId)
+    form.append('name', name)
+    form.append('is_folder', 'false')
+    form.append('mime_type', DOCX_MIME)
+    form.append('parent', '')
+    form.append('created_by', ctx.userOrgId)
+    form.append('size', String(bytes.length))
+    form.append(
+        'file',
+        new Blob([new Uint8Array(bytes)], { type: DOCX_MIME }),
+        name
+    )
+    const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
+        method: 'POST',
+        headers: { Authorization: token },
+        body: form,
+    })
+    if (!res.ok) {
+        throw new Error(`Upload drive_item failed: ${res.status} ${await res.text()}`)
+    }
+    const body = (await res.json()) as { id: string }
+    return body.id
+}
+
+function editorRoot(page: Page) {
+    return page.locator('.tinycld-document-editor .ProseMirror')
+}
+
+async function openFixture(page: Page): Promise<string> {
+    // Drive's collection treats (org, parent, name) as unique; parallel
+    // workers in the same millisecond would otherwise collide on Date.now().
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const itemId = await uploadDocxAsDriveItem(`fidelity-${unique}.docx`)
+    await login(page)
+    await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+    await expect(editorRoot(page)).toBeVisible({ timeout: 60_000 })
+    // Bootstrap is asynchronous; the H1 lands once the Y.Doc has been
+    // seeded and the Tiptap binding catches up.
+    await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+        timeout: 30_000,
+    })
+    return itemId
+}
+
+// domSnapshot reads what the user actually sees — rendered HTML in the
+// editor, never ProseMirror's internal node tree. The point of the
+// fidelity fixes is that the Word document round-trips through the
+// import pipeline AND the Y.Doc bridge AND y-prosemirror AND the
+// schema's renderHTML — assertions therefore have to live at the DOM
+// level, since anything earlier in the chain could be silently dropped
+// before the user sees it.
+type DomSnapshot = {
+    headings: { tag: string; text: string }[]
+    orderedLists: { start: number; firstItem: string; itemTexts: string[] }[]
+    sampleDocColors: string[]
+    tables: { width: number; firstHeaderTexts: string[] }[]
+    editorWidth: number
+}
+async function domSnapshot(page: Page): Promise<DomSnapshot> {
+    return page.evaluate(() => {
+        const pmDom = document.querySelector<HTMLElement>('.ProseMirror')
+        if (!pmDom) throw new Error('no ProseMirror DOM found')
+
+        const headings = Array.from(
+            pmDom.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
+        ).map((h) => ({ tag: h.tagName, text: (h.textContent ?? '').slice(0, 80) }))
+
+        // Only collect top-level (un-nested) ordered lists. The fixture's
+        // structure puts both numbered runs at the same depth (the bullet
+        // list lives between them but isn't a parent), so a list nested
+        // inside another <li> is a different concept and shouldn't enter
+        // the "did the outline list resume" assertion.
+        const orderedLists = Array.from(pmDom.querySelectorAll<HTMLOListElement>('ol'))
+            .filter((ol) => !ol.parentElement?.closest('li'))
+            .map((ol) => {
+                // `start` defaults to 1 when omitted (HTMLOListElement.start
+                // exposes the effective value), so read the live property
+                // — not getAttribute — to mirror what the browser renders.
+                const items = Array.from(ol.querySelectorAll<HTMLLIElement>(':scope > li'))
+                return {
+                    start: ol.start,
+                    firstItem: (items[0]?.textContent ?? '').trim().slice(0, 80),
+                    itemTexts: items.map((li) => (li.textContent ?? '').trim().slice(0, 80)),
+                }
+            })
+
+        // For "Sample Document" find every descendant element under its
+        // heading whose text contains the title and read the COMPUTED
+        // color the browser uses to paint it. TextStyle+Color renders as
+        // a <span style="color: …">; if no inline span exists, falling
+        // back to the heading's own computed color still gives us the
+        // user-visible result.
+        const sampleDocColors: string[] = []
+        for (const h of Array.from(pmDom.querySelectorAll<HTMLElement>('h1, h2'))) {
+            if (!(h.textContent ?? '').includes('Sample Document')) continue
+            const spans = Array.from(h.querySelectorAll<HTMLElement>('*')).filter((n) =>
+                (n.textContent ?? '').includes('Sample Document')
+            )
+            const sources = spans.length > 0 ? spans : [h]
+            for (const node of sources) {
+                sampleDocColors.push(window.getComputedStyle(node).color)
+            }
+            break
+        }
+
+        // Table rendered widths: TipTap's TableView writes inline
+        // `style="width: Npx"` from the summed colwidth attributes,
+        // and the import preserves the .docx column widths. Reading
+        // the rendered offsetWidth captures exactly what the user
+        // sees (regardless of how those widths got there).
+        const tables = Array.from(pmDom.querySelectorAll<HTMLTableElement>('table')).map(
+            (t) => {
+                const headerRow = t.querySelector('tr')
+                const headerTexts = headerRow
+                    ? Array.from(headerRow.querySelectorAll<HTMLElement>('td, th')).map(
+                          (c) => (c.textContent ?? '').trim().slice(0, 40)
+                      )
+                    : []
+                return { width: t.offsetWidth, firstHeaderTexts: headerTexts }
+            }
+        )
+
+        const editorWidth = pmDom.offsetWidth
+
+        return { headings, orderedLists, sampleDocColors, tables, editorWidth }
+    })
+}
+
+test.describe('Text — .docx fidelity', () => {
+    test.setTimeout(TEST_TIMEOUT)
+
+    test('heading levels render with the correct tag', async ({ page }) => {
+        // Regression: prior to the yjs-bridge normalizeAttrValue fix,
+        // every heading rendered as <h1> because the float64 `level`
+        // value from JSON-decoded attrs was silently dropped by
+        // y-crdt's TypeMapSet (which only accepts int, not float64),
+        // so PM applied the schema default and y-prosemirror rendered
+        // every heading at level 1.
+        await openFixture(page)
+        const { headings } = await domSnapshot(page)
+
+        const byText = new Map(headings.map((h) => [h.text.trim(), h.tag]))
+        expect(byText.get('Sample Document'), 'Sample Document should render as H1').toBe(
+            'H1'
+        )
+        expect(byText.get('Headings')).toBe('H2')
+        expect(byText.get('Lists')).toBe('H2')
+        expect(byText.get('Links')).toBe('H2')
+        expect(byText.get('Images')).toBe('H2')
+        expect(byText.get('Tables')).toBe('H2')
+        expect(byText.get('Simple Tables')).toBe('H3')
+        expect(byText.get('Complex Tables')).toBe('H3')
+        expect(byText.get('Columns')).toBe('H2')
+
+        // Lock the per-tag counts to catch silent collapses of the
+        // hierarchy (e.g. every heading becoming an H1 again).
+        await expect(page.locator('.ProseMirror h1')).toHaveCount(1)
+        await expect(page.locator('.ProseMirror h2')).toHaveCount(6)
+        await expect(page.locator('.ProseMirror h3')).toHaveCount(2)
+    })
+
+    test('numbered list continues past the nested bullet break (Columns = 6)', async ({
+        page,
+    }) => {
+        // The fixture's outline list is decimal 1–5 (Headings…Tables),
+        // then a nested bulleted list (Simple/Complex Tables), then the
+        // numbered list resumes at item 6 (Columns) — Word's natural
+        // continuation behavior. We surface this on import by emitting
+        // a `start` attribute on the resumed <ol>, and round-trip it on
+        // export by reusing the same numId so re-import re-derives it.
+        await openFixture(page)
+        const { orderedLists } = await domSnapshot(page)
+
+        const headingsList = orderedLists.find((l) => l.firstItem.startsWith('Headings'))
+        const columnsList = orderedLists.find((l) => l.firstItem.startsWith('Columns'))
+
+        expect(headingsList, 'expected a top-level <ol> starting with "Headings"').toBeTruthy()
+        expect(columnsList, 'expected a top-level <ol> starting with "Columns"').toBeTruthy()
+        expect(headingsList?.start, 'first list should start at 1').toBe(1)
+        expect(columnsList?.start, 'resumed list should start at 6 to match Word').toBe(6)
+        expect(headingsList?.itemTexts).toHaveLength(5)
+        expect(columnsList?.itemTexts).toHaveLength(1)
+
+        // The HTML `start` attribute is what an external reader (printer,
+        // PDF, screen reader) would see — assert it is the literal "6"
+        // string the browser rendered.
+        const columnsOl = page.locator('.ProseMirror ol', {
+            has: page.locator('li', { hasText: 'Columns' }),
+        })
+        await expect(columnsOl).toHaveAttribute('start', '6')
+    })
+
+    test('tables keep their .docx column widths instead of stretching to 100%', async ({
+        page,
+    }) => {
+        // The fixture's simple table totals ~3.93 in worth of columns
+        // (1617 + 1270 + 884 dxa, where 1 in = 1440 dxa). The complex
+        // table totals ~6.57 in — practically the full width of a US
+        // Letter page's usable area, so it should fill most of the
+        // page-width-capped editor. Both widths come from the docx
+        // pipeline (parser writes per-cell colwidth attrs, TipTap's
+        // TableView sets table.style.width to the summed colwidths).
+        await openFixture(page)
+        const { tables, editorWidth } = await domSnapshot(page)
+
+        expect(tables.length, 'expected both fixture tables to render').toBeGreaterThanOrEqual(
+            2
+        )
+        const simple = tables.find((t) => t.firstHeaderTexts.includes('Screen Reader'))
+        expect(simple, 'expected the "Screen Reader" simple table').toBeTruthy()
+        // 3771 dxa ≈ 251 px at our 1-dxa-per-15-px conversion. Allow
+        // a small TableView/cell-padding fudge factor on either side.
+        expect(simple?.width).toBeGreaterThan(220)
+        expect(simple?.width).toBeLessThan(320)
+        // The simple table is genuinely narrow in Word — it should NOT
+        // stretch to fill the page-width editor.
+        expect(simple?.width, 'simple table should be narrower than the editor').toBeLessThan(
+            editorWidth * 0.6
+        )
+
+        const complex = tables.find((t) => t.firstHeaderTexts.includes('May 2012'))
+        expect(complex, 'expected the merged-header complex table').toBeTruthy()
+        // 9461 dxa ≈ 631 px. Same fudge factor.
+        expect(complex?.width).toBeGreaterThan(580)
+        expect(complex?.width).toBeLessThan(700)
+        // The complex table fills nearly the whole Word page; with the
+        // editor capped to ~page width, it should also fill most of the
+        // editor pane (the visual cue a Word user expects to see).
+        expect(complex?.width, 'complex table should fill ≥85% of the editor').toBeGreaterThan(
+            editorWidth * 0.85
+        )
+    })
+
+    test('content area is capped at roughly a Word page width', async ({ page }) => {
+        // We mirror Word's "Web Layout" feel by capping the editor's
+        // content area at ~US Letter's usable width (8.5in - 2*1in
+        // margins = 6.5in ≈ 624px at 96dpi, plus a small fudge factor).
+        // Without this, a wide browser pane would render every imported
+        // table tiny relative to surrounding whitespace.
+        await openFixture(page)
+        const { editorWidth } = await domSnapshot(page)
+        // Allow 600–760 px (covers 624 page width + breathing room and
+        // any wrapper padding). A failure here means the page-width cap
+        // got removed or overridden by a parent rule.
+        expect(editorWidth).toBeGreaterThan(600)
+        expect(editorWidth).toBeLessThan(760)
+    })
+
+    test('Heading 1 renders with the .docx red color', async ({ page }) => {
+        // The fixture's H1 run has <w:color w:val="C00000">. After
+        // import the heading text should be painted #C00000 — whether
+        // that color lands on an inline <span> from TextStyle+Color or
+        // directly on the <h1> doesn't matter to the user, only the
+        // computed color does.
+        await openFixture(page)
+        const { sampleDocColors } = await domSnapshot(page)
+        expect(sampleDocColors.length, 'expected a colored Sample Document run').toBeGreaterThan(
+            0
+        )
+        for (const c of sampleDocColors) {
+            expect(c, 'Sample Document should paint as imported red').toBe(HEADING1_RED_RGB)
+        }
+    })
+})

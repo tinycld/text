@@ -2,6 +2,7 @@ import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/edito
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
     Bold,
+    Grid3x3,
     Heading1,
     Heading2,
     Heading3,
@@ -19,6 +20,7 @@ import {
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
+import { BorderMenu } from './BorderMenu'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { TableMenu } from './TableMenu'
@@ -40,6 +42,8 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
     const activeColor = useThemeColor('primary')
     const [linkOpen, setLinkOpen] = useState(false)
     const [tableOpen, setTableOpen] = useState(false)
+    const [borderOpen, setBorderOpen] = useState(false)
+    const isInTable = state.isInTable ?? false
 
     return (
         <View className="border-b border-border">
@@ -144,12 +148,29 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />
+                    <TableMenu
+                        isOpen={tableOpen}
+                        onOpenChange={setTableOpen}
+                        isInTable={isInTable}
+                        commands={commands}
+                        trigger={
+                            <FormatButton
+                                icon={TableIcon}
+                                accessibilityLabel="Table"
+                                isActive={isInTable}
+                                disabled={disabled}
+                                onPress={() => undefined}
+                                iconColor={iconColor}
+                                activeColor={activeColor}
+                            />
+                        }
+                    />
                     <FormatButton
-                        icon={TableIcon}
-                        accessibilityLabel="Table"
-                        isActive={state.isInTable ?? false}
-                        disabled={disabled}
-                        onPress={() => setTableOpen(true)}
+                        icon={Grid3x3}
+                        accessibilityLabel="Cell borders"
+                        isActive={false}
+                        disabled={disabled || !isInTable}
+                        onPress={() => setBorderOpen(true)}
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />
@@ -197,10 +218,9 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                 }}
             />
 
-            <TableMenu
-                isOpen={tableOpen}
-                isInTable={state.isInTable ?? false}
-                onClose={() => setTableOpen(false)}
+            <BorderMenu
+                isOpen={borderOpen}
+                onClose={() => setBorderOpen(false)}
                 commands={commands}
             />
         </View>
@@ -229,6 +249,18 @@ function FormatButton({
     const backgroundColor = isActive && !disabled ? `${activeColor}22` : undefined
     const opacity = disabled ? 0.4 : 1
     const color = isActive && !disabled ? activeColor : iconColor
+    // Stop the mousedown from moving DOM focus off the ProseMirror
+    // editor. ProseMirror's blur handler collapses its selection on
+    // focus loss, which makes selection-derived UI (e.g. the Table
+    // popover deciding between "insert grid" and "row/col ops") read
+    // stale state on the next render. The toolbar buttons all act on
+    // a selection in the editor, so they should never take focus.
+    // Web-only — on native there's no DOM focus model and the prop is
+    // silently dropped by RN.
+    const webProps =
+        Platform.OS === 'web'
+            ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
+            : {}
     return (
         <Pressable
             accessibilityRole="button"
@@ -236,6 +268,7 @@ function FormatButton({
             accessibilityState={{ disabled, selected: isActive }}
             disabled={disabled}
             onPress={onPress}
+            {...webProps}
             className="rounded-md p-1.5"
             style={{ backgroundColor, opacity }}
             hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}

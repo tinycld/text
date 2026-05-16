@@ -11,6 +11,32 @@ import (
 	"testing"
 )
 
+// readDocxPart reads one part out of a docx (zip) blob, returning the
+// raw bytes of the named file. Returns nil when the part is absent.
+func readDocxPart(t *testing.T, docxBytes []byte, name string) []byte {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(docxBytes), int64(len(docxBytes)))
+	if err != nil {
+		t.Fatalf("open docx as zip: %v", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", name, err)
+		}
+		buf, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return buf
+	}
+	return nil
+}
+
 // TestPMJSONToDocx_SinglePara generates a docx containing a single
 // paragraph with one text run, then checks the output is a non-empty
 // .docx and that round-tripping it through DocxToPMJSON recovers the
@@ -492,4 +518,229 @@ func findNumIDRefs(docXML []byte) map[string]bool {
 		s = s[j+1:]
 	}
 	return out
+}
+
+// TestPMJSONToDocx_PageBreakRoundTrip emits a doc with a hard page
+// break embedded between two paragraphs of text and confirms the
+// round-trip preserves both the break and its position.
+func TestPMJSONToDocx_PageBreakRoundTrip(t *testing.T) {
+	original := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{Type: NodeTypeParagraph, Content: []PMNode{
+				{Type: NodeTypeText, Text: "before"},
+				{Type: NodeTypePageBreak},
+				{Type: NodeTypeText, Text: "after"},
+			}},
+		},
+	}
+	jsonBytes, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	docxBytes, err := PMJSONToDocx(jsonBytes)
+	if err != nil {
+		t.Fatalf("PMJSONToDocx: %v", err)
+	}
+	if !bytes.Contains(readDocxPart(t, docxBytes, "word/document.xml"), []byte(`<w:br w:type="page"/>`)) {
+		t.Errorf("expected <w:br w:type=\"page\"/> in document.xml")
+	}
+	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	if err != nil {
+		t.Fatalf("DocxToPMJSON: %v", err)
+	}
+	if len(warnings) > 0 {
+		t.Errorf("unexpected warnings: %+v", warnings)
+	}
+	var parsed PMNode
+	if err := json.Unmarshal(parsedJSON, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(parsed.Content) != 1 || parsed.Content[0].Type != NodeTypeParagraph {
+		t.Fatalf("expected one paragraph, got %+v", parsed.Content)
+	}
+	pb := -1
+	for i, c := range parsed.Content[0].Content {
+		if c.Type == NodeTypePageBreak {
+			pb = i
+		}
+	}
+	if pb < 0 {
+		t.Errorf("page break missing from round-tripped paragraph: %+v", parsed.Content[0].Content)
+	}
+}
+
+// TestPMJSONToDocx_CommentRoundTrip emits a doc containing a comment
+// mark and verifies word/comments.xml is present and the markers
+// round-trip back into a comment mark on the same text.
+func TestPMJSONToDocx_CommentRoundTrip(t *testing.T) {
+	original := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{Type: NodeTypeParagraph, Content: []PMNode{
+				{Type: NodeTypeText, Text: "plain "},
+				{Type: NodeTypeText, Text: "commented", Marks: []PMMark{{
+					Type: MarkTypeComment,
+					Attrs: map[string]any{
+						"id":     "0",
+						"author": "Alice",
+						"text":   "Look at this",
+						"date":   "2026-05-15T12:00:00Z",
+					},
+				}}},
+				{Type: NodeTypeText, Text: " more"},
+			}},
+		},
+	}
+	jsonBytes, _ := json.Marshal(original)
+	docxBytes, err := PMJSONToDocx(jsonBytes)
+	if err != nil {
+		t.Fatalf("PMJSONToDocx: %v", err)
+	}
+	if !bytes.Contains(readDocxPart(t, docxBytes, "word/document.xml"), []byte("<w:commentRangeStart")) {
+		t.Errorf("expected <w:commentRangeStart in document.xml")
+	}
+	if readDocxPart(t, docxBytes, "word/comments.xml") == nil {
+		t.Errorf("expected word/comments.xml to be present in the zip")
+	}
+	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	if err != nil {
+		t.Fatalf("DocxToPMJSON: %v", err)
+	}
+	for _, w := range warnings {
+		if w.Code == WarningComments || w.Code == WarningUnsupportedNode {
+			t.Errorf("unexpected warning: %+v", w)
+		}
+	}
+	var parsed PMNode
+	_ = json.Unmarshal(parsedJSON, &parsed)
+	foundComment := false
+	for _, r := range parsed.Content[0].Content {
+		for _, m := range r.Marks {
+			if m.Type != MarkTypeComment {
+				continue
+			}
+			foundComment = true
+			if r.Text != "commented" {
+				t.Errorf("comment mark applied to wrong text: %q", r.Text)
+			}
+			if a, _ := m.Attrs["author"].(string); a != "Alice" {
+				t.Errorf("author mismatch: %q", a)
+			}
+			if txt, _ := m.Attrs["text"].(string); txt != "Look at this" {
+				t.Errorf("comment text mismatch: %q", txt)
+			}
+		}
+	}
+	if !foundComment {
+		t.Errorf("comment mark missing after round-trip: %+v", parsed.Content[0].Content)
+	}
+}
+
+// TestPMJSONToDocx_FootnoteRoundTrip emits a doc with a footnote
+// reference and verifies both the inline reference and word/
+// footnotes.xml round-trip.
+func TestPMJSONToDocx_FootnoteRoundTrip(t *testing.T) {
+	original := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{Type: NodeTypeParagraph, Content: []PMNode{
+				{Type: NodeTypeText, Text: "claim"},
+				{Type: NodeTypeFootnoteReference, Attrs: map[string]any{
+					"id":   "1",
+					"text": "Source: Smith 2025",
+				}},
+				{Type: NodeTypeText, Text: " end"},
+			}},
+		},
+	}
+	jsonBytes, _ := json.Marshal(original)
+	docxBytes, err := PMJSONToDocx(jsonBytes)
+	if err != nil {
+		t.Fatalf("PMJSONToDocx: %v", err)
+	}
+	if !bytes.Contains(readDocxPart(t, docxBytes, "word/document.xml"), []byte("<w:footnoteReference")) {
+		t.Errorf("expected <w:footnoteReference in document.xml")
+	}
+	if readDocxPart(t, docxBytes, "word/footnotes.xml") == nil {
+		t.Errorf("expected word/footnotes.xml to be present in the zip")
+	}
+	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	if err != nil {
+		t.Fatalf("DocxToPMJSON: %v", err)
+	}
+	for _, w := range warnings {
+		if w.Code == WarningUnsupportedNode {
+			t.Errorf("unexpected unsupported-node warning: %+v", w)
+		}
+	}
+	var parsed PMNode
+	_ = json.Unmarshal(parsedJSON, &parsed)
+	if len(parsed.Content) == 0 {
+		t.Fatalf("empty parsed content")
+	}
+	found := false
+	for _, r := range parsed.Content[0].Content {
+		if r.Type != NodeTypeFootnoteReference {
+			continue
+		}
+		found = true
+		if txt, _ := r.Attrs["text"].(string); txt != "Source: Smith 2025" {
+			t.Errorf("footnote body mismatch: %q", txt)
+		}
+	}
+	if !found {
+		t.Errorf("footnote reference missing after round-trip: %+v", parsed.Content[0].Content)
+	}
+}
+
+// TestPMJSONToDocx_EndnoteRoundTrip mirrors the footnote test for
+// endnotes, ensuring the parallel pipeline is wired up symmetrically.
+func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
+	original := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{Type: NodeTypeParagraph, Content: []PMNode{
+				{Type: NodeTypeText, Text: "see"},
+				{Type: NodeTypeEndnoteReference, Attrs: map[string]any{
+					"id":   "1",
+					"text": "Appendix",
+				}},
+			}},
+		},
+	}
+	jsonBytes, _ := json.Marshal(original)
+	docxBytes, err := PMJSONToDocx(jsonBytes)
+	if err != nil {
+		t.Fatalf("PMJSONToDocx: %v", err)
+	}
+	if !bytes.Contains(readDocxPart(t, docxBytes, "word/document.xml"), []byte("<w:endnoteReference")) {
+		t.Errorf("expected <w:endnoteReference in document.xml")
+	}
+	if readDocxPart(t, docxBytes, "word/endnotes.xml") == nil {
+		t.Errorf("expected word/endnotes.xml to be present in the zip")
+	}
+	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	if err != nil {
+		t.Fatalf("DocxToPMJSON: %v", err)
+	}
+	for _, w := range warnings {
+		if w.Code == WarningUnsupportedNode {
+			t.Errorf("unexpected unsupported-node warning: %+v", w)
+		}
+	}
+	var parsed PMNode
+	_ = json.Unmarshal(parsedJSON, &parsed)
+	found := false
+	for _, r := range parsed.Content[0].Content {
+		if r.Type == NodeTypeEndnoteReference {
+			found = true
+			if txt, _ := r.Attrs["text"].(string); txt != "Appendix" {
+				t.Errorf("endnote body mismatch: %q", txt)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("endnote reference missing after round-trip")
+	}
 }

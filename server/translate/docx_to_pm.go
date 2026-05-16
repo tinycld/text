@@ -44,14 +44,17 @@ func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
 
 	rels := parseRelationships(parts["word/_rels/document.xml.rels"])
 	numbering := parseNumberingFormats(parts["word/numbering.xml"])
+	comments := parseComments(parts["word/comments.xml"])
+	footnotes := parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote")
+	endnotes := parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote")
 
 	parser := docxParser{
 		zip:       zr,
 		rels:      rels,
 		numbering: numbering,
-		hasComments: hasPart(parts, "word/comments.xml") ||
-			hasContent(docXML, "<w:commentRangeStart") ||
-			hasContent(docXML, "<w:commentReference"),
+		comments:  comments,
+		footnotes: footnotes,
+		endnotes:  endnotes,
 	}
 
 	root, err := parser.parseDocument(docXML)
@@ -84,24 +87,69 @@ func readZipParts(zr *zip.Reader) (map[string][]byte, error) {
 	return parts, nil
 }
 
-func hasPart(parts map[string][]byte, name string) bool {
-	_, ok := parts[name]
-	return ok
-}
-
-func hasContent(b []byte, needle string) bool {
-	return bytes.Contains(b, []byte(needle))
-}
-
 // docxParser holds the state shared across paragraph/run/table parses
 // so we don't have to thread a half-dozen arguments through every call.
 type docxParser struct {
-	zip         *zip.Reader              // open docx zip for reading media bytes
-	rels        map[string]relationship  // rId -> relationship target
-	numbering   map[string]string        // numId -> "bullet" or "decimal"
-	hasComments bool                     // true if comments.xml or commentRange* present
-	warnings    []Warning                // accumulated soft-degradation signals
-	warningSet  map[WarningCode]struct{} // dedupe
+	zip          *zip.Reader              // open docx zip for reading media bytes
+	rels         map[string]relationship  // rId -> relationship target
+	numbering    map[string]string        // numId -> "bullet" or "decimal"
+	comments     map[string]commentInfo   // commentId -> author/text/date
+	footnotes    map[string]string        // footnote id -> plain text body
+	endnotes     map[string]string        // endnote id -> plain text body
+	openComments []string                 // commentIds currently active across the cursor
+	warnings     []Warning                // accumulated soft-degradation signals
+	warningSet   map[WarningCode]struct{} // dedupe
+}
+
+// commentInfo captures the metadata of one entry in word/comments.xml.
+// Stored on the parser and stamped into MarkTypeComment marks; on export
+// the same fields are written back out, so dropping or editing the
+// mark cleanly removes/updates the comment in the resulting docx.
+type commentInfo struct {
+	Author string
+	Text   string
+	Date   string
+}
+
+// closeComment removes a single occurrence of id from openComments.
+// Ranges close in arbitrary order (not necessarily LIFO) — a comment
+// opened earlier can close after a later one — so we splice rather
+// than pop.
+func (p *docxParser) closeComment(id string) {
+	for i, open := range p.openComments {
+		if open == id {
+			p.openComments = append(p.openComments[:i], p.openComments[i+1:]...)
+			return
+		}
+	}
+}
+
+// activeCommentMarks builds one MarkTypeComment mark per currently-open
+// comment id, populated with the resolved author/text/date from
+// word/comments.xml. Used by flushRun to stamp the marks onto each
+// text run sitting between a commentRangeStart and its matching
+// commentRangeEnd.
+func (p *docxParser) activeCommentMarks() []PMMark {
+	if len(p.openComments) == 0 {
+		return nil
+	}
+	out := make([]PMMark, 0, len(p.openComments))
+	for _, id := range p.openComments {
+		attrs := map[string]any{"id": id}
+		if info, ok := p.comments[id]; ok {
+			if info.Author != "" {
+				attrs["author"] = info.Author
+			}
+			if info.Text != "" {
+				attrs["text"] = info.Text
+			}
+			if info.Date != "" {
+				attrs["date"] = info.Date
+			}
+		}
+		out = append(out, PMMark{Type: MarkTypeComment, Attrs: attrs})
+	}
+	return out
 }
 
 // addWarning appends a unique warning code (we only emit one warning
@@ -197,6 +245,110 @@ func parseNumberingFormats(b []byte) map[string]string {
 	out := make(map[string]string, len(root.Nums))
 	for _, n := range root.Nums {
 		out[n.NumID] = abstracts[n.AbstractNumID.Val]
+	}
+	return out
+}
+
+// parseComments reads word/comments.xml into a map keyed by w:id. Each
+// entry collects the comment's author / date attributes and the flat
+// concatenation of every <w:t> child it contains. Returns nil on
+// missing or malformed input — the body-level pass treats absence as
+// "no comments" and skips emitting marks.
+func parseComments(b []byte) map[string]commentInfo {
+	if len(b) == 0 {
+		return nil
+	}
+	dec := xml.NewDecoder(bytes.NewReader(b))
+	out := map[string]commentInfo{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok || start.Name.Local != "comment" {
+			continue
+		}
+		info := commentInfo{
+			Author: attrValue(start, "author"),
+			Date:   attrValue(start, "date"),
+		}
+		id := attrValue(start, "id")
+		text, err := readCommentBodyText(dec, start)
+		if err != nil {
+			return out
+		}
+		info.Text = text
+		if id != "" {
+			out[id] = info
+		}
+	}
+	return out
+}
+
+// readCommentBodyText concatenates every <w:t> CharData inside a
+// <w:comment> element. Walks until the matching </w:comment> closes.
+func readCommentBodyText(dec *xml.Decoder, start xml.StartElement) (string, error) {
+	var sb strings.Builder
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "t" {
+				txt, err := readElementText(dec, t)
+				if err != nil {
+					return "", err
+				}
+				sb.WriteString(txt)
+				continue
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return sb.String(), nil
+			}
+		}
+	}
+}
+
+// parseFootnoteLikeBodies reads word/footnotes.xml or word/endnotes.xml
+// into a map of id -> plain-text body. The elementName arg is
+// "footnote" or "endnote"; both files share the same shape.
+//
+// Word seeds two reserved entries (id="-1" separator, id="0"
+// continuation separator) which carry no user content; we skip those
+// by checking the w:type attribute, which Word stamps as "separator"
+// or "continuationSeparator" on the reserved ones.
+func parseFootnoteLikeBodies(b []byte, elementName string) map[string]string {
+	if len(b) == 0 {
+		return nil
+	}
+	dec := xml.NewDecoder(bytes.NewReader(b))
+	out := map[string]string{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok || start.Name.Local != elementName {
+			continue
+		}
+		id := attrValue(start, "id")
+		typ := attrValue(start, "type")
+		if typ == "separator" || typ == "continuationSeparator" {
+			_ = skipElement(dec, start)
+			continue
+		}
+		text, err := readCommentBodyText(dec, start)
+		if err != nil {
+			return out
+		}
+		if id != "" {
+			out[id] = text
+		}
 	}
 	return out
 }
@@ -406,8 +558,25 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 				if err := skipElement(dec, t); err != nil {
 					return nil, err
 				}
-			case "commentRangeStart", "commentRangeEnd", "commentReference":
-				p.addWarning(WarningComments, "comment markers stripped from paragraph")
+			case "commentRangeStart":
+				if id := attrValue(t, "id"); id != "" {
+					p.openComments = append(p.openComments, id)
+				}
+				if err := skipElement(dec, t); err != nil {
+					return nil, err
+				}
+			case "commentRangeEnd":
+				if id := attrValue(t, "id"); id != "" {
+					p.closeComment(id)
+				}
+				if err := skipElement(dec, t); err != nil {
+					return nil, err
+				}
+			case "commentReference":
+				// Reference runs carry no user content — they're the
+				// "[A1]" pill Word renders between the range markers.
+				// We round-trip via the marks on the range, so the
+				// reference itself is dropped on import.
 				if err := skipElement(dec, t); err != nil {
 					return nil, err
 				}
@@ -600,10 +769,15 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 					return err
 				}
 			case "br":
-				// Line break — represent as a newline char inside the
-				// surrounding text run. Loses the distinction between
-				// soft break and page break, which is acceptable for v1.
-				collected = append(collected, PMNode{Type: NodeTypeText, Text: "\n"})
+				// <w:br w:type="page"/> is a hard page break — preserved
+				// as its own PM node so the export side can re-emit it
+				// at the same location. Soft / textWrapping breaks stay
+				// as a newline inside the surrounding text run.
+				if attrValue(t, "type") == "page" {
+					collected = append(collected, PMNode{Type: NodeTypePageBreak})
+				} else {
+					collected = append(collected, PMNode{Type: NodeTypeText, Text: "\n"})
+				}
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}
@@ -614,6 +788,40 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 				}
 				if img != nil {
 					collected = append(collected, *img)
+				}
+			case "footnoteReference":
+				ref := PMNode{Type: NodeTypeFootnoteReference}
+				id := attrValue(t, "id")
+				attrs := map[string]any{}
+				if id != "" {
+					attrs["id"] = id
+					if txt, ok := p.footnotes[id]; ok {
+						attrs["text"] = txt
+					}
+				}
+				if len(attrs) > 0 {
+					ref.Attrs = attrs
+				}
+				collected = append(collected, ref)
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			case "endnoteReference":
+				ref := PMNode{Type: NodeTypeEndnoteReference}
+				id := attrValue(t, "id")
+				attrs := map[string]any{}
+				if id != "" {
+					attrs["id"] = id
+					if txt, ok := p.endnotes[id]; ok {
+						attrs["text"] = txt
+					}
+				}
+				if len(attrs) > 0 {
+					ref.Attrs = attrs
+				}
+				collected = append(collected, ref)
+				if err := skipElement(dec, t); err != nil {
+					return err
 				}
 			default:
 				if err := skipElement(dec, t); err != nil {
@@ -644,11 +852,19 @@ func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras [
 		marks = stripMark(marks, MarkTypeTextStyle)
 	}
 	combined := mergeMarks(marks, extras)
+	// Comment marks are appended (not merged) because mergeMarks
+	// dedupes by Type — nested ranges would otherwise collapse to one.
+	combined = append(combined, p.activeCommentMarks()...)
 	for _, c := range collected {
-		if c.Type == NodeTypeText {
+		switch c.Type {
+		case NodeTypeText:
 			if len(combined) > 0 {
 				c.Marks = append([]PMMark(nil), combined...)
 			}
+		case NodeTypeFootnoteReference, NodeTypeEndnoteReference:
+			// Footnote / endnote refs preserve formatting marks (so a
+			// bold paragraph keeps its bold ref) but skip mark types
+			// that would be visually nonsensical on a numeric ref.
 		}
 		*out = append(*out, c)
 	}

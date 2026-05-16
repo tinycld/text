@@ -1,12 +1,14 @@
+import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { CommentComposer } from '@tinycld/core/ui/comments'
+import { CommentComposer, type MentionSuggestion } from '@tinycld/core/ui/comments'
 import { MessageSquarePlus } from 'lucide-react-native'
 import { newRecordId } from 'pbtsdb/core'
 import { useState } from 'react'
 import { Modal, Platform, Pressable, Text, View } from 'react-native'
 import { useCommentMutations } from '../../hooks/use-comment-mutations'
 import type { DocumentCommentBridge } from '../../hooks/use-document-editor'
+import { useMentionSuggestions } from '../../hooks/use-mention-suggestions'
 
 export interface NewCommentButtonProps {
     driveItemId: string
@@ -37,6 +39,8 @@ export function NewCommentButton({
     const openDrawer = useCommentsDrawerStore(s => s.open)
     const iconColor = useThemeColor('muted-foreground')
     const activeColor = useThemeColor('primary')
+    const { userOrgId } = useCurrentRole()
+    const mentionSuggestions = useMentionSuggestions(userOrgId)
 
     const isDisabled = disabled || selectionEmpty || !commentBridge
 
@@ -116,6 +120,7 @@ export function NewCommentButton({
                 error={add.error ? String(add.error.message ?? add.error) : null}
                 onCancel={onCancel}
                 onSubmit={onSubmit}
+                mentionSuggestions={mentionSuggestions}
             />
         </>
     )
@@ -127,9 +132,17 @@ interface NewCommentModalProps {
     error: string | null
     onCancel: () => void
     onSubmit: (body: string) => void
+    mentionSuggestions: MentionSuggestion[]
 }
 
-function NewCommentModal({ isOpen, isPending, error, onCancel, onSubmit }: NewCommentModalProps) {
+function NewCommentModal({
+    isOpen,
+    isPending,
+    error,
+    onCancel,
+    onSubmit,
+    mentionSuggestions,
+}: NewCommentModalProps) {
     if (!isOpen) return null
     return (
         <Modal transparent animationType="fade" visible={isOpen} onRequestClose={onCancel}>
@@ -150,6 +163,7 @@ function NewCommentModal({ isOpen, isPending, error, onCancel, onSubmit }: NewCo
                         autoFocus
                         onCancel={onCancel}
                         onSubmit={onSubmit}
+                        mentionSuggestions={mentionSuggestions}
                     />
                 </Pressable>
             </Pressable>

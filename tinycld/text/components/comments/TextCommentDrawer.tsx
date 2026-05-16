@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { useCommentMutations } from '../../hooks/use-comment-mutations'
 import type { CommentRow, DocumentCommentsResult } from '../../hooks/use-document-comments'
 import type { DocumentCommentBridge } from '../../hooks/use-document-editor'
+import { useMentionSuggestions } from '../../hooks/use-mention-suggestions'
 
 export interface TextCommentDrawerProps {
     driveItemId: string
@@ -34,6 +35,7 @@ export function TextCommentDrawer({
 
     const { userOrgId } = useCurrentRole()
     const { reply, editBody, resolve, reopen, remove } = useCommentMutations()
+    const mentionSuggestions = useMentionSuggestions(userOrgId)
 
     const { threadsByCommentId, orphanedCommentIds } = documentComments
 
@@ -80,6 +82,7 @@ export function TextCommentDrawer({
             onDelete={id => remove.mutate({ id })}
             onResolve={id => resolve.mutate({ id })}
             onReopen={id => reopen.mutate({ id })}
+            mentionSuggestions={mentionSuggestions}
         />
     )
 }

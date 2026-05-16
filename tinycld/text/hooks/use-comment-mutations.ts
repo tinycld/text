@@ -19,10 +19,14 @@ export interface ReplyArgs {
 
 // Text-side comment mutations. Closes over the text_comments collection
 // and shapes the insert with the comment_id anchor + quoted_text
-// snapshot. Mentions are deferred to PR3c — for now the mentions field
-// in core's mutations factory is unused.
+// snapshot. Wired with the shared comment_mentions collection so any
+// `[[@user_org_id]]` token in the body yields a notify-triggering row
+// alongside the comment insert.
 export function useCommentMutations() {
-    const [textCommentsCollection] = useStore('text_comments')
+    const [textCommentsCollection, commentMentionsCollection] = useStore(
+        'text_comments',
+        'comment_mentions'
+    )
 
     return useBaseCommentMutations<
         Omit<TextComments, 'created' | 'updated'>,
@@ -37,5 +41,9 @@ export function useCommentMutations() {
             comment_id: args.commentId,
             quoted_text: args.quotedText,
         }),
+        mentions: {
+            commentCollection: 'text_comments',
+            insertMention: row => commentMentionsCollection.insert(row),
+        },
     })
 }

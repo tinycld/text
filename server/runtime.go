@@ -204,6 +204,7 @@ func (r *Runtime) NewDoc(roomID string) (realtime.DocHandle, error) {
 		return nil, fmt.Errorf("text: room %s already has a Y.Doc", roomID)
 	}
 	doc := ycrdt.NewDoc(roomID, false, nil, nil, false)
+	installYXmlElementPatcher(doc)
 	r.docs[roomID] = doc
 	handle := &textDocHandle{runtime: r, id: roomID, doc: doc, lastActivity: now()}
 	r.handles[roomID] = handle
@@ -217,6 +218,80 @@ func (r *Runtime) NewDoc(roomID string) (realtime.DocHandle, error) {
 		}
 	}
 	return handle, nil
+}
+
+// installYXmlElementPatcher subscribes a `beforeObserverCalls` listener
+// on the doc that walks the transaction's Changed / ChangedParentTypes
+// maps and patches any YXmlElement (and its embedded YXmlFragment)
+// whose EH/DEH/Map are nil. This works around a y-crdt v0.0.0 quirk:
+// the library's NewYXmlElement constructor — invoked from
+// content_type.go::readYXmlElement during ApplyUpdate decoding —
+// returns an element with PrelimAttrs set but EH/DEH/Map left nil.
+// When the transaction cleanup then fires observers on the newly
+// inserted YXmlElement (e.g. because text was inserted into it),
+// CallTypeObservers → CallEventHandlerListeners panics dereferencing
+// nil EH.
+//
+// `beforeObserverCalls` runs after the read phase has populated the
+// transaction's Changed map and BEFORE the loop that calls
+// CallObserver on each modified type, so patching here ensures every
+// observer-firing path sees a valid EventHandler. The seed path
+// (translate.SeedFromPMJSON → newXmlElement) already patches the same
+// fields for elements it creates explicitly; this hook covers the
+// elements y-crdt mints on its own during inbound update decoding.
+func installYXmlElementPatcher(doc *ycrdt.Doc) {
+	handler := ycrdt.NewObserverHandler(func(args ...interface{}) {
+		if len(args) == 0 {
+			return
+		}
+		trans, ok := args[0].(*ycrdt.Transaction)
+		if !ok || trans == nil {
+			return
+		}
+		for t := range trans.Changed {
+			patchAbstractType(t)
+		}
+		for t := range trans.ChangedParentTypes {
+			patchAbstractType(t)
+		}
+	})
+	doc.On("beforeObserverCalls", handler)
+}
+
+// patchAbstractType walks an IAbstractType-shaped value and initializes
+// EH/DEH/Map on the embedded AbstractType if they're nil. Type-switches
+// over every concrete Y* type readYXmlElement / readYXmlFragment etc.
+// might mint during ApplyUpdate decoding. The branch list mirrors the
+// typeRefs table in y-crdt's content_type.go.
+func patchAbstractType(t interface{}) {
+	switch v := t.(type) {
+	case *ycrdt.YXmlElement:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YXmlFragment:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YXmlText:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YText:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YArray:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YMap:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	case *ycrdt.YXmlHook:
+		ensureAbstractTypeInitialized(&v.AbstractType)
+	}
+}
+
+func ensureAbstractTypeInitialized(at *ycrdt.AbstractType) {
+	if at.EH == nil {
+		at.EH = ycrdt.NewEventHandler()
+	}
+	if at.DEH == nil {
+		at.DEH = ycrdt.NewEventHandler()
+	}
+	if at.Map == nil {
+		at.Map = make(map[string]*ycrdt.Item)
+	}
 }
 
 // closeDoc removes the doc from the registry. Returns true if the

@@ -1050,16 +1050,21 @@ func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, ru
 // (no PM node emitted) — losing an unresolvable image is preferable
 // to producing a tree that fails round-trip.
 //
-// Image dimensions are deliberately NOT preserved in v1: OOXML
-// stores them as EMUs (1 inch = 914400 EMU) on the wp:extent
-// element, but the editor schema doesn't have a place to put them
-// and round-tripping fixed pixel sizes through PM is fragile.
-// Sizing is a v2 concern.
+// Image dimensions are read from <wp:extent cx=".." cy=".."/>, which
+// appears inside both <wp:inline> and <wp:anchor>. OOXML stores them
+// as EMUs (English Metric Units: 1 inch = 914400 EMU, 1 px @ 96 DPI =
+// 9525 EMU). We convert with rounding (emusToPixels) and stash the
+// integer pixel values on the PM image node as `width` / `height`.
+// pm_to_docx.go::emitImageBlock multiplies back to EMUs (via
+// WordZero's `width * 9525`) on save, so a docx that round-trips
+// through the editor without an explicit user resize comes back with
+// the same wp:extent values (modulo ±1 px from integer rounding).
 func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
 	var blipRid, alt, title string
 	hasAnchor := false
 	hasWrap := false
 	posHAlign := ""
+	var extentCx, extentCy int
 	// Track depth inside <wp:positionH> so we only read the <wp:align>
 	// that belongs to the horizontal positioner. Word writes both
 	// <wp:positionH> and <wp:positionV>, each with an <wp:align> child;
@@ -1082,6 +1087,17 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 			case "blip":
 				if v := attrValue(t, "embed"); v != "" {
 					blipRid = v
+				}
+			case "extent":
+				// <wp:extent cx="..." cy="..."/> — present on both
+				// <wp:inline> and <wp:anchor>. We accept the first one
+				// we see; effectExtent (which carries a similar shape)
+				// is a different local name so there's no collision.
+				if cx, ok := parseIntAttr(t, "cx"); ok && cx > 0 {
+					extentCx = cx
+				}
+				if cy, ok := parseIntAttr(t, "cy"); ok && cy > 0 {
+					extentCy = cy
 				}
 			case "wrapSquare", "wrapTight", "wrapThrough":
 				hasWrap = true
@@ -1129,10 +1145,46 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 				if wrap := resolveWrap(hasAnchor, hasWrap, posHAlign); wrap != "" {
 					img.Attrs["wrap"] = wrap
 				}
+				if extentCx > 0 {
+					img.Attrs["width"] = emusToPixels(extentCx)
+				}
+				if extentCy > 0 {
+					img.Attrs["height"] = emusToPixels(extentCy)
+				}
 				return img, nil
 			}
 		}
 	}
+}
+
+// parseIntAttr returns the named attribute parsed as a decimal integer,
+// plus an ok flag distinguishing "absent or unparsable" from a literal
+// zero. Used for <wp:extent cx/cy> where a missing attr means
+// "preserve the bytes' native dimensions" and zero means "render as
+// 0×0" — semantically the same here but we keep the distinction for
+// future callers.
+func parseIntAttr(start xml.StartElement, name string) (int, bool) {
+	raw := attrValue(start, name)
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// emusToPixels converts an EMU (English Metric Unit) measurement into
+// CSS pixels at 96 DPI. 914400 EMU = 1 inch, 96 px = 1 inch, so
+// 9525 EMU = 1 px. We round to the nearest pixel because partial
+// pixels never round-trip cleanly through the HTML width/height attrs
+// (which are integers).
+func emusToPixels(emus int) int {
+	if emus <= 0 {
+		return 0
+	}
+	return (emus + 4762) / 9525
 }
 
 // resolveWrap turns the collected anchor/wrap/position state into

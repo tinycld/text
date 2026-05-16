@@ -30,6 +30,15 @@ var (
 	MaxImportWarningRooms = 256
 )
 
+// MaxApplyUpdateBytes bounds the size of a single MsgDocUpdate payload
+// the broker is willing to fold into a room's Y.Doc. y-crdt's
+// ApplyUpdate allocates per-message; a hostile or buggy client sending
+// a 100 MiB frame would exhaust memory before the recover guard
+// triggers. Real edits are kilobytes — even a paste of a long document
+// rarely exceeds 100 KiB. 1 MiB leaves comfortable headroom for any
+// legitimate edit while keeping a single frame's allocation bounded.
+const MaxApplyUpdateBytes = 1 * 1024 * 1024
+
 // now is the clock the runtime / janitor read. Replaced in tests to
 // drive the TTL paths deterministically without sleeping.
 var now = time.Now
@@ -408,6 +417,12 @@ func (h *textDocHandle) LastActivity() time.Time {
 // change in the library would otherwise take down the broker
 // goroutine on hostile client input.
 func (h *textDocHandle) ApplyUpdate(payload []byte) error {
+	if len(payload) > MaxApplyUpdateBytes {
+		return fmt.Errorf(
+			"text: ApplyUpdate payload %d bytes exceeds cap %d for room %s",
+			len(payload), MaxApplyUpdateBytes, h.id,
+		)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed || h.doc == nil {

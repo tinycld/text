@@ -17,6 +17,8 @@ import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
+import { FontFamily } from '@tiptap/extension-text-style/font-family'
+import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useMemo, useRef } from 'react'
@@ -208,6 +210,37 @@ function deriveCurrentAlign(tiptapEditor: ReturnType<typeof useEditor>): AlignVa
     return null
 }
 
+// deriveCurrentFontSize reads the textStyle.fontSize attr at the caret
+// and returns the integer px value, or null when no fontSize is set
+// (document default). The Tiptap FontSize extension stores the
+// attribute as a CSS length string ("16px"); we parse the integer
+// out for the toolbar dropdown. Bare numbers and trailing-unit
+// variants ("14") are tolerated for robustness when pasting from
+// other sources.
+function deriveCurrentFontSize(tiptapEditor: ReturnType<typeof useEditor>): number | null {
+    if (!tiptapEditor) return null
+    const raw = tiptapEditor.getAttributes('textStyle')?.fontSize
+    if (typeof raw !== 'string' || raw === '') return null
+    const trimmed = raw.trim().toLowerCase()
+    const numeric = trimmed.endsWith('px') ? trimmed.slice(0, -2).trim() : trimmed
+    const n = Number.parseFloat(numeric)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return Math.round(n)
+}
+
+// deriveCurrentFontFamily returns the textStyle.fontFamily attr at the
+// caret (already a string in the schema), or null when no family is
+// set. Empty strings collapse to null so the toolbar shows "Default"
+// rather than a blank selected state.
+function deriveCurrentFontFamily(
+    tiptapEditor: ReturnType<typeof useEditor>
+): string | null {
+    if (!tiptapEditor) return null
+    const raw = tiptapEditor.getAttributes('textStyle')?.fontFamily
+    if (typeof raw !== 'string' || raw === '') return null
+    return raw
+}
+
 // deriveActiveIndent returns the integer indent attr of the active
 // paragraph/heading, clamped non-negative. Returns 0 when the caret
 // is not in an indentable block, which keeps canOutdent=false there
@@ -311,8 +344,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // `color` attribute. The .docx importer maps <w:color> on
                 // a run to this mark, so headings/runs that carry an
                 // explicit color in Word render with the same color here.
+                // FontSize / FontFamily piggyback onto the same textStyle
+                // mark; the importer collects <w:sz> and <w:rFonts> into
+                // the corresponding attrs in server/translate.
                 TextStyle,
                 Color,
+                FontSize,
+                FontFamily,
                 // TextAlign: adds the textAlign attr to paragraph +
                 // heading and exposes setTextAlign / unsetTextAlign +
                 // Cmd-Shift-L/E/R/J keymaps. List items are excluded
@@ -471,6 +509,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             unsetTextAlign: () => tiptapEditor?.chain().focus().unsetTextAlign().run(),
             indentBlock: () => tiptapEditor?.chain().focus().indentBlock().run(),
             outdentBlock: () => tiptapEditor?.chain().focus().outdentBlock().run(),
+            setFontSize: (px: number) =>
+                tiptapEditor?.chain().focus().setFontSize(`${px}px`).run(),
+            unsetFontSize: () => tiptapEditor?.chain().focus().unsetFontSize().run(),
+            setFontFamily: (family: string) =>
+                tiptapEditor?.chain().focus().setFontFamily(family).run(),
+            unsetFontFamily: () => tiptapEditor?.chain().focus().unsetFontFamily().run(),
         }),
         [tiptapEditor]
     )
@@ -507,6 +551,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         // value stays in sync with the caret as it moves.
         canIndent: deriveActiveIndent(tiptapEditor) < MAX_INDENT_LEVEL,
         canOutdent: deriveActiveIndent(tiptapEditor) > 0,
+        currentFontSize: deriveCurrentFontSize(tiptapEditor),
+        currentFontFamily: deriveCurrentFontFamily(tiptapEditor),
     }
 
     // findReplaceEditor exposes the minimum surface the FindReplaceBar

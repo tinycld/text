@@ -150,7 +150,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             Placeholder.configure({
                 placeholder: init.placeholder ?? 'Start writing…',
             }),
-            Table.configure({ resizable: false }),
+            Table.configure({ resizable: true, handleWidth: 5, cellMinWidth: 32 }),
             TableRow,
             BorderedTableHeader,
             BorderedTableCell,
@@ -199,6 +199,8 @@ function EditorMounted({ init }: EditorMountedProps) {
                 activeLink: (editor.getAttributes('link')?.href as string) ?? null,
                 isInTable: editor.isActive('table'),
                 selectionEmpty: editor.state.selection.empty,
+                canMergeCells: editor.can().mergeCells(),
+                canSplitCell: editor.can().splitCell(),
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
             if (serialized === lastSerialized) return
@@ -331,6 +333,15 @@ function EditorMounted({ init }: EditorMountedProps) {
                     break
                 case 'delete-table':
                     editor.chain().focus().deleteTable().run()
+                    break
+                case 'merge-cells':
+                    editor.chain().focus().mergeCells().run()
+                    break
+                case 'split-cell':
+                    editor.chain().focus().splitCell().run()
+                    break
+                case 'merge-or-split':
+                    editor.chain().focus().mergeOrSplit().run()
                     break
                 case 'set-cell-borders': {
                     const payload = parsed.payload as {

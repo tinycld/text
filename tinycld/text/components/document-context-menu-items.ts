@@ -14,6 +14,8 @@ export type ContextMenuItemId =
     | 'table-insert-row-below'
     | 'table-insert-column-left'
     | 'table-insert-column-right'
+    | 'table-merge-cells'
+    | 'table-split-cell'
     | 'table-delete-row'
     | 'table-delete-column'
     | 'table-delete-table'
@@ -121,6 +123,18 @@ export function buildDocumentContextMenu({
                     label: 'Insert column right',
                     isDisabled: !editable,
                     invoke: () => commands.addColumnAfter?.(),
+                },
+                {
+                    id: 'table-merge-cells',
+                    label: 'Merge cells',
+                    isDisabled: !editable || !(toolbarState.canMergeCells ?? false),
+                    invoke: () => commands.mergeCells?.(),
+                },
+                {
+                    id: 'table-split-cell',
+                    label: 'Split cell',
+                    isDisabled: !editable || !(toolbarState.canSplitCell ?? false),
+                    invoke: () => commands.splitCell?.(),
                 },
                 {
                     id: 'table-delete-row',

@@ -117,6 +117,15 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
 
     const tiptapEditor = useEditor(
         {
+            // Tiptap v3's useEditor defaults to NOT re-rendering on every
+            // transaction (perf opt-out). Without this flag, toolbarState
+            // below freezes at mount-time values — isActive('table'),
+            // can().mergeCells(), can().splitCell(), and friends never
+            // update as the caret moves, so the toolbar permanently
+            // believes you're not in a table. Flip it on so each
+            // transaction triggers a re-render and the inline toolbar
+            // state stays in sync with the editor.
+            shouldRerenderOnTransaction: true,
             editable: options.editable ?? true,
             extensions: [
                 // StarterKit bundles paragraphs, headings, bold, italic,
@@ -140,7 +149,16 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
                 TextStyle,
                 Color,
                 Placeholder.configure({ placeholder: options.placeholder ?? 'Start writing…' }),
-                Table.configure({ resizable: false }),
+                // Column resize: Tiptap's TableView mounts a
+                // columnResizing plugin that draws drag handles on
+                // every cell boundary and writes the dragged width
+                // back to the cell's `colwidth` attribute on mouseup.
+                // BorderedTableCell extends the upstream TableCell with
+                // `...this.parent?.()` so colwidth + colspan + rowspan
+                // are preserved — resize state flows through unchanged.
+                // cellMinWidth keeps a column from being dragged to 0
+                // (which would render as a 1px-wide slice).
+                Table.configure({ resizable: true, handleWidth: 5, cellMinWidth: 32 }),
                 TableRow,
                 BorderedTableHeader,
                 BorderedTableCell,
@@ -222,6 +240,16 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
             deleteRow: () => tiptapEditor?.chain().focus().deleteRow().run(),
             deleteColumn: () => tiptapEditor?.chain().focus().deleteColumn().run(),
             deleteTable: () => tiptapEditor?.chain().focus().deleteTable().run(),
+            // Merge/split: skip the .focus() that other commands use.
+            // chain().focus() resets the editor's selection back to its
+            // last text selection (via ProseMirror's domSerializer
+            // round-trip), which destroys a CellSelection set by
+            // shift-drag. Run the command directly on the existing
+            // selection so the multi-cell selection survives the click
+            // on the menu item.
+            mergeCells: () => tiptapEditor?.chain().mergeCells().run(),
+            splitCell: () => tiptapEditor?.chain().splitCell().run(),
+            mergeOrSplit: () => tiptapEditor?.chain().mergeOrSplit().run(),
             insertImage: (src: string, alt?: string) =>
                 tiptapEditor?.chain().focus().setImage({ src, alt }).run(),
             setCellBorders: (preset, border) => {
@@ -275,6 +303,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         })(),
         isInTable: tiptapEditor?.isActive('table') ?? false,
         selectionEmpty: tiptapEditor?.state.selection.empty ?? true,
+        // editor.can() runs the command's check predicate without
+        // actually dispatching the transaction. For mergeCells that
+        // means "is the current selection a CellSelection that spans
+        // a mergeable rectangle". For splitCell it means "does the
+        // caret sit in a cell with colspan>1 or rowspan>1".
+        canMergeCells: tiptapEditor?.can().mergeCells() ?? false,
+        canSplitCell: tiptapEditor?.can().splitCell() ?? false,
     }
 
     const EditorComponent = useMemo(

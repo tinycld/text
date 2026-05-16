@@ -22,6 +22,8 @@ interface TableMenuProps {
     isOpen: boolean
     onOpenChange: (open: boolean) => void
     isInTable: boolean
+    canMergeCells: boolean
+    canSplitCell: boolean
     commands: EditorCommands
     // The popover anchors to the wrapped trigger element. The
     // <Menu.Trigger> child receives a press handler that toggles the
@@ -47,7 +49,15 @@ const CELL_GAP = 2
 // Selection highlight uses the brand `primary` color rather than
 // `accent` — the light-mode `accent` token is a near-white pastel that
 // renders invisible against the popover surface.
-export function TableMenu({ isOpen, onOpenChange, isInTable, commands, trigger }: TableMenuProps) {
+export function TableMenu({
+    isOpen,
+    onOpenChange,
+    isInTable,
+    canMergeCells,
+    canSplitCell,
+    commands,
+    trigger,
+}: TableMenuProps) {
     return (
         <Menu isOpen={isOpen} onOpenChange={onOpenChange}>
             <Menu.Trigger>{trigger}</Menu.Trigger>
@@ -55,6 +65,8 @@ export function TableMenu({ isOpen, onOpenChange, isInTable, commands, trigger }
                 <Menu.Content placement="bottom" align="start">
                     <TableMenuBody
                         isInTable={isInTable}
+                        canMergeCells={canMergeCells}
+                        canSplitCell={canSplitCell}
                         commands={commands}
                         onClose={() => onOpenChange(false)}
                     />
@@ -66,11 +78,19 @@ export function TableMenu({ isOpen, onOpenChange, isInTable, commands, trigger }
 
 interface TableMenuBodyProps {
     isInTable: boolean
+    canMergeCells: boolean
+    canSplitCell: boolean
     commands: EditorCommands
     onClose: () => void
 }
 
-function TableMenuBody({ isInTable, commands, onClose }: TableMenuBodyProps) {
+function TableMenuBody({
+    isInTable,
+    canMergeCells,
+    canSplitCell,
+    commands,
+    onClose,
+}: TableMenuBodyProps) {
     if (isInTable) {
         return (
             <View className="min-w-[200px] p-1">
@@ -102,6 +122,23 @@ function TableMenuBody({ isInTable, commands, onClose }: TableMenuBodyProps) {
                     label="Add column right"
                     onPress={() => {
                         commands.addColumnAfter?.()
+                        onClose()
+                    }}
+                />
+                <Separator />
+                <MenuRow
+                    label="Merge cells"
+                    isDisabled={!canMergeCells}
+                    onPress={() => {
+                        commands.mergeCells?.()
+                        onClose()
+                    }}
+                />
+                <MenuRow
+                    label="Split cell"
+                    isDisabled={!canSplitCell}
+                    onPress={() => {
+                        commands.splitCell?.()
                         onClose()
                     }}
                 />
@@ -231,13 +268,25 @@ function TableGridPicker({
     )
 }
 
-function MenuRow({ label, onPress }: { label: string; onPress: () => void }) {
+function MenuRow({
+    label,
+    onPress,
+    isDisabled,
+}: {
+    label: string
+    onPress: () => void
+    isDisabled?: boolean
+}) {
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={label}
+            accessibilityState={{ disabled: isDisabled }}
+            disabled={isDisabled}
             onPress={onPress}
-            className="px-3 py-2 rounded-md hover:bg-surface-secondary"
+            className={`px-3 py-2 rounded-md ${
+                isDisabled ? 'opacity-40' : 'hover:bg-surface-secondary'
+            }`}
             hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
         >
             <Text className="text-sm text-foreground">{label}</Text>

@@ -140,7 +140,17 @@ type DomSnapshot = {
     headings: { tag: string; text: string }[]
     orderedLists: { start: number; firstItem: string; itemTexts: string[] }[]
     sampleDocColors: string[]
-    tables: { width: number; firstHeaderTexts: string[] }[]
+    tables: {
+        width: number
+        firstHeaderTexts: string[]
+        // Per-cell {colspan, rowspan, text} for every row, so a test
+        // can check that the merged headers ("May 2012", "September 2010")
+        // actually render with colspan=2 instead of collapsing to plain
+        // 1-col cells. Reads HTMLTableCellElement.colSpan, which is
+        // the *rendered* value the browser uses for layout — exactly
+        // what determines whether the cell visually spans columns.
+        cells: { colspan: number; rowspan: number; text: string }[][]
+    }[]
     editorWidth: number
 }
 async function domSnapshot(page: Page): Promise<DomSnapshot> {
@@ -203,7 +213,17 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
                           (c) => (c.textContent ?? '').trim().slice(0, 40)
                       )
                     : []
-                return { width: t.offsetWidth, firstHeaderTexts: headerTexts }
+                const cells = Array.from(t.querySelectorAll<HTMLTableRowElement>('tr')).map(
+                    (row) =>
+                        Array.from(row.querySelectorAll<HTMLTableCellElement>('td, th')).map(
+                            (c) => ({
+                                colspan: c.colSpan,
+                                rowspan: c.rowSpan,
+                                text: (c.textContent ?? '').trim().slice(0, 40),
+                            })
+                        )
+                )
+                return { width: t.offsetWidth, firstHeaderTexts: headerTexts, cells }
             }
         )
 
@@ -331,6 +351,38 @@ test.describe('Text — .docx fidelity', () => {
         // got removed or overridden by a parent rule.
         expect(editorWidth).toBeGreaterThan(600)
         expect(editorWidth).toBeLessThan(760)
+    })
+
+    test('merged-header cells render with colspan=2', async ({ page }) => {
+        // The fixture's "Complex Tables" table has two header cells that
+        // each span two physical columns in Word (<w:gridSpan w:val="2">):
+        //   row 0: ['', 'May 2012' (gridSpan=2), 'September 2010' (gridSpan=2)]
+        //   row 1: ['Screen Reader', 'Responses', 'Share', 'Responses', 'Share']
+        //
+        // The visual cue a Word user expects is "May 2012" and "September 2010"
+        // stretching across both of the data columns they govern. If colspan
+        // doesn't survive the import → Y.Doc → y-tiptap → ProseMirror schema
+        // round-trip, those headers split into individual single-column
+        // cells and the table reads like every header label has been
+        // duplicated. That's the bug this test guards against.
+        await openFixture(page)
+        const { tables } = await domSnapshot(page)
+        const complex = tables.find((t) => t.firstHeaderTexts.includes('May 2012'))
+        expect(complex, 'expected the merged-header complex table').toBeTruthy()
+        const row0 = complex?.cells[0] ?? []
+        const may = row0.find((c) => c.text === 'May 2012')
+        const sept = row0.find((c) => c.text.includes('September 2010'))
+        expect(may, 'expected a "May 2012" cell in row 0').toBeTruthy()
+        expect(sept, 'expected a "September 2010" cell in row 0').toBeTruthy()
+        expect(may?.colspan, 'May 2012 header should span 2 columns').toBe(2)
+        expect(sept?.colspan, 'September 2010 header should span 2 columns').toBe(2)
+        // Row 1 should have 5 single-column cells — the unmerged header
+        // row. Catches a regression where colspan leaks onto row 1 too.
+        const row1 = complex?.cells[1] ?? []
+        expect(row1.length, 'row 1 should have 5 cells').toBe(5)
+        for (const c of row1) {
+            expect(c.colspan, `row 1 cell "${c.text}" should be colspan=1`).toBe(1)
+        }
     })
 
     test('Heading 1 renders with the .docx red color', async ({ page }) => {

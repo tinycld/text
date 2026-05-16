@@ -144,6 +144,42 @@ export const EDITOR_CONTENT_STYLES = `
     background: var(--editor-table-header, #f3f4f6);
     font-weight: 600;
 }
+/* Column resize affordance. Tiptap's columnResizing plugin renders a
+   .column-resize-handle inside each cell on the trailing edge while
+   hovering or dragging; it sets body.cursor via .resize-cursor while
+   a drag is active. Tint with the brand primary so the handle is
+   visible in both light and dark mode. The handle's width is set by
+   Table.configure({ handleWidth }) on the JS side; the CSS only
+   controls color + cursor. */
+.ProseMirror .column-resize-handle {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: -2px;
+    width: 4px;
+    background-color: var(--editor-primary-color, #14b8a6);
+    pointer-events: none;
+}
+.ProseMirror.resize-cursor {
+    cursor: col-resize;
+}
+/* TableView wraps each <table> in a .tableWrapper div so it can host
+   the absolutely-positioned resize handle without escaping the cell.
+   Make sure overflow scrolls horizontally on narrow viewports instead
+   of clipping the handle. */
+.ProseMirror .tableWrapper {
+    overflow-x: auto;
+    margin: 0 0 0.75em 0;
+}
+.ProseMirror .tableWrapper > table {
+    margin: 0;
+}
+/* Multi-cell selection (CellSelection from prosemirror-tables). Drives
+   the visual highlight when the user shift-drags across cells. Without
+   this the selection is invisible and merge-cells UI feels broken. */
+.ProseMirror .selectedCell {
+    background-color: color-mix(in srgb, var(--editor-primary-color, #14b8a6) 18%, transparent);
+}
 .ProseMirror img {
     max-width: 100%;
     height: auto;

@@ -31,6 +31,11 @@ export const STYLES = `
     --editor-link: #1d4ed8;
     --editor-placeholder: #999;
     --editor-table-header: #f3f4f6;
+    /* Column resize handle + cell selection use the brand primary as
+       fallback. The web mount passes the live theme value through
+       inline style on the wrapper; here in the WebView we hardcode the
+       brand teal (matches the tailwind 'primary' token). */
+    --editor-primary-color: #14b8a6;
 }
 html, body {
     margin: 0;

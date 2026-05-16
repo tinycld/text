@@ -27,6 +27,8 @@ import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
 import { BorderMenu } from './BorderMenu'
+import { FontFamilyPicker } from './FontFamilyPicker'
+import { FontSizePicker } from './FontSizePicker'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { TableMenu } from './TableMenu'
@@ -56,6 +58,19 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
         <View className="border-b border-border overflow-visible">
             <ToolbarRow>
                 <View className="flex-row items-center gap-0.5 px-2 py-1.5 overflow-visible">
+                    <FontFamilyPicker
+                        currentFamily={state.currentFontFamily ?? null}
+                        commands={commands}
+                        disabled={disabled}
+                    />
+                    <FontSizePicker
+                        currentPx={state.currentFontSize ?? null}
+                        commands={commands}
+                        disabled={disabled}
+                    />
+
+                    <Separator />
+
                     <FormatButton
                         icon={Bold}
                         accessibilityLabel="Bold"

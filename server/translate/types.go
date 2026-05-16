@@ -70,11 +70,15 @@ const (
 	MarkTypeItalic    = "italic"
 	MarkTypeUnderline = "underline"
 	MarkTypeLink      = "link"
-	// MarkTypeTextStyle carries the @tiptap/extension-text-style mark,
-	// which currently exposes a single attribute: `color`. Word's
-	// <w:color w:val="RRGGBB"> on a run flows into this mark on import,
-	// and back out to <w:color> on export. Schema: requires the
-	// TextStyle + Color extensions in both editor configs.
+	// MarkTypeTextStyle carries the @tiptap/extension-text-style mark.
+	// Attributes supported on the mark:
+	//   - color:      Word <w:color w:val="RRGGBB"> ⇄ "#RRGGBB" hex
+	//   - fontSize:   Word <w:sz w:val="half-points"> ⇄ integer CSS px
+	//   - fontFamily: Word <w:rFonts w:ascii="…"> ⇄ family name string
+	// All three live on a single mark instance per run so a run with
+	// e.g. {color, fontSize, fontFamily} stays one mark, not three —
+	// matches how @tiptap/extension-text-style attaches attributes to a
+	// single <span style="…"> on the DOM side.
 	MarkTypeTextStyle = "textStyle"
 	// MarkTypeComment is applied to the run-spans covered by a
 	// <w:commentRangeStart>…<w:commentRangeEnd> pair in word/document.xml.

@@ -931,16 +931,17 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 // hyperlink wrapper) to each text node in the run. Image nodes pass
 // through without marks.
 //
-// When the run is wrapped by a <w:hyperlink>, drop any underline mark
-// and textStyle (color) mark the run picked up from <w:u>/<w:color>:
-// pm_to_docx.marksToTextFormat emits both <w:u> and <w:color> on every
-// link as a visual cue, so on round-trip we would otherwise re-import
-// those derived attributes as real marks and the tree would gain
-// marks that weren't in the source.
+// When the run is wrapped by a <w:hyperlink>, drop the underline mark
+// and clear the color attr off the textStyle mark — those are emitted
+// by pm_to_docx.marksToTextFormat as visual cues on every link, so
+// preserving them on import would gain marks that weren't in the
+// source. fontSize / fontFamily are NOT link-derived and must survive
+// (otherwise a link with an explicit font choice would lose it on
+// round-trip).
 func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras []PMMark) error {
 	if hasMark(extras, MarkTypeLink) {
 		marks = stripMark(marks, MarkTypeUnderline)
-		marks = stripMark(marks, MarkTypeTextStyle)
+		marks = clearTextStyleAttr(marks, "color")
 	}
 	combined := mergeMarks(marks, extras)
 	// Comment marks are appended (not merged) because mergeMarks
@@ -969,6 +970,32 @@ func hasMark(marks []PMMark, t string) bool {
 		}
 	}
 	return false
+}
+
+// clearTextStyleAttr removes a single attribute from the textStyle
+// mark in marks (if present) and drops the mark entirely when it
+// becomes empty. Used by flushRun to peel link-derived color cues off
+// a textStyle mark that may still legitimately carry fontSize /
+// fontFamily.
+func clearTextStyleAttr(marks []PMMark, attr string) []PMMark {
+	for i, m := range marks {
+		if m.Type != MarkTypeTextStyle {
+			continue
+		}
+		if m.Attrs == nil {
+			continue
+		}
+		if _, ok := m.Attrs[attr]; !ok {
+			continue
+		}
+		delete(m.Attrs, attr)
+		if len(m.Attrs) == 0 {
+			out := append([]PMMark{}, marks[:i]...)
+			return append(out, marks[i+1:]...)
+		}
+		marks[i] = m
+	}
+	return marks
 }
 
 func stripMark(marks []PMMark, t string) []PMMark {
@@ -1006,12 +1033,16 @@ func mergeMarks(a, b []PMMark) []PMMark {
 	return out
 }
 
-// parseRunProperties extracts <w:rPr> bold/italic/underline marks.
-// Bold and italic are toggle elements (presence == on, but a w:val of
-// "false" / "0" / "off" inverts that); underline uses w:val for the
-// style ("single"/"double"/"none").
+// parseRunProperties extracts <w:rPr> bold/italic/underline marks plus
+// the attributes that ride on a single textStyle mark (color, fontSize,
+// fontFamily). Bold and italic are toggle elements (presence == on, but
+// a w:val of "false" / "0" / "off" inverts that); underline uses w:val
+// for the style ("single"/"double"/"none"). textStyle attrs are
+// accumulated into one map and emitted as a single mark at the end so
+// downstream mergeMarks (which dedupes by Type) doesn't drop them.
 func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement) ([]PMMark, error) {
 	var marks []PMMark
+	textStyleAttrs := map[string]any{}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1038,10 +1069,35 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 				// w:val is a hex RRGGBB (no leading "#") or "auto".
 				// "auto" means "follow the theme default" — drop it.
 				if v := attrValue(t, "val"); v != "" && !strings.EqualFold(v, "auto") {
-					marks = append(marks, PMMark{
-						Type:  MarkTypeTextStyle,
-						Attrs: map[string]any{"color": "#" + strings.ToUpper(v)},
-					})
+					textStyleAttrs["color"] = "#" + strings.ToUpper(v)
+				}
+			case "sz":
+				// <w:sz w:val="N"/> — N is half-points. We render as a
+				// CSS pixel string ("Npx") because @tiptap/extension-
+				// text-style/font-size stores the attribute verbatim
+				// as the inline `style` value (it does no number
+				// parsing). Zero / unparseable values are dropped
+				// (treated as "no fontSize attr").
+				if v := attrValue(t, "val"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						if px := HalfPointsToPx(n); px > 0 {
+							textStyleAttrs["fontSize"] = strconv.Itoa(px) + "px"
+						}
+					}
+				}
+			case "rFonts":
+				// <w:rFonts w:ascii="…" w:hAnsi="…" .../>. Word writes
+				// the same family across ascii/hAnsi for Western text;
+				// we prefer w:ascii (most common, what Word reads back
+				// first), then fall back to w:hAnsi when only that
+				// attribute is set (rare but happens with some
+				// Office-365-generated docs).
+				name := attrValue(t, "ascii")
+				if name == "" {
+					name = attrValue(t, "hAnsi")
+				}
+				if name != "" {
+					textStyleAttrs["fontFamily"] = name
 				}
 			case "rStyle":
 				// A character style. We pick up the "Hyperlink"
@@ -1055,6 +1111,12 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
+				if len(textStyleAttrs) > 0 {
+					marks = append(marks, PMMark{
+						Type:  MarkTypeTextStyle,
+						Attrs: textStyleAttrs,
+					})
+				}
 				return marks, nil
 			}
 		}

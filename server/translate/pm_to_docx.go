@@ -54,6 +54,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1234,6 +1235,7 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	}
 	href, hasLink := linkHref(node.Marks)
 	fmt := marksToTextFormat(node.Marks)
+	px := fontSizePxFromMarks(node.Marks)
 	empty := &document.TextFormat{}
 
 	commentSpans := em.queueCommentMarks(node.Marks)
@@ -1258,9 +1260,11 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		// AddFormattedText drops the text entirely when format==nil.
 		p.AddFormattedText(open, empty)
 		p.AddFormattedText(node.Text, fmt)
+		patchLastRunFontSize(p, px)
 		p.AddFormattedText(closeTok, empty)
 	} else {
 		p.AddFormattedText(node.Text, fmt)
+		patchLastRunFontSize(p, px)
 	}
 
 	// Close spans in LIFO order so nested comments produce well-
@@ -1313,24 +1317,38 @@ func (em *emitter) emitInlineImage(p *document.Paragraph, node PMNode) error {
 }
 
 // marksToTextFormat builds a TextFormat reflecting the bold/italic/
-// underline marks. Link marks (which need href resolution) are
-// handled separately in emitTextRun.
+// underline/textStyle marks. Link marks (which need href resolution)
+// are handled separately in emitTextRun.
 func marksToTextFormat(marks []PMMark) *document.TextFormat {
 	if len(marks) == 0 {
 		return nil
 	}
 	fmt := &document.TextFormat{}
 	any := false
-	// TextStyle.color is applied first so a Link mark (which forces the
-	// accent color) wins for hyperlinks, matching Word's behavior of
-	// hyperlinks always being the accent blue regardless of any
-	// explicit color set on the same run.
+	// TextStyle attrs (color, fontSize, fontFamily) are applied first so
+	// a subsequent Link mark (which forces the accent color + underline)
+	// wins for hyperlinks — matches Word's behavior of hyperlinks always
+	// rendering as accent blue regardless of any explicit color on the
+	// same run. fontSize / fontFamily do NOT get overridden by Link.
 	for _, m := range marks {
 		if m.Type != MarkTypeTextStyle {
 			continue
 		}
 		if c, ok := m.Attrs["color"].(string); ok && c != "" {
 			fmt.FontColor = strings.TrimPrefix(c, "#")
+			any = true
+		}
+		// fontSize is NOT poured into TextFormat.FontSize — that field
+		// is whole points, and WordZero doubles it to half-points on
+		// emit. For px like 10/14/18 the round-trip through whole
+		// points loses precision (10px = 7.5pt rounds to 8pt and back
+		// to 11px). emitTextRun calls patchLastRunFontSize after
+		// AddFormattedText to write the exact half-points directly
+		// onto the RunProperties.FontSize element.
+		if f, ok := m.Attrs["fontFamily"].(string); ok && f != "" {
+			// WordZero populates ascii/hAnsi/eastAsia/cs from this one
+			// field — see pkg/document/document.go::AddFormattedParagraph.
+			fmt.FontFamily = f
 			any = true
 		}
 	}
@@ -1358,6 +1376,104 @@ func marksToTextFormat(marks []PMMark) *document.TextFormat {
 		return nil
 	}
 	return fmt
+}
+
+// fontSizePxFromAttrs reads the textStyle mark's fontSize attr. The
+// editor (and the Word importer) store it as a CSS pixel string
+// ("16px") to match @tiptap/extension-text-style/font-size's verbatim
+// inline-style serialization. We also accept the numeric forms
+// (float64 / int) so test fixtures and any historical PM JSON keep
+// working. Returns 0 for missing / zero / unparseable / non-positive
+// values.
+func fontSizePxFromAttrs(attrs map[string]any) (int, bool) {
+	v, ok := attrs["fontSize"]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		if n <= 0 {
+			return 0, false
+		}
+		return int(n), true
+	case int:
+		if n <= 0 {
+			return 0, false
+		}
+		return n, true
+	case string:
+		px, ok := parsePxString(n)
+		if !ok || px <= 0 {
+			return 0, false
+		}
+		return px, true
+	}
+	return 0, false
+}
+
+// parsePxString reads a CSS px length like "16px" or "16.5px" and
+// returns the rounded integer pixel value. Whitespace-trimmed; case-
+// insensitive on the suffix. Returns ok=false for empty input,
+// non-numeric prefixes, or units other than px (rem/em/% would
+// require font-context to resolve and we don't carry that on the
+// server side).
+func parsePxString(raw string) (int, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0, false
+	}
+	suffix := "px"
+	lower := strings.ToLower(s)
+	if !strings.HasSuffix(lower, suffix) {
+		// Bare number — treat as px. Matches the editor's
+		// permissiveness; users pasting an inline style without the
+		// unit get the same behavior as if they'd included "px".
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil || f <= 0 {
+			return 0, false
+		}
+		return int(math.Round(f)), true
+	}
+	numPart := strings.TrimSpace(s[:len(s)-len(suffix)])
+	f, err := strconv.ParseFloat(numPart, 64)
+	if err != nil || f <= 0 {
+		return 0, false
+	}
+	return int(math.Round(f)), true
+}
+
+// fontSizePxFromMarks scans for the textStyle mark on a node and
+// returns its fontSize attr as integer CSS px (or 0 if absent).
+func fontSizePxFromMarks(marks []PMMark) int {
+	for _, m := range marks {
+		if m.Type != MarkTypeTextStyle {
+			continue
+		}
+		if px, ok := fontSizePxFromAttrs(m.Attrs); ok {
+			return px
+		}
+	}
+	return 0
+}
+
+// patchLastRunFontSize writes the exact half-points value onto the
+// most-recently-appended run's RunProperties.FontSize. Used to bypass
+// WordZero's whole-point quantization (TextFormat.FontSize is int
+// points; for px 10/14/18 we need 15/21/27 half-points which aren't
+// representable as 2× whole points).
+func patchLastRunFontSize(p *document.Paragraph, px int) {
+	if px <= 0 || len(p.Runs) == 0 {
+		return
+	}
+	hp := PxToHalfPoints(px)
+	if hp <= 0 {
+		return
+	}
+	run := &p.Runs[len(p.Runs)-1]
+	if run.Properties == nil {
+		run.Properties = &document.RunProperties{}
+	}
+	run.Properties.FontSize = &document.FontSize{Val: strconv.Itoa(hp)}
 }
 
 func linkHref(marks []PMMark) (string, bool) {

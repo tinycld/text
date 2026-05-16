@@ -18,7 +18,7 @@ export interface MenuBarProps {
     onPrint: () => void
     onOpenKeyboardShortcuts: () => void
     onRequestInsertLink: () => void
-    onInsertImage: (dataUri: string) => void
+    onInsertImage: (url: string) => void
 }
 
 export function MenuBar(props: MenuBarProps) {

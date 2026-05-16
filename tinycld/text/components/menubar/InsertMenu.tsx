@@ -1,5 +1,5 @@
 import { Menu, MenuBarMenu, MenuShortcut } from '@tinycld/core/ui/menubar'
-import { pickImageAsDataUri } from '../ImageInsertButton'
+import { useImageInsert } from '../ImageInsertButton'
 import type { MenuBarProps } from './MenuBar'
 
 const TABLE_PRESETS: ReadonlyArray<{ rows: number; cols: number; label: string }> = [
@@ -11,11 +11,7 @@ const TABLE_PRESETS: ReadonlyArray<{ rows: number; cols: number; label: string }
 
 export function InsertMenu(props: MenuBarProps) {
     const { commands, disabled, onRequestInsertLink, onInsertImage } = props
-
-    const handleImage = async () => {
-        const dataUri = await pickImageAsDataUri()
-        if (dataUri != null) onInsertImage(dataUri)
-    }
+    const handleImage = useImageInsert(onInsertImage)
 
     return (
         <MenuBarMenu menuId="insert" label="Insert">

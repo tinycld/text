@@ -1,27 +1,26 @@
 import { captureException } from '@tinycld/core/lib/errors'
+import { pb } from '@tinycld/core/lib/pocketbase'
+import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import type { ComponentType } from 'react'
+import { useCallback } from 'react'
 import { Platform, Pressable } from 'react-native'
-import { handleImageInsert } from './image-insert-handler'
+import { handleImageInsert, type PickedImage } from './image-insert-handler'
 import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface ImageInsertButtonProps {
     icon: ComponentType<{ size: number; color: string }>
     iconColor: string
     disabled?: boolean
-    onInsert: (dataUri: string) => void
+    onInsert: (url: string) => void
 }
 
-// v1 uses data: URIs; v2 will upload to drive and use the resulting URL.
-// We avoid any drive upload here because (a) we haven't surfaced a generic
-// "upload file" hook the text package can call yet, and (b) data URIs
-// round-trip through ProseMirror → docx fine for small images.
 export function ImageInsertButton({
     icon: Icon,
     iconColor,
     disabled = false,
     onInsert,
 }: ImageInsertButtonProps) {
-    const handlePress = () => handleImageInsert(onInsert, { pickImageAsDataUri, captureException })
+    const handlePress = useImageInsert(onInsert)
 
     return (
         <ToolbarTooltip label="Insert image">
@@ -43,21 +42,39 @@ export function ImageInsertButton({
     )
 }
 
-export async function pickImageAsDataUri(): Promise<string | null> {
+// Shared by ImageInsertButton (toolbar) and InsertMenu (menubar).
+// Wires the platform picker → useCreateDriveItem → pb.files.getURL
+// chain so both insertion surfaces match the paste/drop path: every
+// inserted image is a stable PocketBase file URL, not a base64 data:
+// URI that bloats every Y.Doc update.
+export function useImageInsert(onInsert: (url: string) => void): () => void {
+    const createDriveItem = useCreateDriveItem()
+    return useCallback(() => {
+        void handleImageInsert(onInsert, {
+            pickImage,
+            upload: createDriveItem.mutate,
+            getURL: (collectionId, itemId, finalName) =>
+                pb.files.getURL({ collectionId, id: itemId }, finalName),
+            captureException,
+        })
+    }, [onInsert, createDriveItem.mutate])
+}
+
+export async function pickImage(): Promise<PickedImage | null> {
     if (Platform.OS === 'web') {
         return pickImageWeb()
     }
     return pickImageNative()
 }
 
-function pickImageWeb(): Promise<string | null> {
+function pickImageWeb(): Promise<PickedImage | null> {
     if (typeof document === 'undefined') return Promise.resolve(null)
     return new Promise(resolve => {
         const input = document.createElement('input')
         input.type = 'file'
         input.accept = 'image/png,image/jpeg,image/gif,image/webp'
         let settled = false
-        const settle = (value: string | null) => {
+        const settle = (value: PickedImage | null) => {
             if (settled) return
             settled = true
             resolve(value)
@@ -65,26 +82,19 @@ function pickImageWeb(): Promise<string | null> {
         input.onchange = () => {
             const file = input.files?.[0]
             if (file == null) return settle(null)
-            const reader = new FileReader()
-            reader.onload = () => {
-                const result = reader.result
-                if (typeof result === 'string') {
-                    settle(result)
-                } else {
-                    settle(null)
-                }
-            }
-            reader.onerror = () => settle(null)
-            reader.readAsDataURL(file)
+            settle({
+                body: file,
+                name: file.name || 'image.png',
+                mimeType: file.type || 'image/png',
+            })
         }
         input.addEventListener('cancel', () => settle(null))
         input.click()
     })
 }
 
-async function pickImageNative(): Promise<string | null> {
+async function pickImageNative(): Promise<PickedImage | null> {
     const picker = await import('expo-document-picker')
-    const fs = await import('expo-file-system')
     const result = await picker.getDocumentAsync({
         type: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
         copyToCacheDirectory: true,
@@ -92,10 +102,15 @@ async function pickImageNative(): Promise<string | null> {
     if (result.canceled) return null
     const asset = result.assets?.[0]
     if (asset == null) return null
-    const fileSystem = fs as unknown as {
-        readAsStringAsync: (uri: string, opts: { encoding: string }) => Promise<string>
+    const mimeType = asset.mimeType ?? 'image/png'
+    const name = asset.name ?? 'image.png'
+    // RN's FormData polyfill accepts a `{ uri, name, type }` literal for
+    // file fields, which is exactly what useCreateDriveItem expects on
+    // native. No base64 round-trip required — the platform's URI points
+    // at the file the picker copied into the app's cache directory.
+    return {
+        body: { uri: asset.uri, name, type: mimeType },
+        name,
+        mimeType,
     }
-    const base64 = await fileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' })
-    const mime = asset.mimeType ?? 'image/png'
-    return `data:${mime};base64,${base64}`
 }

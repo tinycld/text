@@ -137,6 +137,12 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 			return nil, nil, err
 		}
 	}
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 {
+		bs, err = postProcessRichXML(bs, em)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	return bs, em.warnings, nil
 }
 
@@ -165,12 +171,71 @@ type emitter struct {
 	// visually interrupted by a nested bulleted list and then resumed).
 	lastOrderedNumIDAtLevel0 string
 
+	// Page break / comment / footnote / endnote post-process state.
+	// Each feature uses the same marker-token strategy that links use:
+	// we plant uniquely-recognizable strings inside the WordZero output,
+	// then rewrite them in postProcess* passes once WordZero has
+	// finished serializing the body. Marker IDs are independent monotonic
+	// counters per kind.
+	pageBreaks     []pageBreakMarker
+	pageBreakSeq   int
+	commentSpans   []commentSpan
+	commentSpanSeq int // monotonic uniqueness counter for marker tokens
+	commentIDSeq   int // OOXML w:id allocator for synthesized ids
+	// Authored comments accumulated during emission, keyed by the
+	// runtime comment id we assigned. Each entry feeds one <w:comment>
+	// in word/comments.xml on flush.
+	commentBodies map[string]commentBody
+	footnotes     []footnoteEntry
+	endnotes      []footnoteEntry
+	footnoteSeq   int
+	endnoteSeq    int
+
 	// warnings accumulates soft-degradation signals raised during
 	// emission (currently: oversized / unsupported-type images dropped).
 	// Surfaced by PMJSONToDocxWithWarnings; the legacy PMJSONToDocx
 	// signature drops them silently.
 	warnings   []Warning
 	warningSet map[WarningCode]struct{}
+}
+
+// pageBreakMarker tracks a single page-break PM node that emit time
+// recorded; postProcessPageBreaks rewrites the marker text run into
+// <w:br w:type="page"/> inside the surrounding paragraph.
+type pageBreakMarker struct {
+	Marker string
+}
+
+// commentSpan tracks one PM comment mark span as a (open marker, close
+// marker, id) triple. Two PM runs are wrapped at emit time:
+//   - {{__pmcm:N:open}} just before the first masked text
+//   - {{__pmcm:N:close}} just after the last masked text
+//
+// Post-process rewrites both into <w:commentRangeStart/> and
+// <w:commentRangeEnd/> + <w:commentReference w:id="N"/>.
+type commentSpan struct {
+	OpenMarker  string
+	CloseMarker string
+	ID          string
+}
+
+// commentBody is what we'll serialize into word/comments.xml on flush —
+// one entry per comment, populated from the PM mark attrs.
+type commentBody struct {
+	ID     string
+	Author string
+	Text   string
+	Date   string
+}
+
+// footnoteEntry holds one footnote (or endnote) body we accumulated
+// during emission. ID is the OOXML id (1-based, with 1+ reserved for
+// user notes since Word seeds 0 = separator). MarkerText is the inline
+// token we substitute into <w:footnoteReference w:id="ID"/> later.
+type footnoteEntry struct {
+	ID     string
+	Text   string
+	Marker string
 }
 
 // addWarning records a unique soft-degradation signal. Same dedupe
@@ -923,6 +988,12 @@ func (em *emitter) emitInlineRuns(p *document.Paragraph, runs []PMNode) error {
 			if err := em.emitInlineImage(p, r); err != nil {
 				return err
 			}
+		case NodeTypePageBreak:
+			em.emitPageBreak(p)
+		case NodeTypeFootnoteReference:
+			em.emitNoteReference(p, r, true)
+		case NodeTypeEndnoteReference:
+			em.emitNoteReference(p, r, false)
 		default:
 			return fmt.Errorf("translate: unsupported inline node %q", r.Type)
 		}
@@ -930,16 +1001,120 @@ func (em *emitter) emitInlineRuns(p *document.Paragraph, runs []PMNode) error {
 	return nil
 }
 
+// emitPageBreak plants a marker text run inside the paragraph that the
+// post-process pass will rewrite into <w:br w:type="page"/>. Doing the
+// rewrite at the XML layer (rather than mutating WordZero's Run struct)
+// avoids tying us to private fields of the dependency.
+func (em *emitter) emitPageBreak(p *document.Paragraph) {
+	em.pageBreakSeq++
+	marker := pageBreakToken(em.pageBreakSeq)
+	em.pageBreaks = append(em.pageBreaks, pageBreakMarker{Marker: marker})
+	p.AddFormattedText(marker, &document.TextFormat{})
+}
+
+// emitNoteReference plants a marker text run and queues a footnote /
+// endnote body for the post-process pass. Each marker rewrites into
+// <w:footnoteReference w:id="N"/> (or endnoteReference); the bodies
+// land in word/footnotes.xml / word/endnotes.xml.
+//
+// We pick monotonic IDs starting at 1 because Word reserves id 0 for
+// the separator / continuation separator notes and rejects ids that
+// collide.
+func (em *emitter) emitNoteReference(p *document.Paragraph, node PMNode, footnote bool) {
+	text, _ := node.Attrs["text"].(string)
+	var marker, id string
+	if footnote {
+		em.footnoteSeq++
+		id = strconv.Itoa(em.footnoteSeq)
+		marker = footnoteToken(em.footnoteSeq)
+		em.footnotes = append(em.footnotes, footnoteEntry{ID: id, Text: text, Marker: marker})
+	} else {
+		em.endnoteSeq++
+		id = strconv.Itoa(em.endnoteSeq)
+		marker = endnoteToken(em.endnoteSeq)
+		em.endnotes = append(em.endnotes, footnoteEntry{ID: id, Text: text, Marker: marker})
+	}
+	p.AddFormattedText(marker, &document.TextFormat{})
+}
+
+func pageBreakToken(n int) string { return "{{__pmpb:" + strconv.Itoa(n) + "}}" }
+func footnoteToken(n int) string  { return "{{__pmfn:" + strconv.Itoa(n) + "}}" }
+func endnoteToken(n int) string   { return "{{__pmen:" + strconv.Itoa(n) + "}}" }
+func commentOpenToken(n int) string {
+	return "{{__pmcm:" + strconv.Itoa(n) + ":open}}"
+}
+func commentCloseToken(n int) string {
+	return "{{__pmcm:" + strconv.Itoa(n) + ":close}}"
+}
+
+// queueCommentMarks builds the open/close marker pair for every
+// MarkTypeComment mark on a run AND records the comment body so the
+// post-process pass can write word/comments.xml. Returns the span set
+// in mark order so the caller can flank the run's text in nesting
+// order.
+//
+// Each PM mark produces a fresh range span (a fresh open/close marker
+// pair in document.xml). The OOXML comment id is shared across all
+// spans that carry the same input PM id — that way a single logical
+// comment whose text the user has split across multiple PM runs still
+// points to one entry in word/comments.xml. When the PM mark has no
+// id attr we synthesize a monotonic one keyed at em.commentSeq.
+func (em *emitter) queueCommentMarks(marks []PMMark) []commentSpan {
+	if len(marks) == 0 {
+		return nil
+	}
+	var spans []commentSpan
+	if em.commentBodies == nil {
+		em.commentBodies = map[string]commentBody{}
+	}
+	for _, m := range marks {
+		if m.Type != MarkTypeComment {
+			continue
+		}
+		id, _ := m.Attrs["id"].(string)
+		if id == "" {
+			em.commentIDSeq++
+			id = strconv.Itoa(em.commentIDSeq)
+		}
+		em.commentSpanSeq++
+		span := commentSpan{
+			OpenMarker:  commentOpenToken(em.commentSpanSeq),
+			CloseMarker: commentCloseToken(em.commentSpanSeq),
+			ID:          id,
+		}
+		if _, exists := em.commentBodies[id]; !exists {
+			body := commentBody{ID: id}
+			body.Author, _ = m.Attrs["author"].(string)
+			body.Text, _ = m.Attrs["text"].(string)
+			body.Date, _ = m.Attrs["date"].(string)
+			em.commentBodies[id] = body
+		}
+		em.commentSpans = append(em.commentSpans, span)
+		spans = append(spans, span)
+	}
+	return spans
+}
+
 // emitTextRun is the workhorse: convert PM marks into a WordZero
 // TextFormat and append the run. If the node carries a link mark,
 // we wrap the text in linkOpen/linkClose marker tokens — those get
-// rewritten into <w:hyperlink r:id=…> in postProcessLinks.
+// rewritten into <w:hyperlink r:id=…> in postProcessLinks. Comment
+// marks are similarly wrapped in {{__pmcm:…}} tokens for the post-
+// process pass to rewrite into <w:commentRange*> markers + queue the
+// comment body for word/comments.xml.
 func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	if node.Text == "" {
 		return nil
 	}
 	href, hasLink := linkHref(node.Marks)
 	fmt := marksToTextFormat(node.Marks)
+	empty := &document.TextFormat{}
+
+	commentSpans := em.queueCommentMarks(node.Marks)
+	for _, span := range commentSpans {
+		p.AddFormattedText(span.OpenMarker, empty)
+	}
+
 	if hasLink {
 		// Surround the run with markers; the post-process step
 		// recognizes them in word/document.xml and rewrites the
@@ -955,13 +1130,18 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		// the post-processor can locate them in document.xml without
 		// ambiguity. Pass an empty (not nil) TextFormat — WordZero's
 		// AddFormattedText drops the text entirely when format==nil.
-		empty := &document.TextFormat{}
 		p.AddFormattedText(open, empty)
 		p.AddFormattedText(node.Text, fmt)
 		p.AddFormattedText(closeTok, empty)
-		return nil
+	} else {
+		p.AddFormattedText(node.Text, fmt)
 	}
-	p.AddFormattedText(node.Text, fmt)
+
+	// Close spans in LIFO order so nested comments produce well-
+	// balanced (innermost-first) commentRangeEnd markers.
+	for i := len(commentSpans) - 1; i >= 0; i-- {
+		p.AddFormattedText(commentSpans[i].CloseMarker, empty)
+	}
 	return nil
 }
 
@@ -1277,10 +1457,13 @@ func parseMarkerSeq(s string) int {
 }
 
 // rezipParts builds a new ZIP archive from the (mutated) parts map,
-// preserving the original file ordering and storage method.
+// preserving the original file ordering and storage method. Any keys
+// in parts that didn't exist in the original (e.g. word/comments.xml
+// that we just synthesized) are appended at the end with Deflate.
 func rezipParts(orig *zip.Reader, parts map[string][]byte) ([]byte, error) {
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
+	seen := map[string]bool{}
 	for _, f := range orig.File {
 		header := &zip.FileHeader{
 			Name:   f.Name,
@@ -1293,6 +1476,19 @@ func rezipParts(orig *zip.Reader, parts map[string][]byte) ([]byte, error) {
 			return nil, err
 		}
 		if _, err := out.Write(parts[f.Name]); err != nil {
+			return nil, err
+		}
+		seen[f.Name] = true
+	}
+	for name, data := range parts {
+		if seen[name] {
+			continue
+		}
+		out, err := w.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := out.Write(data); err != nil {
 			return nil, err
 		}
 	}

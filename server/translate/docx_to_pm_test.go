@@ -97,6 +97,55 @@ func TestResolveWrap(t *testing.T) {
 	}
 }
 
+// TestParseComments unit-checks the comments.xml parser without going
+// through the docx zip path — runs the helper directly on a literal
+// XML body so we lock in the per-comment author/text/date extraction.
+func TestParseComments(t *testing.T) {
+	xmlIn := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+		`<w:comment w:id="0" w:author="Bob" w:date="2026-05-15T10:00:00Z">` +
+		`<w:p><w:r><w:t>hello </w:t></w:r><w:r><w:t>world</w:t></w:r></w:p>` +
+		`</w:comment>` +
+		`<w:comment w:id="1" w:author="Carol">` +
+		`<w:p><w:r><w:t>second</w:t></w:r></w:p>` +
+		`</w:comment>` +
+		`</w:comments>`)
+	got := parseComments(xmlIn)
+	if got["0"].Author != "Bob" {
+		t.Errorf("id=0 author: %+v", got["0"])
+	}
+	if got["0"].Text != "hello world" {
+		t.Errorf("id=0 text: %q", got["0"].Text)
+	}
+	if got["0"].Date != "2026-05-15T10:00:00Z" {
+		t.Errorf("id=0 date: %q", got["0"].Date)
+	}
+	if got["1"].Text != "second" {
+		t.Errorf("id=1 text: %q", got["1"].Text)
+	}
+}
+
+// TestParseFootnoteLikeBodies covers the shared footnote / endnote XML
+// shape — reserved separators are skipped, user notes round-trip text.
+func TestParseFootnoteLikeBodies(t *testing.T) {
+	xmlIn := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+		`<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>` +
+		`<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>` +
+		`<w:footnote w:id="1"><w:p><w:r><w:t>note body</w:t></w:r></w:p></w:footnote>` +
+		`</w:footnotes>`)
+	got := parseFootnoteLikeBodies(xmlIn, "footnote")
+	if len(got) != 1 {
+		t.Errorf("expected 1 user footnote, got %d: %v", len(got), got)
+	}
+	if got["1"] != "note body" {
+		t.Errorf("id=1 body: %q", got["1"])
+	}
+	if _, hasSep := got["-1"]; hasSep {
+		t.Errorf("separator note leaked into output")
+	}
+}
+
 // prettifyJSON re-marshals JSON with 2-space indentation so the
 // generated file is reviewable.
 func prettifyJSON(b []byte) []byte {

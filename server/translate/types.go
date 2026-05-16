@@ -35,18 +35,21 @@ type PMMark struct {
 // Node type constants. Keep this list in sync with the editor schema
 // in @tinycld/core/lib/editor/use-document-editor.web.tsx.
 const (
-	NodeTypeDoc         = "doc"
-	NodeTypeParagraph   = "paragraph"
-	NodeTypeHeading     = "heading"
-	NodeTypeBulletList  = "bulletList"
-	NodeTypeOrderedList = "orderedList"
-	NodeTypeListItem    = "listItem"
-	NodeTypeBlockquote  = "blockquote"
-	NodeTypeTable       = "table"
-	NodeTypeTableRow    = "tableRow"
-	NodeTypeTableCell   = "tableCell"
-	NodeTypeImage       = "image"
-	NodeTypeText        = "text"
+	NodeTypeDoc               = "doc"
+	NodeTypeParagraph         = "paragraph"
+	NodeTypeHeading           = "heading"
+	NodeTypeBulletList        = "bulletList"
+	NodeTypeOrderedList       = "orderedList"
+	NodeTypeListItem          = "listItem"
+	NodeTypeBlockquote        = "blockquote"
+	NodeTypeTable             = "table"
+	NodeTypeTableRow          = "tableRow"
+	NodeTypeTableCell         = "tableCell"
+	NodeTypeImage             = "image"
+	NodeTypeText              = "text"
+	NodeTypePageBreak         = "pageBreak"
+	NodeTypeFootnoteReference = "footnoteReference"
+	NodeTypeEndnoteReference  = "endnoteReference"
 )
 
 // SupportedNodeTypes is the load-bearing contract: any node type
@@ -58,6 +61,7 @@ var SupportedNodeTypes = map[string]bool{
 	NodeTypeBulletList: true, NodeTypeOrderedList: true, NodeTypeListItem: true,
 	NodeTypeBlockquote: true, NodeTypeTable: true, NodeTypeTableRow: true,
 	NodeTypeTableCell: true, NodeTypeImage: true, NodeTypeText: true,
+	NodeTypePageBreak: true, NodeTypeFootnoteReference: true, NodeTypeEndnoteReference: true,
 }
 
 // Mark type constants.
@@ -72,6 +76,14 @@ const (
 	// and back out to <w:color> on export. Schema: requires the
 	// TextStyle + Color extensions in both editor configs.
 	MarkTypeTextStyle = "textStyle"
+	// MarkTypeComment is applied to the run-spans covered by a
+	// <w:commentRangeStart>…<w:commentRangeEnd> pair in word/document.xml.
+	// Attrs carry the resolved metadata from word/comments.xml: id (string),
+	// author, text (plain text body of the comment), date (ISO timestamp).
+	// On export the comment XML part + body markers + reference run are
+	// regenerated from these attrs, so dropping or editing the mark
+	// removes the comment cleanly.
+	MarkTypeComment = "comment"
 )
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
@@ -81,6 +93,7 @@ var SupportedMarks = map[string]bool{
 	MarkTypeUnderline: true,
 	MarkTypeLink:      true,
 	MarkTypeTextStyle: true,
+	MarkTypeComment:   true,
 }
 
 // Warning is a typed signal that an OOXML import succeeded but

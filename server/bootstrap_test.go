@@ -1,6 +1,9 @@
 package text
 
 import (
+	"bytes"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -121,3 +124,51 @@ func TestBootstrap_MissingDriveItemLogsAndContinues(t *testing.T) {
 		t.Errorf("Y.Doc unexpectedly populated for missing drive_item (state size %d)", len(state))
 	}
 }
+
+// TestReadCappedBytes_OverLimit ensures a reader that produces more
+// than MaxDocxBytes is rejected. Bypasses PocketBase's filesystem
+// indirection so the cap is exercised directly.
+func TestReadCappedBytes_OverLimit(t *testing.T) {
+	// A small limit keeps the test allocation tiny; the cap path is
+	// identical regardless of the limit's numeric value.
+	const limit = int64(1024)
+	src := bytes.NewReader(make([]byte, limit+1))
+
+	if _, err := readCappedBytes(src, limit); err == nil {
+		t.Fatal("expected size-cap error, got nil")
+	} else if !strings.Contains(err.Error(), "exceeds size cap") {
+		t.Errorf("error %q does not mention the size cap", err)
+	}
+}
+
+// TestReadCappedBytes_AtLimit confirms a reader sitting exactly at the
+// limit succeeds — the cap is a strict greater-than check so we don't
+// accidentally reject the equality case.
+func TestReadCappedBytes_AtLimit(t *testing.T) {
+	const limit = int64(1024)
+	src := bytes.NewReader(make([]byte, limit))
+
+	buf, err := readCappedBytes(src, limit)
+	if err != nil {
+		t.Fatalf("readCappedBytes at limit: %v", err)
+	}
+	if int64(len(buf)) != limit {
+		t.Errorf("readCappedBytes at limit returned %d bytes, want %d", len(buf), limit)
+	}
+}
+
+// TestReadCappedBytes_PropagatesReadError surfaces an underlying read
+// error rather than masquerading as a cap violation.
+func TestReadCappedBytes_PropagatesReadError(t *testing.T) {
+	src := failingReader{err: io.ErrUnexpectedEOF}
+	if _, err := readCappedBytes(src, 1024); err == nil {
+		t.Fatal("expected read error, got nil")
+	}
+}
+
+// failingReader always returns its configured error from Read. Used to
+// verify readCappedBytes propagates upstream failures rather than
+// masking them.
+type failingReader struct{ err error }
+
+func (f failingReader) Read(_ []byte) (int, error) { return 0, f.err }

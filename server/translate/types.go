@@ -97,9 +97,11 @@ type Warning struct {
 type WarningCode string
 
 const (
-	WarningTrackedChanges   WarningCode = "trackedChanges"
-	WarningComments         WarningCode = "comments"
-	WarningContentControls  WarningCode = "contentControls"
-	WarningUnsupportedStyle WarningCode = "unsupportedStyle"
-	WarningUnsupportedNode  WarningCode = "unsupportedNode"
+	WarningTrackedChanges       WarningCode = "trackedChanges"
+	WarningComments             WarningCode = "comments"
+	WarningContentControls      WarningCode = "contentControls"
+	WarningUnsupportedStyle     WarningCode = "unsupportedStyle"
+	WarningUnsupportedNode      WarningCode = "unsupportedNode"
+	WarningImageTooLarge        WarningCode = "imageTooLarge"
+	WarningUnsupportedImageType WarningCode = "unsupportedImageType"
 )

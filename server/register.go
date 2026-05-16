@@ -37,6 +37,7 @@ const roomKindText = "text-doc"
 func Register(app *pocketbase.PocketBase) {
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
+	runtime.StartJanitor()
 
 	journal := realtime.NewPocketBaseJournal(app)
 	flush := makeProductionFlush(app, runtime)
@@ -153,4 +154,3 @@ func convertWarnings(in []translate.Warning) []importWarningJSON {
 	}
 	return out
 }
-

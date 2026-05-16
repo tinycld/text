@@ -1387,9 +1387,9 @@ func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement, gri
 
 func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gridCols []int, colIdx int) (*PMNode, error) {
 	cell := &PMNode{Type: NodeTypeTableCell}
-	var tcWDxa int       // <w:tcW w:w="..."> in dxa (twentieths of a point); 0 if missing or non-dxa.
-	var gridSpan = 1     // <w:gridSpan w:val="..."> default 1.
-	var vMerge string    // "" / "restart" / "continue" from <w:vMerge>.
+	var tcWDxa int    // <w:tcW w:w="..."> in dxa (twentieths of a point); 0 if missing or non-dxa.
+	var gridSpan = 1  // <w:gridSpan w:val="..."> default 1.
+	var vMerge string // "" / "restart" / "continue" from <w:vMerge>.
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1474,8 +1474,8 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 // <w:vMerge> shape:
 //   - <w:vMerge w:val="restart"/> — this cell begins a vertical merge
 //   - <w:vMerge/>                 — this cell continues a merge that
-//                                   started above. (OOXML allows
-//                                   w:val="continue" but Word omits it.)
+//     started above. (OOXML allows
+//     w:val="continue" but Word omits it.)
 func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, error) {
 	tcWDxa := 0
 	gridSpan := 1

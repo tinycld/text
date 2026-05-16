@@ -197,9 +197,9 @@ func TestIsReadOnlyForConn(t *testing.T) {
 	// stranger has no share
 
 	cases := []struct {
-		name     string
-		authID   string
-		wantRO   bool
+		name   string
+		authID string
+		wantRO bool
 	}{
 		{"editor", editor.Id, false},
 		{"owner", owner.Id, false},

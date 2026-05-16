@@ -81,7 +81,7 @@ For each of these the parser drops the feature on import:
 
 Ordered roughly by user-visible ROI:
 
-- [ ] Document rename — `screens/[id].tsx:88-90` renders `itemName` as static `Text`. No edit path.
+- [x] Document rename — Implemented via `components/DocumentTitle.tsx`; click-to-edit, Enter to commit, Escape to cancel, blocked when read-only.
 - [ ] Find / replace within document (Cmd+F). Tiptap has `prosemirror-search`.
 - [ ] Slash menu for block insertion (`/heading`, `/table`, `/image`). Tiptap mention extension.
 - [ ] Drag-and-drop / paste image. Only `ImageInsertButton` exists today. Hook editor `handleDrop` / `handlePaste`.

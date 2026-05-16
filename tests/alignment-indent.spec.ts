@@ -18,21 +18,30 @@ test.describe('Text — Alignment & indent', () => {
     }) => {
         await openFreshTextDocument(page, 'alignment')
         await editorRoot(page).click()
-        await page.keyboard.type('Aligned paragraph')
+        // openFreshTextDocument lands the caret somewhere in the fixture
+        // body; press End + Enter to start a new paragraph after the
+        // existing content so our typed text lands in a fresh <p>.
+        await page.keyboard.press('End')
+        await page.keyboard.press('Enter')
+        const marker = `align-center-${Date.now()}`
+        await page.keyboard.type(marker)
 
         await page.getByRole('button', { name: 'Align center', exact: true }).click()
 
         // The TextAlign extension renders inline style="text-align: center"
-        // onto the surrounding <p>. We pick the paragraph that contains the
-        // typed text to avoid asserting on empty boilerplate paragraphs.
-        const paragraph = editorRoot(page).locator('p', { hasText: 'Aligned paragraph' }).first()
+        // onto the surrounding <p>. The marker isolates our paragraph
+        // from the fixture's existing content.
+        const paragraph = editorRoot(page).locator('p', { hasText: marker }).first()
         await expect(paragraph).toHaveAttribute('style', /text-align:\s*center/)
     })
 
     test('clicking Increase indent twice indents the paragraph by two levels', async ({ page }) => {
         await openFreshTextDocument(page, 'indent')
         await editorRoot(page).click()
-        await page.keyboard.type('Indented paragraph')
+        await page.keyboard.press('End')
+        await page.keyboard.press('Enter')
+        const marker = `indent-${Date.now()}`
+        await page.keyboard.type(marker)
 
         const indentBtn = page.getByRole('button', { name: 'Increase indent', exact: true })
         await indentBtn.click()
@@ -41,20 +50,23 @@ test.describe('Text — Alignment & indent', () => {
         // BlockIndent renders data-indent + padding-inline-start as
         // inline style. data-indent is the easier assertion target
         // because the style attribute may include other declarations.
-        const paragraph = editorRoot(page).locator('p', { hasText: 'Indented paragraph' }).first()
+        const paragraph = editorRoot(page).locator('p', { hasText: marker }).first()
         await expect(paragraph).toHaveAttribute('data-indent', '2')
     })
 
     test('Cmd+Shift+R applies right alignment via keyboard shortcut', async ({ page }) => {
         await openFreshTextDocument(page, 'right-shortcut')
         await editorRoot(page).click()
-        await page.keyboard.type('Right via shortcut')
+        await page.keyboard.press('End')
+        await page.keyboard.press('Enter')
+        const marker = `right-shortcut-${Date.now()}`
+        await page.keyboard.type(marker)
 
         // Mod-Shift-R is bound by @tiptap/extension-text-align directly;
         // we don't need to dispatch through the toolbar.
         await page.keyboard.press('Meta+Shift+R')
 
-        const paragraph = editorRoot(page).locator('p', { hasText: 'Right via shortcut' }).first()
+        const paragraph = editorRoot(page).locator('p', { hasText: marker }).first()
         await expect(paragraph).toHaveAttribute('style', /text-align:\s*right/)
     })
 })

@@ -15,6 +15,30 @@ export interface UseDocumentEditorOptions {
     driveItemId?: string
 }
 
+// Host-side surface for the comment system. The web variant binds
+// this to the in-page Tiptap editor (direct command + event API).
+// The native variant returns null in v1 — wiring the WebView's
+// message-bus comment channel into a host bridge is deferred until
+// text on native moves past the placeholder. Consumers must tolerate
+// null (e.g. by not mounting comment UI when this is null).
+export interface DocumentCommentBridge {
+    // Apply the comment mark. When `range` is provided the selection is
+    // restored to it before the mark is set — required when the call
+    // site is a button/modal that has moved focus off the editor,
+    // collapsing ProseMirror's selection. Without `range`, falls back
+    // to whatever selection the editor currently holds.
+    addComment: (commentId: string, range?: { from: number; to: number }) => void
+    removeComment: (commentId: string) => void
+    // Scroll the marked range into view and select it. No-op when the
+    // mark isn't present in the doc (e.g. the anchor is orphaned).
+    // Returns true on a successful jump so the caller can fall back to
+    // a drawer-only focus when this returns false.
+    focusComment: (commentId: string) => boolean
+    getSelection: () => { from: number; to: number } | null
+    onTap: (handler: (commentId: string) => void) => () => void
+    onRemoved: (handler: (commentIds: string[]) => void) => () => void
+}
+
 // The web variant exposes the raw Tiptap editor so callers can attach
 // their own transaction listeners (WordCountBadge) without rendering
 // the whole toolbar each keystroke. It also exposes findReplaceEditor
@@ -24,6 +48,7 @@ export interface UseDocumentEditorOptions {
 export interface DocumentEditorResult extends EditorResult {
     tiptapEditor: TiptapEditor | null
     findReplaceEditor: FindReplaceEditor | null
+    commentBridge: DocumentCommentBridge | null
 }
 
 export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult

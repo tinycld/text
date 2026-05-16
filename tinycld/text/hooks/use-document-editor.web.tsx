@@ -18,19 +18,20 @@ import TableRow from '@tiptap/extension-table-row'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { applyCellBorders } from '../lib/apply-cell-borders'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
+import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import {
     extractImageFilesFromDrop,
     extractImageFilesFromPaste,
 } from '../lib/extract-image-files'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
-import type { DocumentEditorResult } from './use-document-editor'
+import type { DocumentCommentBridge, DocumentEditorResult } from './use-document-editor'
 
 // WrappedImage extends TipTap's default Image with:
 //   - inline=true so the node can live inside a paragraph (required
@@ -253,6 +254,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 BorderedTableHeader,
                 BorderedTableCell,
                 WrappedImage,
+                CommentMark,
                 Collaboration.configure({
                     document: options.yDoc,
                     field: 'prosemirror',
@@ -420,6 +422,111 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         }
     }, [tiptapEditor])
 
+    // Host-side comment surface. Tap and removed events are emitted
+    // through small registries kept in refs (subscribers register a
+    // callback; the underlying DOM/transaction listeners fan out). The
+    // bridge object itself stays stable across re-renders so screen
+    // code can pass it to long-lived effects without retriggering them.
+    const tapHandlersRef = useRef(new Set<(commentId: string) => void>())
+    const removedHandlersRef = useRef(new Set<(commentIds: string[]) => void>())
+    const lastCommentIdsRef = useRef<Set<string>>(new Set())
+
+    useEffect(() => {
+        if (!tiptapEditor) return
+        lastCommentIdsRef.current = snapshotCommentIds(tiptapEditor.state.doc)
+
+        function onTransaction() {
+            if (!tiptapEditor) return
+            const next = snapshotCommentIds(tiptapEditor.state.doc)
+            const removed: string[] = []
+            for (const id of lastCommentIdsRef.current) {
+                if (!next.has(id)) removed.push(id)
+            }
+            lastCommentIdsRef.current = next
+            if (removed.length === 0) return
+            for (const handler of removedHandlersRef.current) {
+                handler(removed)
+            }
+        }
+
+        function onDomClick(evt: Event) {
+            const target = evt.target
+            if (!(target instanceof Element)) return
+            const marked = target.closest('span[data-comment-id]')
+            if (!marked) return
+            const commentId = marked.getAttribute('data-comment-id')
+            if (!commentId) return
+            for (const handler of tapHandlersRef.current) {
+                handler(commentId)
+            }
+        }
+
+        tiptapEditor.on('transaction', onTransaction)
+        tiptapEditor.view.dom.addEventListener('click', onDomClick)
+        return () => {
+            tiptapEditor.off('transaction', onTransaction)
+            tiptapEditor.view.dom.removeEventListener('click', onDomClick)
+        }
+    }, [tiptapEditor])
+
+    const commentBridge: DocumentCommentBridge | null = useMemo(() => {
+        if (!tiptapEditor) return null
+        return {
+            addComment: (commentId: string, range?: { from: number; to: number }) => {
+                // When a range is provided we restore the selection
+                // before applying the mark — the NewCommentButton flow
+                // captures the user's selection *before* the modal
+                // opens, because opening the modal steals focus and
+                // collapses ProseMirror's selection to a single point.
+                // Without `setTextSelection` the mark would land on a
+                // zero-width range (or whatever the editor's last
+                // surviving range was), making the anchor effectively
+                // useless.
+                const chain = tiptapEditor.chain()
+                if (range) chain.setTextSelection(range)
+                chain.addComment(commentId).run()
+            },
+            removeComment: (commentId: string) => {
+                tiptapEditor.chain().removeComment(commentId).run()
+            },
+            focusComment: (commentId: string) => {
+                // Mark storage is populated on editor onCreate (see
+                // comment-mark.ts) — `findComment` returns the first
+                // range carrying the id, or null if it's been removed
+                // from the doc.
+                const storage = tiptapEditor.storage.tinycldComment as
+                    | { findComment?: (id: string) => { from: number; to: number } | null }
+                    | undefined
+                const range = storage?.findComment?.(commentId) ?? null
+                if (!range) return false
+                tiptapEditor
+                    .chain()
+                    .setTextSelection(range)
+                    .scrollIntoView()
+                    .focus()
+                    .run()
+                return true
+            },
+            getSelection: () => {
+                const sel = tiptapEditor.state.selection
+                if (sel.empty) return null
+                return { from: sel.from, to: sel.to }
+            },
+            onTap: handler => {
+                tapHandlersRef.current.add(handler)
+                return () => {
+                    tapHandlersRef.current.delete(handler)
+                }
+            },
+            onRemoved: handler => {
+                removedHandlersRef.current.add(handler)
+                return () => {
+                    removedHandlersRef.current.delete(handler)
+                }
+            },
+        }
+    }, [tiptapEditor])
+
     const EditorComponent = useMemo(
         () =>
             function DocumentEditorContent() {
@@ -461,5 +568,6 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         toolbarState,
         tiptapEditor: tiptapEditor ?? null,
         findReplaceEditor,
+        commentBridge,
     }
 }

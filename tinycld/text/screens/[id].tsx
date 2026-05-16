@@ -2,11 +2,15 @@ import { eq } from '@tanstack/db'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
+import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Linking, Platform, ScrollView, Text, View } from 'react-native'
+import { NewCommentButton } from '../components/comments/NewCommentButton'
+import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
+import { TextCommentDrawer } from '../components/comments/TextCommentDrawer'
 import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
@@ -18,6 +22,7 @@ import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { WordCountBadge } from '../components/WordCountBadge'
+import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
@@ -79,6 +84,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         saveStatus,
         tiptapEditor,
         findReplaceEditor,
+        commentBridge,
     } = useTextDocument(room, driveItemId)
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
@@ -91,6 +97,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // open state here so both surfaces can drive it; the toolbar still
     // owns its own internal popover for the in-toolbar button path.
     const [contextLinkOpen, setContextLinkOpen] = useState(false)
+    const documentComments = useDocumentComments(driveItemId, commentBridge)
+    useCommentsLifecycle(driveItemId)
 
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
@@ -105,6 +113,15 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
                     <WordCountBadge editor={tiptapEditor} />
                     <ReconnectingIndicator isVisible={!room.isConnected} />
+                    <View className="ml-auto flex-row items-center gap-1">
+                        <NewCommentButton
+                            driveItemId={driveItemId}
+                            commentBridge={commentBridge}
+                            selectionEmpty={toolbarState.selectionEmpty ?? true}
+                            disabled={isReadOnly}
+                        />
+                        <OpenCommentsDrawerButton driveItemId={driveItemId} />
+                    </View>
                 </View>
                 <ImportWarningBanner warnings={hello.importWarnings} />
                 <MenuBar
@@ -163,9 +180,32 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         router.replace(orgHref('text/[id]', { id: newItemId }))
                     }
                 />
+                <TextCommentDrawer
+                    driveItemId={driveItemId}
+                    documentComments={documentComments}
+                    commentBridge={commentBridge}
+                />
             </View>
         </FindReplaceEditorContext.Provider>
     )
+}
+
+// Lifecycle owner for the comments drawer at the document level.
+// Resets the store when driveItemId changes so a navigation between
+// documents can't leak focusedThreadId or an open drawer; reads the
+// ?thread=<id> query param on mount so deep links land focused.
+function useCommentsLifecycle(driveItemId: string) {
+    const reset = useCommentsDrawerStore(s => s.reset)
+    const open = useCommentsDrawerStore(s => s.open)
+    const { thread } = useLocalSearchParams<{ thread?: string }>()
+
+    useEffect(() => {
+        reset()
+        if (thread) {
+            open({ packageSlug: 'text', driveItemId, threadId: thread })
+        }
+        return () => reset()
+    }, [driveItemId, thread, reset, open])
 }
 
 interface CenteredMessageProps {

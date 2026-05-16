@@ -37,6 +37,8 @@ const WrappedImage = Image.extend({
 import { useEffect, useState } from 'react'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
+import { CommentMark } from '../../lib/editor/comment-mark'
+import { installCommentBridge } from './bridges/comment-bridge'
 import { RealtimeClient } from './realtime-client'
 
 interface InitPayload {
@@ -155,6 +157,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             BorderedTableHeader,
             BorderedTableCell,
             WrappedImage,
+            CommentMark,
             Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
             CollaborationCaret.configure({
                 provider: { awareness },
@@ -241,8 +244,11 @@ function EditorMounted({ init }: EditorMountedProps) {
             } catch {
                 return
             }
-            // Init messages handled by parent <Editor />.
+            // Init messages handled by parent <Editor />. Comment-bus
+            // messages have their own listener installed by
+            // installCommentBridge below.
             if (parsed.namespace === 'app') return
+            if (parsed.namespace === 'comment') return
             const t = parsed.type
             if (!t) return
             switch (t) {
@@ -393,6 +399,12 @@ function EditorMounted({ init }: EditorMountedProps) {
             window.removeEventListener('message', onMessage)
             document.removeEventListener('message', onMessage as EventListener)
         }
+    }, [editor])
+
+    useEffect(() => {
+        if (!editor) return
+        const bridge = installCommentBridge(editor, postToNative)
+        return () => bridge.destroy()
     }, [editor])
 
     return <EditorContent editor={editor} />

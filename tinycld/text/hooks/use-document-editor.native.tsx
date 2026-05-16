@@ -103,6 +103,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     })
     // tiptapEditor + findReplaceEditor are web-only — native delegates
     // editing to the WebView's in-frame ProseMirror, which the host
-    // shell has no dispatch handle into.
-    return { ...result, tiptapEditor: null, findReplaceEditor: null }
+    // shell has no dispatch handle into. commentBridge is also web-only
+    // in v1; routing the WebView's namespace='comment' messages into a
+    // host bridge is deferred until text on native moves past v1.
+    return {
+        ...result,
+        tiptapEditor: null,
+        findReplaceEditor: null,
+        commentBridge: null,
+    }
 }

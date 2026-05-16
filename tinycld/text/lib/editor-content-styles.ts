@@ -226,4 +226,16 @@ export const EDITOR_CONTENT_STYLES = `
     background-color: var(--editor-find-match-active, rgba(255, 152, 0, 0.7));
     border-radius: 2px;
 }
+/* Comment marks. A subtle yellow underline keeps the anchored range
+   visible without overwhelming the surrounding text. Hover paints a
+   matching highlight so it's clear a click will target the mark. The
+   span is inserted by the tinycldComment Mark with class
+   .tinycld-comment. */
+.ProseMirror .tinycld-comment {
+    border-bottom: 2px solid var(--editor-comment-underline, rgba(250, 204, 21, 0.85));
+    cursor: pointer;
+}
+.ProseMirror .tinycld-comment:hover {
+    background-color: var(--editor-comment-highlight, rgba(250, 204, 21, 0.22));
+}
 `

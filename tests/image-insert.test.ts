@@ -6,7 +6,7 @@
 // Same testing approach as use-print-document.test.tsx.
 
 import { describe, expect, it, vi } from 'vitest'
-import { handleImageInsert } from '../tinycld/text/components/ImageInsertButton'
+import { handleImageInsert } from '../tinycld/text/components/image-insert-handler'
 
 function makeDeps(overrides: {
     pickImageAsDataUri?: () => Promise<string | null>

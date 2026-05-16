@@ -1,4 +1,6 @@
+import { useAuth } from '@tinycld/core/lib/auth'
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
+import { colorForUser } from '../lib/color-for-user'
 import { useDocumentEditor } from './use-document-editor'
 import { typedServerHello, typedServerSlot } from './useTextRoom'
 
@@ -6,17 +8,20 @@ import { typedServerHello, typedServerSlot } from './useTextRoom'
 // shared document editor and surfaces the text-specific server slot
 // state (saveStatus) alongside the editor result.
 //
-// Note on user identity: the local user's name + color land in
-// awareness.user via useTextRoom's initialAwareness. We deliberately
-// don't pass `user` to useDocumentEditor — the CollaborationCaret
-// extension's `user` option writes into awareness.user on mount and
-// would clobber the slot we just set.
+// User identity: CollaborationCaret writes its `user` option into
+// `awareness.user` on mount via setLocalStateField, unconditionally
+// (it defaults to `{ name: null, color: null }` when no user option
+// is supplied). That clobbers whatever useTextRoom seeded into the
+// awareness slot via `initialAwareness`. So we pass the same
+// {id, name, color} shape here — CollaborationCaret then writes a
+// valid identity, and PresenceAvatars' parseSlot accepts it.
 //
 // driveItemId is forwarded to the native editor variant, which uses
 // it to open its own realtime connection inside the WebView (the
 // native-side `room` is for serverHello/serverSlot only — its Y.Doc
 // is not bound to the WebView editor). The web variant ignores it.
 export function useTextDocument(room: RealtimeRoomHandle, driveItemId: string) {
+    const { user } = useAuth()
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
     const editorResult = useDocumentEditor({
@@ -24,6 +29,9 @@ export function useTextDocument(room: RealtimeRoomHandle, driveItemId: string) {
         awareness: room.awareness,
         editable: !hello.readOnly,
         driveItemId,
+        user: user
+            ? { id: user.id, name: user.name, color: colorForUser(user.id) }
+            : undefined,
     })
     return {
         ...editorResult,

@@ -7,7 +7,7 @@ import type { FindReplaceEditor } from '../lib/find-replace-plugin'
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
     awareness: Awareness
-    user?: { name: string; color: string }
+    user?: { id?: string; name: string; color: string }
     editable?: boolean
     placeholder?: string
     // Forwarded to the native variant which uses it to open the in-

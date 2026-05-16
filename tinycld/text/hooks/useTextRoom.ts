@@ -30,7 +30,15 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // useTextRoom is the text-specific wrapper around core's useRealtimeRoom.
 // It supplies the 'text-doc' roomKind and stamps the local awareness
 // slot with the current user's identity so collaboration cursors render
-// with a name + deterministic color.
+// with a name + deterministic color. The same identity gets re-applied
+// when useTextDocument mounts the editor — Tiptap's CollaborationCaret
+// extension writes its `user` option into awareness.user on mount via
+// setLocalStateField, so its `user` option must carry an identity
+// PresenceAvatars accepts (id/name/color). Without the identity here,
+// PresenceAvatars wouldn't render anything for the brief window between
+// WS connect and editor mount; without the identity at the editor
+// layer, CollaborationCaret would clobber this slot with its
+// `{name: null, color: null}` default.
 //
 // The server (text/server) populates the room's Y.Doc from the source
 // .docx before the first SyncReply goes out, so the client never needs

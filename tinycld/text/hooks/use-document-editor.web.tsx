@@ -92,8 +92,10 @@ export interface UseDocumentEditorOptions {
     // Optional: local user identity to display in collaboration cursors
     // (the floating cursor labels other peers see). The CollaborationCaret
     // extension writes this into awareness.user on mount; if omitted,
-    // peers see anonymous cursors.
-    user?: { name: string; color: string }
+    // peers see anonymous cursors. An `id` field, if provided, rides
+    // along into awareness.user so PresenceAvatars can identify the
+    // peer beyond name/color alone.
+    user?: { id?: string; name: string; color: string }
     // editable=false renders the editor in read-only mode. Tiptap's
     // editable property can be flipped after mount, but for v1 we set it
     // at construction time (consumers pass `editable: !readOnly` from

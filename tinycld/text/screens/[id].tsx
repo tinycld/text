@@ -10,6 +10,7 @@ import { ActivityIndicator, Linking, Platform, ScrollView, Text, View } from 're
 import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
+import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
 import { MenuBar } from '../components/menubar/MenuBar'
@@ -21,6 +22,8 @@ import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
+import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
+import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 
 export default function TextDetail() {
     const { id } = useLocalSearchParams<{ id: string }>()
@@ -68,8 +71,15 @@ interface DocumentScreenProps {
 }
 
 function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
-    const { EditorComponent, editor, commands, toolbarState, saveStatus, tiptapEditor } =
-        useTextDocument(room, driveItemId)
+    const {
+        EditorComponent,
+        editor,
+        commands,
+        toolbarState,
+        saveStatus,
+        tiptapEditor,
+        findReplaceEditor,
+    } = useTextDocument(room, driveItemId)
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const printDocument = usePrintDocument(editor)
@@ -83,73 +93,78 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const [contextLinkOpen, setContextLinkOpen] = useState(false)
 
     return (
-        <View className="flex-1 bg-background">
-            <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
-                <DocumentTitle
+        <FindReplaceEditorContext.Provider value={findReplaceEditor}>
+            <View className="flex-1 bg-background">
+                <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
+                    <DocumentTitle
+                        documentId={driveItemId}
+                        name={itemName}
+                        isReadOnly={isReadOnly}
+                    />
+                    <PresenceAvatars awareness={room.awareness} />
+                    <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
+                    <WordCountBadge editor={tiptapEditor} />
+                    <ReconnectingIndicator isVisible={!room.isConnected} />
+                </View>
+                <ImportWarningBanner warnings={hello.importWarnings} />
+                <MenuBar
+                    documentName={itemName}
                     documentId={driveItemId}
-                    name={itemName}
-                    isReadOnly={isReadOnly}
-                />
-                <PresenceAvatars awareness={room.awareness} />
-                <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
-                <WordCountBadge editor={tiptapEditor} />
-                <ReconnectingIndicator isVisible={!room.isConnected} />
-            </View>
-            <ImportWarningBanner warnings={hello.importWarnings} />
-            <MenuBar
-                documentName={itemName}
-                documentId={driveItemId}
-                sourceFile={itemFile}
-                commands={commands}
-                toolbarState={toolbarState}
-                fileActions={fileActions}
-                disabled={isReadOnly}
-                onPrint={() => {
-                    void printDocument()
-                }}
-                onOpenKeyboardShortcuts={() => void Linking.openURL('https://tinycld.org/docs')}
-                onRequestInsertLink={() => setContextLinkOpen(true)}
-                onInsertImage={dataUri => commands.insertImage?.(dataUri)}
-            />
-            <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
-            <DocumentContextMenu
-                commands={commands}
-                toolbarState={toolbarState}
-                editable={!isReadOnly}
-                onRequestInsertLink={() => setContextLinkOpen(true)}
-                className="flex-1"
-            >
-                <ScrollView className="flex-1">
-                    <View className="p-6 max-w-[800px] w-full self-center">
-                        <EditorComponent />
-                    </View>
-                </ScrollView>
-            </DocumentContextMenu>
-            <LinkPopover
-                isOpen={contextLinkOpen}
-                initialUrl={toolbarState.currentLink ?? ''}
-                onCancel={() => setContextLinkOpen(false)}
-                onInsert={url => {
-                    if (url) {
-                        commands.setLink(url)
-                    } else {
-                        commands.removeLink()
+                    sourceFile={itemFile}
+                    commands={commands}
+                    toolbarState={toolbarState}
+                    fileActions={fileActions}
+                    disabled={isReadOnly}
+                    onPrint={() => {
+                        void printDocument()
+                    }}
+                    onOpenKeyboardShortcuts={() =>
+                        void Linking.openURL('https://tinycld.org/docs')
                     }
-                    setContextLinkOpen(false)
-                }}
-            />
-            <MobileToolbarAccessory
-                commands={commands}
-                toolbarState={toolbarState}
-                editable={!isReadOnly}
-            />
-            <CopyToFolderDialog
-                itemId={driveItemId}
-                onCopied={newItemId =>
-                    router.replace(orgHref('text/[id]', { id: newItemId }))
-                }
-            />
-        </View>
+                    onRequestInsertLink={() => setContextLinkOpen(true)}
+                    onInsertImage={dataUri => commands.insertImage?.(dataUri)}
+                />
+                <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
+                <DocumentContextMenu
+                    commands={commands}
+                    toolbarState={toolbarState}
+                    editable={!isReadOnly}
+                    onRequestInsertLink={() => setContextLinkOpen(true)}
+                    className="flex-1"
+                >
+                    <ScrollView className="flex-1">
+                        <View className="p-6 max-w-[800px] w-full self-center">
+                            <EditorComponent />
+                            <FindReplaceShell />
+                        </View>
+                    </ScrollView>
+                </DocumentContextMenu>
+                <LinkPopover
+                    isOpen={contextLinkOpen}
+                    initialUrl={toolbarState.currentLink ?? ''}
+                    onCancel={() => setContextLinkOpen(false)}
+                    onInsert={url => {
+                        if (url) {
+                            commands.setLink(url)
+                        } else {
+                            commands.removeLink()
+                        }
+                        setContextLinkOpen(false)
+                    }}
+                />
+                <MobileToolbarAccessory
+                    commands={commands}
+                    toolbarState={toolbarState}
+                    editable={!isReadOnly}
+                />
+                <CopyToFolderDialog
+                    itemId={driveItemId}
+                    onCopied={newItemId =>
+                        router.replace(orgHref('text/[id]', { id: newItemId }))
+                    }
+                />
+            </View>
+        </FindReplaceEditorContext.Provider>
     )
 }
 
@@ -165,6 +180,17 @@ function CenteredMessage({ label, spinner }: CenteredMessageProps) {
             <Text className="text-sm text-muted-foreground">{label}</Text>
         </View>
     )
+}
+
+// FindReplaceShell sits inside the FindReplaceEditorContext.Provider
+// the screen wraps the document tree with, so useFindReplaceEditor()
+// resolves the tiptap editor that the shell's `useFindReplaceShortcuts`
+// + the bar's action buttons need to dispatch into. Toggles the bar
+// on the store's isOpen flag.
+function FindReplaceShell() {
+    const isOpen = useFindReplaceStore(s => s.isOpen)
+    useFindReplaceShortcuts()
+    return <FindReplaceBar isVisible={isOpen} />
 }
 
 // Bind ⌘P / Ctrl+P → print. Web-only: native has no equivalent

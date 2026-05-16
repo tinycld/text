@@ -214,4 +214,16 @@ export const EDITOR_CONTENT_STYLES = `
     float: left;
     height: 0;
 }
+/* Find/replace match highlighting. The find-replace plugin paints
+   every match with .text-find-match and the currently focused match
+   with .text-find-match-active. The colors are derived from theme
+   tokens via CSS vars so light/dark mode tracks the rest of the UI. */
+.ProseMirror .text-find-match {
+    background-color: var(--editor-find-match, rgba(255, 213, 79, 0.45));
+    border-radius: 2px;
+}
+.ProseMirror .text-find-match-active {
+    background-color: var(--editor-find-match-active, rgba(255, 152, 0, 0.7));
+    border-radius: 2px;
+}
 `

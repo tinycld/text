@@ -14,22 +14,14 @@ import {
 } from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
-import type { EditorResult } from '@tinycld/core/lib/editor/types'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
 import { pb } from '@tinycld/core/lib/pocketbase'
-import type { Editor as TiptapEditor } from '@tiptap/react'
 import { useMemo } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
 import { editorHtml } from '../webview-editor/build/editorHtml'
-
-// See the web variant for context — native has no in-process Tiptap
-// editor (the editor runs inside a WebView), so `tiptapEditor` is
-// always null here. Consumers like WordCountBadge gate on non-null.
-export interface DocumentEditorResult extends EditorResult {
-    tiptapEditor: TiptapEditor | null
-}
+import type { DocumentEditorResult } from './use-document-editor'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -109,5 +101,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         initPayload,
         editable: options.editable ?? true,
     })
-    return { ...result, tiptapEditor: null }
+    // tiptapEditor + findReplaceEditor are web-only — native delegates
+    // editing to the WebView's in-frame ProseMirror, which the host
+    // shell has no dispatch handle into.
+    return { ...result, tiptapEditor: null, findReplaceEditor: null }
 }

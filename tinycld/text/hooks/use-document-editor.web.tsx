@@ -1,10 +1,13 @@
 import type {
     EditorCommands,
     EditorHandle,
-    EditorResult,
     EditorToolbarState,
 } from '@tinycld/core/lib/editor/types'
+import { captureException } from '@tinycld/core/lib/errors'
+import { pb } from '@tinycld/core/lib/pocketbase'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
+import { Extension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
@@ -13,7 +16,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import { TextStyle } from '@tiptap/extension-text-style'
-import { type Editor as TiptapEditor, EditorContent, useEditor } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useMemo } from 'react'
 import { View } from 'react-native'
@@ -22,6 +25,12 @@ import type * as Y from 'yjs'
 import { applyCellBorders } from '../lib/apply-cell-borders'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
+import {
+    extractImageFilesFromDrop,
+    extractImageFilesFromPaste,
+} from '../lib/extract-image-files'
+import { findReplacePlugin } from '../lib/find-replace-plugin'
+import type { DocumentEditorResult } from './use-document-editor'
 
 // WrappedImage extends TipTap's default Image with:
 //   - inline=true so the node can live inside a paragraph (required
@@ -98,14 +107,46 @@ export interface UseDocumentEditorOptions {
     driveItemId?: string
 }
 
-// EditorResult plus the raw Tiptap editor handle — the web variant
-// exposes it so peripheral UI (WordCountBadge) can subscribe to
-// transaction updates directly via `editor.on('update', …)` without
-// rerendering the toolbar. The native variant returns `tiptapEditor:
-// null` because its editor runs inside a WebView; consumers gate on
-// non-null.
-export interface DocumentEditorResult extends EditorResult {
-    tiptapEditor: TiptapEditor | null
+// FindReplaceExtension wraps the find/replace plugin in a Tiptap
+// Extension wrapper so it can sit alongside the other extensions
+// declared in useEditor(). The plugin itself lives in
+// lib/find-replace-plugin.ts so the screen-level FindReplaceBar can
+// drive it directly through the shared PluginKey.
+const FindReplaceExtension = Extension.create({
+    name: 'tinycldFindReplace',
+    addProseMirrorPlugins() {
+        return [findReplacePlugin()]
+    },
+})
+
+// Uploads a pasted/dropped image to drive and invokes onInserted with
+// the resulting PocketBase file URL. Fire-and-forget — the paste/drop
+// handler returns sync, so any error has to route through
+// captureException rather than rejecting up to the caller.
+type CreateMutate = ReturnType<typeof useCreateDriveItem>['mutate']
+
+function uploadAndInsertImage(
+    file: File,
+    mutate: CreateMutate,
+    onInserted: (url: string) => void
+): void {
+    mutate(
+        {
+            body: file,
+            name: file.name || 'pasted-image.png',
+            mimeType: file.type || 'image/png',
+        },
+        {
+            onSuccess: result => {
+                const url = pb.files.getURL(
+                    { collectionId: 'drive_items', id: result.itemId },
+                    result.finalName
+                )
+                onInserted(url)
+            },
+            onError: err => captureException('text.pasteImageUpload', err),
+        }
+    )
 }
 
 // useDocumentEditor returns a Tiptap editor configured for collaborative
@@ -125,6 +166,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const linkColor = useThemeColor('link')
     const surfaceSecondaryColor = useThemeColor('surface-secondary')
 
+    // Pasted / dropped images upload through the drive package so the
+    // serialized image src is a stable URL into PocketBase — not an
+    // 8MB base64 data URI that round-trips through every collaborator's
+    // Y.Doc update payload.
+    const createDriveItem = useCreateDriveItem()
+
     const tiptapEditor = useEditor(
         {
             // Tiptap v3's useEditor defaults to NOT re-rendering on every
@@ -137,6 +184,37 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             // state stays in sync with the editor.
             shouldRerenderOnTransaction: true,
             editable: options.editable ?? true,
+            // Paste / drop handlers: detect image files synchronously
+            // and return true to suppress the default paste flow ONLY
+            // when at least one image was found. Otherwise return false
+            // so a styled-text paste from another tab still works. The
+            // upload mutation is async; we fire-and-forget here and
+            // insert the resulting URL on resolve. Worst case the user
+            // sees a small lag before the image appears — acceptable
+            // for v1, and far better than embedding the base64 bytes
+            // in every collaborator's Y.Doc.
+            editorProps: {
+                handlePaste: (_view, event) => {
+                    const files = extractImageFilesFromPaste(event)
+                    if (files.length === 0) return false
+                    for (const file of files) {
+                        uploadAndInsertImage(file, createDriveItem.mutate, src => {
+                            tiptapEditor?.chain().focus().setImage({ src }).run()
+                        })
+                    }
+                    return true
+                },
+                handleDrop: (_view, event) => {
+                    const files = extractImageFilesFromDrop(event)
+                    if (files.length === 0) return false
+                    for (const file of files) {
+                        uploadAndInsertImage(file, createDriveItem.mutate, src => {
+                            tiptapEditor?.chain().focus().setImage({ src }).run()
+                        })
+                    }
+                    return true
+                },
+            },
             extensions: [
                 // StarterKit bundles paragraphs, headings, bold, italic,
                 // underline, link, bullet/ordered lists, blockquote, and
@@ -181,6 +259,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     provider: { awareness: options.awareness },
                     user: options.user,
                 }),
+                FindReplaceExtension,
             ],
         },
         [options.yDoc, options.awareness, options.user?.name, options.user?.color]
@@ -322,6 +401,23 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         canSplitCell: tiptapEditor?.can().splitCell() ?? false,
     }
 
+    // findReplaceEditor exposes the minimum surface the FindReplaceBar
+    // needs (state + dispatch) so the screen-level bar can drive the
+    // plugin through the shared context. We expose it as an object
+    // with a getter for `state` so the bar always sees the latest
+    // EditorState — but the wrapper object's identity stays stable
+    // across re-renders, which is what keeps EditorComponent's useMemo
+    // from re-creating the editor tree on every transaction.
+    const findReplaceEditor = useMemo(() => {
+        if (!tiptapEditor) return null
+        return {
+            get state() {
+                return tiptapEditor.state
+            },
+            dispatch: tiptapEditor.view.dispatch.bind(tiptapEditor.view),
+        }
+    }, [tiptapEditor])
+
     const EditorComponent = useMemo(
         () =>
             function DocumentEditorContent() {
@@ -356,5 +452,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         ]
     )
 
-    return { editor, EditorComponent, commands, toolbarState, tiptapEditor: tiptapEditor ?? null }
+    return {
+        editor,
+        EditorComponent,
+        commands,
+        toolbarState,
+        tiptapEditor: tiptapEditor ?? null,
+        findReplaceEditor,
+    }
 }

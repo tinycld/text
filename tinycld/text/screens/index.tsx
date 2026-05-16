@@ -1,41 +1,18 @@
-import { and, eq } from '@tanstack/db'
-import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
-import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
-import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
 import { FilePlus2, FileText } from 'lucide-react-native'
 import { Pressable, ScrollView, Text, View } from 'react-native'
-import { createBlankTextDocument } from '../lib/create-blank-text-document'
-import { DOCX_MIME_TYPE } from '../lib/mime'
+import { useCreateBlankTextDocument, useTextDocuments } from '../hooks/use-text-documents'
 
 export default function TextIndex() {
     const orgHref = useOrgHref()
-    const [driveItemsCollection] = useStore('drive_items')
-    const create = useCreateDriveItem()
+    const { data: items = [] } = useTextDocuments()
+    const { create, isPending } = useCreateBlankTextDocument()
     const accentFg = useThemeColor('accent-foreground')
 
-    const { data: items = [] } = useOrgLiveQuery((query, { orgId }) =>
-        query
-            .from({ item: driveItemsCollection })
-            .where(({ item }) =>
-                and(
-                    eq(item.org, orgId),
-                    eq(item.mime_type, DOCX_MIME_TYPE),
-                    eq(item.is_folder, false)
-                )
-            )
-            .orderBy(({ item }) => item.updated, 'desc')
-    )
-
     const handleNew = () => {
-        createBlankTextDocument({
-            mutate: create.mutate,
-            onCreated: itemId => router.push(orgHref('text/[id]', { id: itemId })),
-            captureException,
-        })
+        create(itemId => router.push(orgHref('text/[id]', { id: itemId })))
     }
 
     const isEmpty = items.length === 0
@@ -55,17 +32,17 @@ export default function TextIndex() {
                         accessibilityRole="button"
                         accessibilityLabel="New document"
                         onPress={handleNew}
-                        disabled={create.isPending}
+                        disabled={isPending}
                         className="flex-row items-center gap-2 px-3 py-2 rounded-md bg-accent"
                     >
                         <FilePlus2 size={16} color={accentFg} />
                         <Text className="text-sm font-medium text-accent-foreground">
-                            {create.isPending ? 'Creating…' : 'New document'}
+                            {isPending ? 'Creating…' : 'New document'}
                         </Text>
                     </Pressable>
                 </View>
 
-                <EmptyState isVisible={isEmpty && !create.isPending} />
+                <EmptyState isVisible={isEmpty && !isPending} />
 
                 <View className="gap-1">
                     {items.map(item => (

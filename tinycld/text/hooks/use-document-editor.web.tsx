@@ -13,7 +13,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import { TextStyle } from '@tiptap/extension-text-style'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { type Editor as TiptapEditor, EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useMemo } from 'react'
 import { View } from 'react-native'
@@ -98,6 +98,16 @@ export interface UseDocumentEditorOptions {
     driveItemId?: string
 }
 
+// EditorResult plus the raw Tiptap editor handle — the web variant
+// exposes it so peripheral UI (WordCountBadge) can subscribe to
+// transaction updates directly via `editor.on('update', …)` without
+// rerendering the toolbar. The native variant returns `tiptapEditor:
+// null` because its editor runs inside a WebView; consumers gate on
+// non-null.
+export interface DocumentEditorResult extends EditorResult {
+    tiptapEditor: TiptapEditor | null
+}
+
 // useDocumentEditor returns a Tiptap editor configured for collaborative
 // .docx-style document editing. The hook MUST be called only after the
 // caller has a Y.Doc + Awareness pair from a connected realtime room —
@@ -106,7 +116,7 @@ export interface UseDocumentEditorOptions {
 // Web variant: uses @tiptap/react directly (no WebView). Mounts
 // <EditorContent /> in the DOM. Companion: use-document-editor.native.tsx
 // is a v1 stub showing a "coming soon" placeholder.
-export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult {
+export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult {
     const placeholderColor = useThemeColor('field-placeholder')
     const primaryColor = useThemeColor('primary')
     const foregroundColor = useThemeColor('foreground')
@@ -346,5 +356,5 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         ]
     )
 
-    return { editor, EditorComponent, commands, toolbarState }
+    return { editor, EditorComponent, commands, toolbarState, tiptapEditor: tiptapEditor ?? null }
 }

@@ -17,11 +17,19 @@ import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
 import type { EditorResult } from '@tinycld/core/lib/editor/types'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
 import { pb } from '@tinycld/core/lib/pocketbase'
+import type { Editor as TiptapEditor } from '@tiptap/react'
 import { useMemo } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
 import { editorHtml } from '../webview-editor/build/editorHtml'
+
+// See the web variant for context — native has no in-process Tiptap
+// editor (the editor runs inside a WebView), so `tiptapEditor` is
+// always null here. Consumers like WordCountBadge gate on non-null.
+export interface DocumentEditorResult extends EditorResult {
+    tiptapEditor: TiptapEditor | null
+}
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -63,7 +71,7 @@ export interface UseDocumentEditorOptions {
 // must match the cases handled in webview-editor/source/Editor.tsx;
 // note that TenTap emits camelCase for some list types
 // ('toggle-bulletList', 'toggle-orderedList').
-export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult {
+export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult {
     const { user } = useAuth()
     const userId = user?.id ?? ''
     const userName = user?.name ?? ''
@@ -82,7 +90,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         [options.driveItemId, options.editable, options.placeholder, userId, userName, userColor]
     )
 
-    return useWebViewEditor({
+    const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
             CoreBridge,
@@ -101,4 +109,5 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         initPayload,
         editable: options.editable ?? true,
     })
+    return { ...result, tiptapEditor: null }
 }

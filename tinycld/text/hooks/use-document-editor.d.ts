@@ -1,4 +1,5 @@
 import type { EditorResult } from '@tinycld/core/lib/editor/types'
+import type { Editor as TiptapEditor } from '@tiptap/react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 
@@ -13,4 +14,12 @@ export interface UseDocumentEditorOptions {
     driveItemId?: string
 }
 
-export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult
+// The web variant exposes the raw Tiptap editor so callers can attach
+// their own transaction listeners (WordCountBadge) without rendering
+// the whole toolbar each keystroke. Native returns null because its
+// editor lives inside a WebView.
+export interface DocumentEditorResult extends EditorResult {
+    tiptapEditor: TiptapEditor | null
+}
+
+export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult

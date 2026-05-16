@@ -16,6 +16,7 @@ import { MenuBar } from '../components/menubar/MenuBar'
 import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
+import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
@@ -67,10 +68,8 @@ interface DocumentScreenProps {
 }
 
 function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
-    const { EditorComponent, editor, commands, toolbarState, saveStatus } = useTextDocument(
-        room,
-        driveItemId
-    )
+    const { EditorComponent, editor, commands, toolbarState, saveStatus, tiptapEditor } =
+        useTextDocument(room, driveItemId)
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const printDocument = usePrintDocument(editor)
@@ -93,6 +92,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 />
                 <PresenceAvatars awareness={room.awareness} />
                 <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
+                <WordCountBadge editor={tiptapEditor} />
                 <ReconnectingIndicator isVisible={!room.isConnected} />
             </View>
             <ImportWarningBanner warnings={hello.importWarnings} />

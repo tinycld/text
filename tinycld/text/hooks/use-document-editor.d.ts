@@ -13,6 +13,11 @@ export interface UseDocumentEditorOptions {
     // Forwarded to the native variant which uses it to open the in-
     // WebView realtime connection. Web variant ignores.
     driveItemId?: string
+    // Invoked by the slash menu's "Image" entry. The host owns the
+    // file/URL picker + drive upload pipeline and routes the resulting
+    // src back through `commands.insertImage`. Web-only; native
+    // ignores.
+    onRequestInsertImage?: () => void
 }
 
 // Host-side surface for the comment system. The web variant binds

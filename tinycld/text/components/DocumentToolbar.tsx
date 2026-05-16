@@ -180,7 +180,7 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                     <ImageInsertButton
                         icon={ImageIcon}
                         disabled={disabled}
-                        onInsert={dataUri => commands.insertImage?.(dataUri)}
+                        onInsert={url => commands.insertImage?.(url)}
                         iconColor={iconColor}
                     />
 

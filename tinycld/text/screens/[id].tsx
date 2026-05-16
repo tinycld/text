@@ -122,7 +122,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         void Linking.openURL('https://tinycld.org/docs')
                     }
                     onRequestInsertLink={() => setContextLinkOpen(true)}
-                    onInsertImage={dataUri => commands.insertImage?.(dataUri)}
+                    onInsertImage={url => commands.insertImage?.(url)}
                 />
                 <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
                 <DocumentContextMenu

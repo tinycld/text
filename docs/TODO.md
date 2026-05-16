@@ -28,8 +28,8 @@ A checked box means the item is fixed on `main`. The session that introduced thi
 ## Important
 
 ### Server / persistence / realtime
-- [ ] **IMPORTANT** — `runtime.go:150` `ApplyUpdate` has no payload size cap. A 100 MB frame exhausts memory before the recover guard triggers. Cap at the broker (e.g. 1 MiB) and reject earlier.
-- [ ] **IMPORTANT** — `pm_to_docx.go:419` `AddImageFromData` accepts arbitrary bytes from a client-supplied data: URI. No size cap, no MIME re-validation against the actual bytes, no decode-and-re-encode. A 50 MiB embedded image round-trips on every save. Cap per-image bytes and reject unsupported subtypes.
+- [ ] **IMPORTANT** — `runtime.go:151` `ApplyUpdate` has no payload size cap. A 100 MB frame exhausts memory before the recover guard triggers. Cap at the broker (e.g. 1 MiB) and reject earlier.
+- [ ] **IMPORTANT** — `pm_to_docx.go:715` `AddImageFromData` accepts arbitrary bytes from a client-supplied data: URI. No size cap, no MIME re-validation against the actual bytes, no decode-and-re-encode. A 50 MiB embedded image round-trips on every save. Cap per-image bytes and reject unsupported subtypes.
 - [ ] **IMPORTANT** — `bootstrap.go:89` `io.ReadAll(rdr)` slurps the entire docx into memory with no cap. Read with `io.LimitReader` and define a `MaxDocxBytes` constant.
 - [ ] **IMPORTANT** — WordZero's `NumberingManager` is a global singleton with no mutex around concurrent flushes of different rooms (`flush.go:25-28`, `pm_to_docx.go` header). Two simultaneous flushes can interleave numbering allocations and produce malformed list output. Either serialize flushes through a package-level `sync.Mutex` or replace the library.
 - [ ] **IMPORTANT** — `runtime.go:71-89` has no janitor for orphaned docs. If the broker stops calling `Close` (bug, crash mid-handler, panic in OnEmpty), docs stay in `r.docs` forever with all Yjs state. Add idle eviction: track `lastActivity time.Time` on the handle; spawn a janitor goroutine that calls `Close` after N minutes of no activity.
@@ -42,32 +42,32 @@ For each of these the parser drops the feature on import:
 - [ ] **IMPORTANT** — Page breaks (`parseRun:579-585` converts `<w:br>` to `\n` text and loses the semantic distinction).
 - [ ] **IMPORTANT** — Comments — the body markers are removed (with a `WarningComments`) but `comments.xml` is dropped entirely.
 - [ ] **IMPORTANT** — Tracked deletions are dropped silently aside from the warning. Insertions are kept (good).
-- [ ] **IMPORTANT** — Hyperlinks: `parseHyperlink` works for v1, but the post-process emitter (`pm_to_docx.go:715-731`) is text-substitution-based and brittle — a literal `{{__pmlink:1:open}}` token appearing in user text would corrupt the file. Either escape user text or switch to a proper WordZero hyperlink API (would require forking the dep).
+- [ ] **IMPORTANT** — Hyperlinks: `parseHyperlink` works for v1, but the post-process emitter (`pm_to_docx.go:962-1057`, the `{{__pmlink:N:open}}` / `{{__pmlink:N:close}}` token + `applyLinkRewrites` pair) is text-substitution-based and brittle — a literal `{{__pmlink:1:open}}` token appearing in user text would corrupt the file. Either escape user text or switch to a proper WordZero hyperlink API (would require forking the dep).
 - [ ] **IMPORTANT** — Image dimensions are dropped (`extent` EMUs intentionally not preserved). Means resizing images in the editor is impossible.
-- [ ] **IMPORTANT** — Table cell merges (`gridSpan`, `vMerge`), column widths, borders, shading all dropped.
+- [x] **IMPORTANT** — Table cell merges (`gridSpan`, `vMerge`), column widths, and borders are now parsed (`docx_to_pm.go:1391-1571`, plus `cell_borders.go` and `colwidth_test.go`). Shading (`<w:shd>`) is still dropped.
 - [ ] **IMPORTANT** — Styles: only Heading1-6, Quote/IntenseQuote, Normal, ListParagraph are recognized. Any other `pStyle` gets `WarningUnsupportedStyle` and normalizes to plain paragraph. Custom `rStyle` is silently dropped.
 - [ ] **IMPORTANT** — Code blocks: no `code` / `codeBlock` mark or node in `SupportedNodeTypes`.
 - [ ] **IMPORTANT** — Math / OMML: no handling, dropped at the body level.
-- [ ] **IMPORTANT** — Font color / size / family: `parseRunProperties` reads only `<w:b>`, `<w:i>`, `<w:u>`.
+- [ ] **IMPORTANT** — Font size and family still dropped. Font color now round-trips via the `textStyle` mark (`types.go:74`, `MarkTypeTextStyle`); `parseRunProperties` reads `<w:color>` and `pm_to_docx.marksToTextFormat` emits it. Size (`<w:sz>`) and family (`<w:rFonts>`) remain unsupported.
 - [ ] **IMPORTANT** — Alignment / indent (`<w:jc>`, `<w:ind>`) silently dropped.
 - [ ] **IMPORTANT** — Numbered-list level format precision: `listTypeFromFmt` collapses every non-bullet variant onto `orderedList`. Level format (lowerRoman vs decimal etc.) is lost.
 
 ### Frontend conventions
-- [ ] **IMPORTANT** — No `captureException` anywhere in the package (`screens/index.tsx:38-45`, `sidebar.tsx:43-50`, `components/ImageInsertButton.tsx:78`). A failed document create leaves the user on the index with no toast and no Sentry signal.
+- [ ] **IMPORTANT** — No `captureException` on the create-document and image-insert paths (`screens/index.tsx:38-45`, `sidebar.tsx:43-50`, `components/ImageInsertButton.tsx:25-32`). A failed document create leaves the user on the index with no toast and no Sentry signal. (The print pipeline already uses `captureException` — see `hooks/use-print-document.ts`, `lib/print/handle-print.{web,native}.ts`.)
 - [ ] **IMPORTANT** — `useMutation` generator pattern not used for create flows. Both new-document paths call `mutateAsync` directly with no `onError`. Switch to the project standard with `handleMutationErrorsWithForm` (or the simpler variant without a form).
 - [ ] **IMPORTANT** — Raw hex colors in `screens/index.tsx:67,95,112` (`'white'`, `#888`, `#3b82f6`). Use semantic tokens / `useThemeColor`. `lib/color-for-user.ts` palette is a legitimate exception (Yjs awareness needs literal CSS strings).
 - [ ] **IMPORTANT** — Duplicate query+create block between `screens/index.tsx` and `sidebar.tsx`. Extract a `useTextDocuments()` + `useCreateBlankTextDocument()` hook.
 - [ ] **IMPORTANT** — `useState` + `useEffect` sync in `components/LinkPopover.tsx:18,27-29`. The `biome-ignore` comment is a tell. Replace with a Zustand store or `key={isOpen}` remount.
 
 ### Collaboration correctness
-- [ ] **IMPORTANT** — `SaveStatusIndicator` shows OK during disconnect. `hooks/useTextRoom.ts:56-61` + `components/SaveStatusIndicator.tsx:14` treats "no slot frame" as "fine." During a reconnection window, edits accumulate locally with the UI confidently saying "Saved." Gate on `room.isConnected`.
-- [ ] **IMPORTANT** — `yjs_bridge.go` always sends the full Y.Doc state (`EncodeStateAsUpdate(h.doc, nil)`). Plumb through the peer state vector when room sizes grow.
-- [ ] **IMPORTANT** — Awareness object recreated each render in `hooks/useTextRoom.ts:30-38`. Memoise; expose `setLocalState` for live name updates.
+- [ ] **IMPORTANT** — `SaveStatusIndicator` shows OK during disconnect. `components/SaveStatusIndicator.tsx:14-15` treats "no slot frame" as "fine" (the typedServerSlot default in `hooks/useTextRoom.ts:79-83` is also `'ok'`). During a reconnection window, edits accumulate locally with the UI confidently saying "Saved." Gate on `room.isConnected`.
+- [ ] **IMPORTANT** — `runtime.go:177` `EncodeStateAsUpdate(h.doc, nil)` always sends the full Y.Doc state. Plumb through the peer state vector when room sizes grow. (Bridge helpers live at `server/translate/yjs_bridge.go`, but the broker-facing encode call is in `runtime.go`.)
+- [ ] **IMPORTANT** — `initialAwareness` object literal recreated each render in `hooks/useTextRoom.ts:56-61`. Memoise; expose `setLocalState` for live name updates.
 - [ ] **IMPORTANT** — No awareness cleanup on logout — remote tabs see frozen cursors until the protocol timeout. Call `awareness.setLocalState(null)` before unmount.
 - [ ] **IMPORTANT** — Image data: URIs round-trip through Yjs and broadcast to every peer (acknowledged in `ImageInsertButton.tsx:11-19` as v1). The `drive` dependency is already declared — wire `useCreateDriveItem` and insert by URL instead of base64.
 
 ### Type-safety
-- [ ] **IMPORTANT** — `serverHello` / `serverSlot` cast through `unknown` with no runtime check in `hooks/useTextRoom.ts:50,60`. Add zod schemas; route parse failures to `captureException`.
+- [ ] **IMPORTANT** — `serverHello` / `serverSlot` cast via raw `as TextServerHello` / `as TextServerSlot` with no runtime check in `hooks/useTextRoom.ts:73,83`. Add zod schemas; route parse failures to `captureException`.
 
 ### CI / build
 - [ ] **IMPORTANT** — Go server tests never run in CI. `.github/workflows/ci.yml` runs vitest only. `server/{authorize,bootstrap,flush,runtime,fixtures}_test.go` and `server/translate/*_test.go` execute locally only. Add a `go test ./server/...` step.
@@ -80,11 +80,11 @@ For each of these the parser drops the feature on import:
 
 Ordered roughly by user-visible ROI:
 
-- [ ] Document rename — `screens/[id].tsx:58-63` renders `itemName` as static `Text`. No edit path.
+- [ ] Document rename — `screens/[id].tsx:88-90` renders `itemName` as static `Text`. No edit path.
 - [ ] Find / replace within document (Cmd+F). Tiptap has `prosemirror-search`.
 - [ ] Slash menu for block insertion (`/heading`, `/table`, `/image`). Tiptap mention extension.
 - [ ] Drag-and-drop / paste image. Only `ImageInsertButton` exists today. Hook editor `handleDrop` / `handlePaste`.
-- [ ] Presence cursors — avatars exist (`screens/[id].tsx:64`) but `@tiptap/extension-collaboration-cursor` is not wired, so remote carets are invisible.
+- [ ] Presence cursors — avatars exist (`screens/[id].tsx:91`) but `@tiptap/extension-collaboration-cursor` is not wired, so remote carets are invisible.
 - [ ] Document share link / public viewer — no `public-screens/share/[token].tsx`. Drive has it; text doesn't.
 - [ ] Export to PDF / Markdown / HTML — server endpoint + "More" menu in document header.
 - [ ] Comments / annotations / suggestions — no `text_comment` collection, no comment marks, no thread UI.
@@ -109,12 +109,12 @@ Ordered roughly by user-visible ROI:
 - [ ] `useCallback`s on functions only passed to non-memoised `Pressable` consumers in `screens/index.tsx:38`, `sidebar.tsx:43`. Dead ceremony; delete.
 - [ ] `DocumentToolbar` re-renders on every editor selection change. Wrap `FormatButton` in `React.memo` or hoist the row.
 - [ ] The nested `text/tinycld/text/` source layout works (the package generator resolves through `package.json` exports), but no other sibling does this. Flatten to `text/{components,hooks,lib,screens}/` while the package is still small.
-- [ ] `docx_to_pm.go` is 1400 LOC. Split into `docx_zip.go`, `docx_parse.go`, `docx_lists.go`, `docx_images.go`.
+- [ ] `docx_to_pm.go` is ~1975 LOC (grew past 1400 as cell-borders / colwidth / gridSpan / vMerge / textStyle landed). Split into `docx_zip.go`, `docx_parse.go`, `docx_lists.go`, `docx_images.go`.
 - [ ] Dependency risk: `github.com/ZeroHawkeye/wordZero` is low-activity and has historically panicked on malformed inputs. Long-term, vendor a fork or replace with `unidoc/unioffice` (which has hyperlink/footnote/comment APIs).
-- [ ] Dependency risk: `github.com/skyterra/y-crdt` is a date-stamped pseudoversion; `yjs_bridge.go:36-49` documents two upstream bugs it patches around. Fork it or hide behind an interface.
-- [ ] `parseRelationships` / `parseNumberingFormats` in `docx_to_pm.go:131-153,160-202` silently return `nil` on `xml.Unmarshal` error. No warning, no log. A malformed relationships file means every hyperlink href becomes empty string.
+- [ ] Dependency risk: `github.com/skyterra/y-crdt` is a date-stamped pseudoversion; `server/translate/yjs_bridge.go:32-49` documents two upstream bugs it patches around. Fork it or hide behind an interface.
+- [ ] `parseRelationships` / `parseNumberingFormats` in `docx_to_pm.go:131-153,160-203` silently return `nil` on `xml.Unmarshal` error. No warning, no log. A malformed relationships file means every hyperlink href becomes empty string.
 - [ ] Inconsistent logger routing: `runtime.go:84` uses package-global `slog`, `bootstrap.go` and `flush.go` use `app.Logger()`. Thread `app.Logger()` (or `*slog.Logger`) into the Runtime constructor.
-- [ ] Performance — `applyLinkRewrites` in `pm_to_docx.go:666-704` is O(N*M) string churn. A doc with 200 links and 500 KB body is ~100 MB churn per flush. Switch to a single-pass `strings.Builder` walk.
-- [ ] Performance — `resolveMediaSrc` in `docx_to_pm.go:871-892` does a linear scan over `p.zip.File` per image. Index files into a map once at the start of `parseDocument`.
-- [ ] `buildListTree` (`docx_to_pm.go:1294-1346`) takes pointers into slices that are later appended to; the backing array can reallocate while pointers remain valid into the old buffer. Convert frames to hold indices instead of pointers.
+- [ ] Performance — `applyLinkRewrites` in `pm_to_docx.go:1018-1057` is O(N*M) string churn. A doc with 200 links and 500 KB body is ~100 MB churn per flush. Switch to a single-pass `strings.Builder` walk.
+- [ ] Performance — `resolveMediaSrc` in `docx_to_pm.go:967-991` does a linear scan over `p.zip.File` per image. Index files into a map once at the start of `parseDocument`.
+- [ ] `buildListTree` (`docx_to_pm.go:1874-1939`) takes pointers into slices that are later appended to; the backing array can reallocate while pointers remain valid into the old buffer. Convert frames to hold indices instead of pointers.
 - [ ] Side-effect registration in `lib/open-in-text-action.tsx` and `lib/open-in-text-drive-action.tsx` is HMR-hostile (double registration on hot reload). Verify the registry is idempotent on duplicate IDs, or add an idempotence guard.

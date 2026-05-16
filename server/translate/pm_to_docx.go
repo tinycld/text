@@ -393,23 +393,52 @@ func (em *emitter) emitTable(node PMNode) error {
 		return fmt.Errorf("translate: create table: %w", err)
 	}
 
+	// Two-pass emit so vertical and horizontal merges don't interfere.
+	//
+	//   Pass A — emit content + collect merge plans. Walks rows and
+	//     places each PM cell at its physical column index. Tracks
+	//     vertically-covered columns via vCover[] so PM's "missing"
+	//     cells under rowspan>1 starts don't shift the cursor. Records
+	//     each colspan>1 cell as a deferred horizontal-merge, and each
+	//     rowspan>1 cell as a deferred vertical-merge.
+	//
+	//   Pass B — apply all vertical merges first. WordZero's
+	//     MergeCellsVertical doesn't change row cell counts (only
+	//     stamps <w:vMerge> on the spanned-over cells), so it's safe
+	//     to run before horizontal merges per-row.
+	//
+	//   Pass C — apply horizontal merges per-row, right-to-left.
+	//     MergeCellsHorizontal splices cells out, so iterating in
+	//     reverse keeps earlier merge indices valid.
+	type hMerge struct{ row, start, end int }
+	type vMerge struct{ startRow, endRow, col int }
+	var hMerges []hMerge
+	var vMerges []vMerge
+	// vCover[c] = remaining rows after the current one that are still
+	// covered by an earlier cell's rowspan at column c. Decremented at
+	// the end of each row.
+	vCover := make([]int, cols)
 	for r, row := range node.Content {
 		if row.Type != NodeTypeTableRow {
 			continue
 		}
 		col := 0
-		// Defer merges so we can run them right-to-left after the
-		// row's content is in place. WordZero's MergeCellsHorizontal
-		// reindexes physical columns on each call (the merged cells
-		// are spliced out), so merging left-to-right would shift the
-		// surviving cells out from under the next planned merge.
-		type merge struct{ start, end int }
-		var merges []merge
 		for _, cell := range row.Content {
 			if cell.Type != NodeTypeTableCell {
 				continue
 			}
+			// Skip columns that are vertically covered by a prior
+			// rowspan>1 cell. PM omits the placeholder cells under a
+			// rowspan, so we have to advance the cursor without
+			// emitting anything.
+			for col < cols && vCover[col] > 0 {
+				col++
+			}
+			if col >= cols {
+				break
+			}
 			span := cellColspan(cell)
+			rspan := cellRowspan(cell)
 			if err := em.emitTableCell(tbl, r, col, cell); err != nil {
 				return err
 			}
@@ -418,12 +447,49 @@ func (em *emitter) emitTable(node PMNode) error {
 				if end >= cols {
 					end = cols - 1
 				}
-				merges = append(merges, merge{col, end})
+				hMerges = append(hMerges, hMerge{r, col, end})
+			}
+			if rspan > 1 {
+				endRow := r + rspan - 1
+				if endRow >= rows {
+					endRow = rows - 1
+				}
+				if endRow > r {
+					vMerges = append(vMerges, vMerge{r, endRow, col})
+					// Record the rowspan coverage for every spanned
+					// column so subsequent rows skip them.
+					for c := col; c < col+span && c < cols; c++ {
+						vCover[c] = (endRow - r) + 1
+					}
+				}
 			}
 			col += span
 		}
-		for i := len(merges) - 1; i >= 0; i-- {
-			m := merges[i]
+		// End-of-row: decrement coverage so the next row sees one
+		// fewer row of cover.
+		for c := range vCover {
+			if vCover[c] > 0 {
+				vCover[c]--
+			}
+		}
+	}
+
+	// Pass B — vertical merges first (no cell-count change).
+	for _, v := range vMerges {
+		if err := tbl.MergeCellsVertical(v.startRow, v.endRow, v.col); err != nil {
+			return fmt.Errorf("translate: merge cells vertical [%d..%d],%d: %w", v.startRow, v.endRow, v.col, err)
+		}
+	}
+
+	// Pass C — horizontal merges per row, right-to-left.
+	hByRow := make(map[int][]hMerge, len(hMerges))
+	for _, m := range hMerges {
+		hByRow[m.row] = append(hByRow[m.row], m)
+	}
+	for r := range node.Content {
+		rowMerges := hByRow[r]
+		for i := len(rowMerges) - 1; i >= 0; i-- {
+			m := rowMerges[i]
 			// Sum the spanned dxa widths so the surviving cell's <w:tcW>
 			// reflects the full merged width. Without this, WordZero
 			// keeps the start cell's own (unmerged) width and re-import
@@ -435,11 +501,11 @@ func (em *emitter) emitTable(node PMNode) error {
 					merged += colDxa[c]
 				}
 			}
-			if err := tbl.MergeCellsHorizontal(r, m.start, m.end); err != nil {
-				return fmt.Errorf("translate: merge cells %d,[%d..%d]: %w", r, m.start, m.end, err)
+			if err := tbl.MergeCellsHorizontal(m.row, m.start, m.end); err != nil {
+				return fmt.Errorf("translate: merge cells %d,[%d..%d]: %w", m.row, m.start, m.end, err)
 			}
 			if merged > 0 {
-				if c, err := tbl.GetCell(r, m.start); err == nil {
+				if c, err := tbl.GetCell(m.row, m.start); err == nil {
 					if c.Properties == nil {
 						c.Properties = &document.TableCellProperties{}
 					}
@@ -518,6 +584,22 @@ func cellColspan(cell PMNode) int {
 		return 1
 	}
 	if v, ok := cell.Attrs["colspan"]; ok {
+		if n := asInt(v); n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
+// cellRowspan reads rowspan off a tableCell, defaulting to 1. Parallel
+// to cellColspan — rowspan>1 means the cell vertically spans the next
+// (rowspan-1) rows, which gets emitted as <w:vMerge> via
+// MergeCellsVertical.
+func cellRowspan(cell PMNode) int {
+	if cell.Attrs == nil {
+		return 1
+	}
+	if v, ok := cell.Attrs["rowspan"]; ok {
 		if n := asInt(v); n > 0 {
 			return n
 		}

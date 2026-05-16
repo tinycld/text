@@ -1050,11 +1050,129 @@ func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNo
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
+				consolidateVMerges(tbl)
 				padTableRowsToMaxWidth(tbl)
 				return tbl, nil
 			}
 		}
 	}
+}
+
+// consolidateVMerges collapses OOXML vertical-merge runs into a
+// single PM tableCell with rowspan>1. After parseTable finishes, every
+// row carries one PM cell per <w:tc>, and continue cells carry a
+// sentinel `_vmerge="continue"` attribute. This pass:
+//
+//  1. Walks rows top-to-bottom, tracking the most recent "start" cell
+//     per physical column (a cell that began a vMerge OR a normal cell
+//     that the next-row continue should attach to). A continue cell
+//     directly under a start cell at the same physical column bumps
+//     the start's `rowspan` and is removed from its row.
+//  2. Resets the start tracker for a column when a row in that column
+//     is occupied by a non-continue cell (a new vMerge run, or a fresh
+//     unmerged cell — either way the previous run terminates).
+//  3. Strips the `_vmerge` sentinel from every surviving cell.
+//
+// Physical column = position after accounting for colspan in prior
+// cells of the same row. A cell with colspan=2 occupies two physical
+// columns; both columns are advanced past, and a continue cell at
+// either column will attach to that wide start cell.
+func consolidateVMerges(tbl *PMNode) {
+	if tbl == nil {
+		return
+	}
+	type startRef struct {
+		row int
+		ci  int // index into tbl.Content[row].Content
+	}
+	// activeStart maps physical column → most-recent non-continue cell
+	// covering that column. Nil entries mean "no active run here yet".
+	var activeStart []*startRef
+
+	for r := range tbl.Content {
+		row := &tbl.Content[r]
+		if row.Type != NodeTypeTableRow {
+			continue
+		}
+		// Walk the row by physical column. We may splice out continue
+		// cells as we go, so iterate with an index that doesn't
+		// advance on splice.
+		col := 0
+		i := 0
+		for i < len(row.Content) {
+			cell := &row.Content[i]
+			if cell.Type != NodeTypeTableCell {
+				i++
+				continue
+			}
+			span := cellColspanForPad(*cell)
+			vm := ""
+			if cell.Attrs != nil {
+				if s, ok := cell.Attrs["_vmerge"].(string); ok {
+					vm = s
+				}
+				delete(cell.Attrs, "_vmerge")
+			}
+			ensureCap := func(n int) {
+				for len(activeStart) < n {
+					activeStart = append(activeStart, nil)
+				}
+			}
+			ensureCap(col + span)
+			if vm == "continue" {
+				// Attach to the active start cell at this column, if any.
+				// We only consult the first spanned column — OOXML
+				// permits gridSpan on a continue cell only when the
+				// start cell had the same gridSpan, so all spanned
+				// columns point to the same start.
+				startCell := activeStart[col]
+				if startCell != nil && startCell.row < r {
+					sc := &tbl.Content[startCell.row].Content[startCell.ci]
+					if sc.Attrs == nil {
+						sc.Attrs = map[string]any{}
+					}
+					rs := 1
+					if v, ok := sc.Attrs["rowspan"]; ok {
+						if n := asIntForPad(v); n > 0 {
+							rs = n
+						}
+					}
+					sc.Attrs["rowspan"] = rs + 1
+					// Remove the continue cell from this row.
+					row.Content = append(row.Content[:i], row.Content[i+1:]...)
+					// Don't advance i — the next cell slid into i.
+					// Do advance col across the spanned columns.
+					col += span
+					continue
+				}
+				// No active start to attach to: treat as a fresh cell
+				// (defensive — happens for malformed input). Fall
+				// through to the start-cell branch by clearing vm.
+				vm = ""
+			}
+			// Non-continue cell: establishes a new active run at every
+			// physical column it covers.
+			ref := &startRef{row: r, ci: i}
+			for c := col; c < col+span; c++ {
+				activeStart[c] = ref
+			}
+			col += span
+			i++
+		}
+	}
+}
+
+// asIntForPad coerces an attribute value (which may have come from
+// JSON as float64 or be an int) into an int. Parallel to asInt in
+// pm_to_docx.go — duplicated to avoid cross-file coupling.
+func asIntForPad(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 // parseTableGrid reads <w:tblGrid> into an int slice of per-column dxa
@@ -1094,35 +1212,98 @@ func parseTableGrid(dec *xml.Decoder, start xml.StartElement) ([]int, error) {
 // WordZero table by computing max(cols) across rows; padding on import
 // keeps pass-1 and pass-3 trees structurally identical.
 //
-// Physical-column count means: sum of colspan across cells in the row,
-// not len(Content). A row with one normal cell plus two cells of
-// colspan=2 covers 5 physical columns even though len(Content) is 3.
-// Padding by physical count is what makes a complex (merged-header)
-// table emit correctly: the emitter walks logical cells and slides the
-// physical-column cursor by colspan as it goes.
+// Physical-column count means: sum of colspan across cells in the row
+// PLUS columns covered by an earlier row's rowspan>1 cell. A row
+// holding a single cell at column 1 still has "physical width 2" if
+// column 0 is being covered by a rowspan from the row above. Without
+// the rowspan contribution, padding would inject a stray empty cell
+// at column 1 that shifts every real cell to its right.
 func padTableRowsToMaxWidth(tbl *PMNode) {
-	physical := func(row PMNode) int {
-		n := 0
-		for _, cell := range row.Content {
-			n += cellColspanForPad(cell)
+	type rowMetrics struct {
+		ownCols     int // sum of colspans of cells actually in this row
+		coveredCols int // cols covered by an earlier row's rowspan
+	}
+	// First pass: compute, for each row, how many cols are already
+	// covered by earlier rows' rowspan=N cells.
+	covered := make([]int, len(tbl.Content))
+	// activeRowspans tracks remaining rowspan rows for each "logical"
+	// column position, but rowspans are anchored at physical column
+	// indices — and physical columns shift if we don't carefully
+	// account for ordering. Use a slice indexed by physical col.
+	var rowspanAt []int // remaining rows of cover at each physical col
+	metrics := make([]rowMetrics, len(tbl.Content))
+	for r, row := range tbl.Content {
+		if row.Type != NodeTypeTableRow {
+			continue
 		}
-		return n
+		col := 0
+		own := 0
+		cov := 0
+		// Track which physical-col cover entries are "new this row"
+		// so we don't decrement them at end-of-row (they apply to
+		// subsequent rows only).
+		newThisRow := make(map[int]bool)
+		for _, cell := range row.Content {
+			if cell.Type != NodeTypeTableCell {
+				continue
+			}
+			for col < len(rowspanAt) && rowspanAt[col] > 0 {
+				col++
+				cov++
+			}
+			span := cellColspanForPad(cell)
+			rspan := cellRowspanForPad(cell)
+			for len(rowspanAt) < col+span {
+				rowspanAt = append(rowspanAt, 0)
+			}
+			if rspan > 1 {
+				for c := col; c < col+span; c++ {
+					rowspanAt[c] = rspan - 1
+					newThisRow[c] = true
+				}
+			}
+			own += span
+			col += span
+		}
+		// Cover past the end of this row's own cells still counts.
+		for c := col; c < len(rowspanAt); c++ {
+			if rowspanAt[c] > 0 {
+				cov++
+			}
+		}
+		metrics[r] = rowMetrics{ownCols: own, coveredCols: cov}
+		covered[r] = cov
+		// Decrement at end-of-row — but skip entries we just set, so
+		// the next row still sees them as covered.
+		for c := range rowspanAt {
+			if newThisRow[c] {
+				continue
+			}
+			if rowspanAt[c] > 0 {
+				rowspanAt[c]--
+			}
+		}
 	}
 	maxCols := 0
-	for _, row := range tbl.Content {
-		if c := physical(row); c > maxCols {
-			maxCols = c
+	for _, m := range metrics {
+		if total := m.ownCols + m.coveredCols; total > maxCols {
+			maxCols = total
 		}
 	}
 	for i := range tbl.Content {
 		row := &tbl.Content[i]
-		for physical(*row) < maxCols {
+		if row.Type != NodeTypeTableRow {
+			continue
+		}
+		want := maxCols - metrics[i].coveredCols
+		for metrics[i].ownCols < want {
 			row.Content = append(row.Content, PMNode{
 				Type: NodeTypeTableCell,
 				Content: []PMNode{
 					{Type: NodeTypeParagraph},
 				},
 			})
+			metrics[i].ownCols++
 		}
 	}
 }
@@ -1135,6 +1316,29 @@ func cellColspanForPad(cell PMNode) int {
 		return 1
 	}
 	if v, ok := cell.Attrs["colspan"]; ok {
+		switch n := v.(type) {
+		case int:
+			if n > 0 {
+				return n
+			}
+		case float64:
+			if n > 0 {
+				return int(n)
+			}
+		}
+	}
+	return 1
+}
+
+// cellRowspanForPad reads rowspan off a tableCell, defaulting to 1.
+// Parallel to cellColspanForPad. Driven by the same attribute the
+// editor's TableCell extension exposes ("rowspan", set by Tiptap's
+// columnResizing/mergeCells flow and by consolidateVMerges on import).
+func cellRowspanForPad(cell PMNode) int {
+	if cell.Attrs == nil {
+		return 1
+	}
+	if v, ok := cell.Attrs["rowspan"]; ok {
 		switch n := v.(type) {
 		case int:
 			if n > 0 {
@@ -1185,6 +1389,7 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 	cell := &PMNode{Type: NodeTypeTableCell}
 	var tcWDxa int       // <w:tcW w:w="..."> in dxa (twentieths of a point); 0 if missing or non-dxa.
 	var gridSpan = 1     // <w:gridSpan w:val="..."> default 1.
+	var vMerge string    // "" / "restart" / "continue" from <w:vMerge>.
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1195,7 +1400,7 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 			switch t.Name.Local {
 			case "tcPr":
 				var bordersAttr map[string]any
-				tcWDxa, gridSpan, bordersAttr, err = p.parseTableCellProperties(dec, t)
+				tcWDxa, gridSpan, vMerge, bordersAttr, err = p.parseTableCellProperties(dec, t)
 				if err != nil {
 					return nil, err
 				}
@@ -1204,6 +1409,17 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 						cell.Attrs = map[string]any{}
 					}
 					cell.Attrs["borders"] = bordersAttr
+				}
+				if vMerge != "" {
+					if cell.Attrs == nil {
+						cell.Attrs = map[string]any{}
+					}
+					// Sentinel attr consumed (and stripped) by
+					// consolidateVMerges. We carry it through to the
+					// post-row pass so we can collapse continue cells
+					// into their start cell's rowspan once the table
+					// is fully parsed.
+					cell.Attrs["_vmerge"] = vMerge
 				}
 			case "p":
 				para, err := p.parseParagraph(dec, t)
@@ -1248,18 +1464,27 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 }
 
 // parseTableCellProperties pulls the cell width (in dxa), gridSpan,
-// and (optionally) the border map out of a <w:tcPr> block. Cell widths
-// drive TipTap's `colwidth` attribute; gridSpan becomes the cell's
-// colspan; borders become the `borders` attr. Returns zero/nil values
-// for any field that's missing.
-func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, map[string]any, error) {
+// vMerge state, and (optionally) the border map out of a <w:tcPr>
+// block. Cell widths drive TipTap's `colwidth` attribute; gridSpan
+// becomes the cell's colspan; vMerge is consumed by consolidateVMerges
+// to collapse continue-cells into the start cell's rowspan; borders
+// become the `borders` attr. Returns zero/nil/"" values for any field
+// that's missing.
+//
+// <w:vMerge> shape:
+//   - <w:vMerge w:val="restart"/> — this cell begins a vertical merge
+//   - <w:vMerge/>                 — this cell continues a merge that
+//                                   started above. (OOXML allows
+//                                   w:val="continue" but Word omits it.)
+func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, error) {
 	tcWDxa := 0
 	gridSpan := 1
+	vMerge := ""
 	var borders map[string]any
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return 0, 0, nil, err
+			return 0, 0, "", nil, err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -1279,7 +1504,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, nil, err
+					return 0, 0, "", nil, err
 				}
 			case "gridSpan":
 				if v := attrValue(t, "val"); v != "" {
@@ -1288,22 +1513,33 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, nil, err
+					return 0, 0, "", nil, err
+				}
+			case "vMerge":
+				v := attrValue(t, "val")
+				if v == "restart" {
+					vMerge = "restart"
+				} else {
+					// Missing val and val="continue" both mean continue.
+					vMerge = "continue"
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, err
 				}
 			case "tcBorders":
 				b, err := parseTcBorders(dec, t)
 				if err != nil {
-					return 0, 0, nil, err
+					return 0, 0, "", nil, err
 				}
 				borders = b
 			default:
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, nil, err
+					return 0, 0, "", nil, err
 				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return tcWDxa, gridSpan, borders, nil
+				return tcWDxa, gridSpan, vMerge, borders, nil
 			}
 		}
 	}

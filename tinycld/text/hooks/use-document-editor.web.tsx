@@ -16,20 +16,18 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import { TextStyle } from '@tiptap/extension-text-style'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useMemo, useRef } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
+import { ImageNodeView } from '../components/ImageNodeView.web'
 import { applyCellBorders } from '../lib/apply-cell-borders'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
-import {
-    extractImageFilesFromDrop,
-    extractImageFilesFromPaste,
-} from '../lib/extract-image-files'
+import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
 import type { DocumentCommentBridge, DocumentEditorResult } from './use-document-editor'
 
@@ -40,6 +38,15 @@ import type { DocumentCommentBridge, DocumentEditorResult } from './use-document
 //   - a `wrap` attribute serialized to `data-wrap` on the rendered
 //     <img> so editor-content-styles.ts can match img[data-wrap=…]
 //     and apply float:left / float:right.
+//   - `width` / `height` integer attrs (CSS pixels) that round-trip
+//     through OOXML's <wp:extent cx/cy> (EMUs, 9525 EMU/px at 96 DPI).
+//     The values render as `width=`/`height=` HTML attributes on the
+//     <img> (Tiptap's default behaviour for those attribute names) so
+//     they survive a paste / copy / DOM serializer round-trip without
+//     needing an inline `style` mirror.
+//   - a React NodeView (ImageNodeView) that swaps in drag handles
+//     while the image is selected, persisting the new dimensions on
+//     pointerup via updateAttributes.
 //
 // The importer (translate/docx_to_pm.go) reads OOXML wrap modes off
 // <wp:anchor> + <wp:positionH><wp:align> and emits wrap=left|right;
@@ -53,13 +60,42 @@ const WrappedImage = Image.extend({
             ...this.parent?.(),
             wrap: {
                 default: null,
-                parseHTML: (el) => el.getAttribute('data-wrap'),
-                renderHTML: (attrs) => {
+                parseHTML: el => el.getAttribute('data-wrap'),
+                renderHTML: attrs => {
                     if (!attrs.wrap) return {}
                     return { 'data-wrap': attrs.wrap as string }
                 },
             },
+            width: {
+                default: null,
+                parseHTML: el => {
+                    const raw = el.getAttribute('width')
+                    if (!raw) return null
+                    const n = Number.parseInt(raw, 10)
+                    return Number.isFinite(n) && n > 0 ? n : null
+                },
+                renderHTML: attrs => {
+                    if (attrs.width === null || attrs.width === undefined) return {}
+                    return { width: String(attrs.width) }
+                },
+            },
+            height: {
+                default: null,
+                parseHTML: el => {
+                    const raw = el.getAttribute('height')
+                    if (!raw) return null
+                    const n = Number.parseInt(raw, 10)
+                    return Number.isFinite(n) && n > 0 ? n : null
+                },
+                renderHTML: attrs => {
+                    if (attrs.height === null || attrs.height === undefined) return {}
+                    return { height: String(attrs.height) }
+                },
+            },
         }
+    },
+    addNodeView() {
+        return ReactNodeViewRenderer(ImageNodeView, { as: 'span' })
     },
 })
 
@@ -499,12 +535,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     | undefined
                 const range = storage?.findComment?.(commentId) ?? null
                 if (!range) return false
-                tiptapEditor
-                    .chain()
-                    .setTextSelection(range)
-                    .scrollIntoView()
-                    .focus()
-                    .run()
+                tiptapEditor.chain().setTextSelection(range).scrollIntoView().focus().run()
                 return true
             },
             getSelection: () => {

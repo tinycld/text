@@ -851,11 +851,46 @@ func (em *emitter) emitImageBlock(node PMNode) error {
 		cfg.Title = title
 	}
 	applyImageWrap(cfg, node.Attrs)
-	_, err = em.doc.AddImageFromData(data, deriveImageName(src, format), format, 0, 0, cfg)
+	// PM JSON numbers unmarshal as float64; cast to int. Zero / absent
+	// keeps the existing behaviour ("auto from image bytes"). WordZero
+	// multiplies these pixel values by 9525 to fill <wp:extent cx/cy>
+	// in EMUs, the inverse of docx_to_pm.go::emusToPixels.
+	width := intAttr(node.Attrs, "width")
+	height := intAttr(node.Attrs, "height")
+	_, err = em.doc.AddImageFromData(data, deriveImageName(src, format), format, width, height, cfg)
 	if err != nil {
 		return fmt.Errorf("translate: add image: %w", err)
 	}
 	return nil
+}
+
+// intAttr reads a numeric PM attr that JSON unmarshalling has placed
+// in the attrs map as float64 (PM JSON spec). Returns 0 when the attr
+// is absent, non-numeric, or non-positive — callers treat 0 as "no
+// explicit dimension; fall back to defaults".
+func intAttr(attrs map[string]any, key string) int {
+	v, ok := attrs[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		if n <= 0 {
+			return 0
+		}
+		return int(n)
+	case int:
+		if n <= 0 {
+			return 0
+		}
+		return n
+	case int64:
+		if n <= 0 {
+			return 0
+		}
+		return int(n)
+	}
+	return 0
 }
 
 // decodeAndValidateImage runs the byte / MIME validation pipeline that

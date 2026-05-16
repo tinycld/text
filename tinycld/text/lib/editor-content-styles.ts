@@ -207,6 +207,38 @@ export const EDITOR_CONTENT_STYLES = `
 .ProseMirror table {
     clear: both;
 }
+/* Inline code mark. A subtle monospace span with a muted background,
+   matching the GitHub / Discord render of <code> in prose. Border
+   radius keeps the corners tidy when the run sits mid-sentence. */
+.ProseMirror code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+    font-size: 0.9em;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: var(--editor-code-bg, rgba(127, 127, 127, 0.15));
+}
+/* Code block. Tiptap renders this as <pre><code>; the <code> child
+   sits inside a block-level <pre> so we reset the inline padding /
+   background above and apply the block presentation here. white-
+   space: pre-wrap keeps long lines from forcing horizontal scroll
+   while still preserving authored indentation and line breaks. */
+.ProseMirror pre {
+    margin: 0 0 0.75em 0;
+    padding: 12px;
+    border-radius: 6px;
+    background-color: var(--editor-code-bg, rgba(127, 127, 127, 0.15));
+    overflow-x: auto;
+}
+.ProseMirror pre code {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+    font-size: 0.9em;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 .ProseMirror.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     color: var(--editor-placeholder, #999);

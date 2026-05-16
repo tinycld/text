@@ -156,7 +156,7 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -209,6 +209,16 @@ type emitter struct {
 	endnotes      []footnoteEntry
 	footnoteSeq   int
 	endnoteSeq    int
+
+	// codeMarks tracks each inline code-marked run as an (open marker,
+	// close marker) pair. WordZero's RunProperties struct has no
+	// rStyle field, so we wrap the marked text in marker text runs and
+	// rewrite document.xml after WordZero serializes — splicing the
+	// markers out and injecting <w:rStyle w:val="VerbatimChar"/> into
+	// the surviving run's <w:rPr>. Same marker-token strategy as
+	// links / comments / page breaks (see postProcessRichXML).
+	codeMarks   []codeMarkSpan
+	codeMarkSeq int
 
 	// warnings accumulates soft-degradation signals raised during
 	// emission (currently: oversized / unsupported-type images dropped).
@@ -276,6 +286,15 @@ type linkRel struct {
 	Href   string
 }
 
+// codeMarkSpan tracks one inline code-marked run. The open + close
+// marker text runs flank the real run in document.xml so the
+// post-process pass can locate the middle run and stamp
+// <w:rStyle w:val="VerbatimChar"/> onto its <w:rPr>.
+type codeMarkSpan struct {
+	OpenMarker  string
+	CloseMarker string
+}
+
 func newEmitter() *emitter {
 	return &emitter{doc: document.New()}
 }
@@ -295,6 +314,8 @@ func (em *emitter) emitBlock(node PMNode, listLevel int, parentList string) erro
 		return em.emitList(node, listLevel, NodeTypeOrderedList)
 	case NodeTypeBlockquote:
 		return em.emitBlockquote(node)
+	case NodeTypeCodeBlock:
+		return em.emitCodeBlock(node)
 	case NodeTypeTable:
 		return em.emitTable(node)
 	case NodeTypeImage:
@@ -572,6 +593,30 @@ func (em *emitter) emitBlockquote(node PMNode) error {
 		default:
 			return fmt.Errorf("translate: unsupported blockquote child %q", child.Type)
 		}
+	}
+	return nil
+}
+
+// emitCodeBlock emits a paragraph with pStyle="CodeBlock" carrying
+// the node's plain-text content. The PM codeBlock schema doesn't
+// allow inline marks, so we pass an empty TextFormat — no bold,
+// italic, link, or comment marks flow through. On import, four
+// pStyle aliases (CodeBlock / Code / HTMLPreformatted / Preformatted)
+// all round-trip back to NodeTypeCodeBlock, but the exporter only
+// writes the canonical "CodeBlock" name so a save normalizes the
+// document to one consistent style.
+func (em *emitter) emitCodeBlock(node PMNode) error {
+	p := em.doc.AddParagraph("")
+	p.SetStyle("CodeBlock")
+	empty := &document.TextFormat{}
+	for _, child := range node.Content {
+		if child.Type != NodeTypeText {
+			continue
+		}
+		if child.Text == "" {
+			continue
+		}
+		p.AddFormattedText(child.Text, empty)
 	}
 	return nil
 }
@@ -1167,6 +1212,24 @@ func (em *emitter) emitNoteReference(p *document.Paragraph, node PMNode, footnot
 func pageBreakToken(n int) string { return "{{__pmpb:" + strconv.Itoa(n) + "}}" }
 func footnoteToken(n int) string  { return "{{__pmfn:" + strconv.Itoa(n) + "}}" }
 func endnoteToken(n int) string   { return "{{__pmen:" + strconv.Itoa(n) + "}}" }
+func codeOpenToken(n int) string {
+	return "{{__pmcd:" + strconv.Itoa(n) + ":open}}"
+}
+func codeCloseToken(n int) string {
+	return "{{__pmcd:" + strconv.Itoa(n) + ":close}}"
+}
+
+// hasCodeMark reports whether the given marks slice carries an
+// inline `code` mark — used to decide whether to plant the
+// open/close marker runs around a text run during emit.
+func hasCodeMark(marks []PMMark) bool {
+	for _, m := range marks {
+		if m.Type == MarkTypeCode {
+			return true
+		}
+	}
+	return false
+}
 func commentOpenToken(n int) string {
 	return "{{__pmcm:" + strconv.Itoa(n) + ":open}}"
 }
@@ -1243,6 +1306,21 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		p.AddFormattedText(span.OpenMarker, empty)
 	}
 
+	// Code-mark markers wrap the actual run so the post-process pass
+	// can splice <w:rStyle w:val="VerbatimChar"/> onto its <w:rPr>.
+	// Markers sit inside the link wrapper (when present) so the inner
+	// hyperlink-run is the one that gets the rStyle injection.
+	var codeSpan *codeMarkSpan
+	if hasCodeMark(node.Marks) {
+		em.codeMarkSeq++
+		span := codeMarkSpan{
+			OpenMarker:  codeOpenToken(em.codeMarkSeq),
+			CloseMarker: codeCloseToken(em.codeMarkSeq),
+		}
+		em.codeMarks = append(em.codeMarks, span)
+		codeSpan = &span
+	}
+
 	if hasLink {
 		// Surround the run with markers; the post-process step
 		// recognizes them in word/document.xml and rewrites the
@@ -1259,12 +1337,24 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		// ambiguity. Pass an empty (not nil) TextFormat — WordZero's
 		// AddFormattedText drops the text entirely when format==nil.
 		p.AddFormattedText(open, empty)
+		if codeSpan != nil {
+			p.AddFormattedText(codeSpan.OpenMarker, empty)
+		}
 		p.AddFormattedText(node.Text, fmt)
 		patchLastRunFontSize(p, px)
+		if codeSpan != nil {
+			p.AddFormattedText(codeSpan.CloseMarker, empty)
+		}
 		p.AddFormattedText(closeTok, empty)
 	} else {
+		if codeSpan != nil {
+			p.AddFormattedText(codeSpan.OpenMarker, empty)
+		}
 		p.AddFormattedText(node.Text, fmt)
 		patchLastRunFontSize(p, px)
+		if codeSpan != nil {
+			p.AddFormattedText(codeSpan.CloseMarker, empty)
+		}
 	}
 
 	// Close spans in LIFO order so nested comments produce well-

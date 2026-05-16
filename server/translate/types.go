@@ -50,6 +50,13 @@ const (
 	NodeTypePageBreak         = "pageBreak"
 	NodeTypeFootnoteReference = "footnoteReference"
 	NodeTypeEndnoteReference  = "endnoteReference"
+	// NodeTypeCodeBlock is a preformatted block whose text content is
+	// rendered monospace and verbatim — Tiptap's <pre><code> structure
+	// on the editor side, a paragraph with pStyle="CodeBlock" on the
+	// OOXML side. The PM node carries plain text children only (no
+	// inline marks); the importer recognises Word's "Code" /
+	// "HTMLPreformatted" / "Preformatted" pStyle aliases too.
+	NodeTypeCodeBlock = "codeBlock"
 )
 
 // SupportedNodeTypes is the load-bearing contract: any node type
@@ -62,6 +69,7 @@ var SupportedNodeTypes = map[string]bool{
 	NodeTypeBlockquote: true, NodeTypeTable: true, NodeTypeTableRow: true,
 	NodeTypeTableCell: true, NodeTypeImage: true, NodeTypeText: true,
 	NodeTypePageBreak: true, NodeTypeFootnoteReference: true, NodeTypeEndnoteReference: true,
+	NodeTypeCodeBlock: true,
 }
 
 // Mark type constants.
@@ -88,6 +96,12 @@ const (
 	// regenerated from these attrs, so dropping or editing the mark
 	// removes the comment cleanly.
 	MarkTypeComment = "comment"
+	// MarkTypeCode is the inline equivalent of NodeTypeCodeBlock — a
+	// monospaced verbatim span. Round-trips through OOXML as a
+	// <w:rStyle w:val="VerbatimChar"/> on the run's <w:rPr>. Tiptap's
+	// StarterKit ships the matching `code` inline mark (<code>…</code>
+	// on the DOM side).
+	MarkTypeCode = "code"
 )
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
@@ -98,6 +112,7 @@ var SupportedMarks = map[string]bool{
 	MarkTypeLink:      true,
 	MarkTypeTextStyle: true,
 	MarkTypeComment:   true,
+	MarkTypeCode:      true,
 }
 
 // Paragraph alignment + indent. textAlign is "left" | "center" |

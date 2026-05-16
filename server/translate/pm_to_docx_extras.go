@@ -59,6 +59,7 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	doc = rewriteNoteReferences(doc, em.footnotes, false)
 	doc = rewriteNoteReferences(doc, em.endnotes, true)
 	doc = rewritePageBreaks(doc, em.pageBreaks)
+	doc = rewriteCodeMarks(doc, em.codeMarks)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {
@@ -175,6 +176,112 @@ func rewriteCommentRanges(doc string, em *emitter) string {
 			doc[closeIdx+len(closeRun):]
 	}
 	return doc
+}
+
+// rewriteCodeMarks turns each open/close marker pair into a
+// <w:rStyle w:val="VerbatimChar"/> stamped onto the surviving real
+// run's <w:rPr>. The two marker runs themselves are spliced out.
+//
+// WordZero's RunProperties struct doesn't expose an rStyle field, so
+// this is the only way to attach the character style we want without
+// forking the dependency. The middle run is the one between the
+// open marker run and the close marker run; we either extend its
+// existing <w:rPr> (when bold/italic/etc. marks are already present)
+// or insert a fresh <w:rPr> right after the opening <w:r ...> tag.
+func rewriteCodeMarks(doc string, marks []codeMarkSpan) string {
+	for _, span := range marks {
+		openRun, openIdx := findMarkerRun(doc, span.OpenMarker)
+		if openIdx < 0 {
+			continue
+		}
+		// Strip the open marker. Subsequent searches must be relative
+		// to the post-strip document, so we splice first and then
+		// search for the next two runs starting at the open index.
+		doc = doc[:openIdx] + doc[openIdx+len(openRun):]
+		// The very next <w:r ...>…</w:r> at openIdx is the real run.
+		realRun, realIdx := nextRunRun(doc, openIdx)
+		if realIdx < 0 {
+			continue
+		}
+		patched := injectVerbatimChar(realRun)
+		doc = doc[:realIdx] + patched + doc[realIdx+len(realRun):]
+		// Locate and strip the close marker.
+		closeRun, closeIdx := findMarkerRun(doc, span.CloseMarker)
+		if closeIdx < 0 {
+			continue
+		}
+		doc = doc[:closeIdx] + doc[closeIdx+len(closeRun):]
+	}
+	return doc
+}
+
+// nextRunRun returns the first <w:r ...>…</w:r> element starting at
+// or after the given offset. Unlike findMarkerRun, it doesn't anchor
+// on a known marker text — used by rewriteCodeMarks to locate the
+// real run that the markers flank. Returns ("", -1) if no run is
+// found.
+func nextRunRun(doc string, fromOffset int) (string, int) {
+	if fromOffset < 0 || fromOffset >= len(doc) {
+		return "", -1
+	}
+	rest := doc[fromOffset:]
+	// Look for "<w:r" followed by "/", ">", or whitespace — same
+	// constraint lastRunOpen uses, to avoid matching <w:rPr>, <w:rStyle>,
+	// etc.
+	i := 0
+	for i < len(rest) {
+		idx := strings.Index(rest[i:], "<w:r")
+		if idx < 0 {
+			return "", -1
+		}
+		idx += i
+		if idx+4 >= len(rest) {
+			return "", -1
+		}
+		next := rest[idx+4]
+		if next == '>' || next == ' ' || next == '\t' || next == '\n' || next == '\r' || next == '/' {
+			endRel := strings.Index(rest[idx:], "</w:r>")
+			if endRel < 0 {
+				return "", -1
+			}
+			runEnd := idx + endRel + len("</w:r>")
+			return rest[idx:runEnd], fromOffset + idx
+		}
+		i = idx + 4
+	}
+	return "", -1
+}
+
+// injectVerbatimChar splices `<w:rStyle w:val="VerbatimChar"/>` into
+// the run's <w:rPr>. Three shapes to handle:
+//
+//  1. Run already has a fully-formed <w:rPr>…</w:rPr> — prepend the
+//     rStyle inside it so the style appears before any toggle marks
+//     (matches Word's authoring order, which puts style refs first).
+//  2. Run has a self-closing <w:rPr/> — replace with a fully-formed
+//     <w:rPr> wrapping just the rStyle.
+//  3. Run has no <w:rPr> at all — insert one right after the opening
+//     <w:r ...> tag.
+//
+// We accept the run substring (e.g. `<w:r><w:t>foo</w:t></w:r>`) and
+// return it modified. Unrecognised shapes return the input unchanged.
+func injectVerbatimChar(run string) string {
+	const rStyle = `<w:rStyle w:val="VerbatimChar"/>`
+	if idx := strings.Index(run, "</w:rPr>"); idx >= 0 {
+		// Find the matching opener so we know where to splice.
+		if open := strings.Index(run, "<w:rPr>"); open >= 0 && open < idx {
+			return run[:open+len("<w:rPr>")] + rStyle + run[open+len("<w:rPr>"):]
+		}
+	}
+	if idx := strings.Index(run, "<w:rPr/>"); idx >= 0 {
+		return run[:idx] + "<w:rPr>" + rStyle + "</w:rPr>" + run[idx+len("<w:rPr/>"):]
+	}
+	// No <w:rPr> at all. Insert right after the run's opening tag.
+	openEnd := strings.Index(run, ">")
+	if openEnd < 0 {
+		return run
+	}
+	return run[:openEnd+1] + "<w:rPr>" + rStyle + "</w:rPr>" + run[openEnd+1:]
 }
 
 // buildCommentsXML serializes em.commentBodies into a fresh

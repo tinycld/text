@@ -1,12 +1,13 @@
 import { eq } from '@tanstack/db'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
+import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Linking, Platform, ScrollView, Text, View } from 'react-native'
 import { NewCommentButton } from '../components/comments/NewCommentButton'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
@@ -15,12 +16,14 @@ import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
+import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
 import { MenuBar } from '../components/menubar/MenuBar'
 import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
+import { SlashMenu } from '../components/SlashMenu'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
@@ -76,6 +79,21 @@ interface DocumentScreenProps {
 }
 
 function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
+    // The slash menu's "Image" entry routes through the same picker +
+    // drive-upload pipeline the toolbar's image button uses. The picker
+    // resolves async, by which point `commands` will have been bound;
+    // a ref-backed indirection lets us pass a stable callback into
+    // useDocumentEditor (which expects a stable identity in its deps
+    // array) while still reaching into the live commands object the
+    // hook returns to us.
+    const commandsRef = useRef<EditorCommands | null>(null)
+    const handleSlashMenuImageInserted = useCallback((url: string) => {
+        commandsRef.current?.insertImage?.(url)
+    }, [])
+    const triggerSlashMenuImage = useImageInsert(handleSlashMenuImageInserted)
+    const openSlashMenuImage = useCallback(() => {
+        triggerSlashMenuImage()
+    }, [triggerSlashMenuImage])
     const {
         EditorComponent,
         editor,
@@ -85,7 +103,10 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         tiptapEditor,
         findReplaceEditor,
         commentBridge,
-    } = useTextDocument(room, driveItemId)
+    } = useTextDocument(room, driveItemId, {
+        onRequestInsertImage: openSlashMenuImage,
+    })
+    commandsRef.current = commands
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const printDocument = usePrintDocument(editor)
@@ -185,6 +206,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     documentComments={documentComments}
                     commentBridge={commentBridge}
                 />
+                <SlashMenu />
             </View>
         </FindReplaceEditorContext.Provider>
     )

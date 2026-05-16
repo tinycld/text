@@ -20,7 +20,11 @@ import { typedServerHello, typedServerSlot } from './useTextRoom'
 // it to open its own realtime connection inside the WebView (the
 // native-side `room` is for serverHello/serverSlot only — its Y.Doc
 // is not bound to the WebView editor). The web variant ignores it.
-export function useTextDocument(room: RealtimeRoomHandle, driveItemId: string) {
+export function useTextDocument(
+    room: RealtimeRoomHandle,
+    driveItemId: string,
+    options: { onRequestInsertImage?: () => void } = {}
+) {
     const { user } = useAuth()
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
@@ -29,6 +33,7 @@ export function useTextDocument(room: RealtimeRoomHandle, driveItemId: string) {
         awareness: room.awareness,
         editable: !hello.readOnly,
         driveItemId,
+        onRequestInsertImage: options.onRequestInsertImage,
         user: user
             ? { id: user.id, name: user.name, color: colorForUser(user.id) }
             : undefined,

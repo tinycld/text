@@ -30,6 +30,7 @@ import { applyCellBorders } from '../lib/apply-cell-borders'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../lib/editor/block-indent'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
+import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
@@ -148,6 +149,12 @@ export interface UseDocumentEditorOptions {
     // where the parent useRealtimeRoom already passes us a connected
     // Y.Doc.
     driveItemId?: string
+    // Invoked by the slash menu's "Image" command. The host owns the
+    // file/URL picker + drive upload pipeline and routes the resulting
+    // src back through `commands.insertImage`. Optional — when omitted
+    // the slash-menu Image entry removes the trigger and inserts
+    // nothing.
+    onRequestInsertImage?: () => void
 }
 
 // FindReplaceExtension wraps the find/replace plugin in a Tiptap
@@ -301,6 +308,15 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // Y.Doc update payload.
     const createDriveItem = useCreateDriveItem()
 
+    // Stash the slash-menu image callback behind a ref so changes in
+    // its identity (which happens any time the surrounding screen re-
+    // renders) don't force the Tiptap editor to be re-created — that
+    // would tear down the Y.Doc binding and reset undo history. The
+    // SlashMenu extension reads the callback through a tiny shim closure
+    // that always dereferences the latest ref value.
+    const onRequestInsertImageRef = useRef(options.onRequestInsertImage)
+    onRequestInsertImageRef.current = options.onRequestInsertImage
+
     const tiptapEditor = useEditor(
         {
             // Tiptap v3's useEditor defaults to NOT re-rendering on every
@@ -420,6 +436,9 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     user: options.user,
                 }),
                 FindReplaceExtension,
+                SlashMenu.configure({
+                    openImageInsert: () => onRequestInsertImageRef.current?.(),
+                }),
             ],
         },
         [options.yDoc, options.awareness, options.user?.name, options.user?.color]

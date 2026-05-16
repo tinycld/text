@@ -1,18 +1,31 @@
 import { useAuth } from '@tinycld/core/lib/auth'
+import { captureException } from '@tinycld/core/lib/errors'
 import {
     type RealtimeRoomHandle,
     useRealtimeRoom,
 } from '@tinycld/core/lib/realtime/use-realtime-room'
+import { z } from 'zod'
 import { colorForUser } from '../lib/color-for-user'
 
-export interface TextServerHello {
-    readOnly: boolean
-    importWarnings: { code: string; detail?: string }[]
-}
+export const serverHelloSchema = z.object({
+    readOnly: z.boolean(),
+    importWarnings: z.array(
+        z.object({
+            code: z.string(),
+            detail: z.string().optional(),
+        })
+    ),
+})
 
-export interface TextServerSlot {
-    saveStatus: 'ok' | 'failed'
-}
+export const serverSlotSchema = z.object({
+    saveStatus: z.union([z.literal('ok'), z.literal('failed')]),
+})
+
+export type TextServerHello = z.infer<typeof serverHelloSchema>
+export type TextServerSlot = z.infer<typeof serverSlotSchema>
+
+const defaultHello: TextServerHello = { readOnly: false, importWarnings: [] }
+const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 
 // useTextRoom is the text-specific wrapper around core's useRealtimeRoom.
 // It supplies the 'text-doc' roomKind and stamps the local awareness
@@ -32,6 +45,14 @@ export interface TextServerSlot {
 //   - slot.saveStatus: surfaced via the save-status indicator
 // The native room's Y.Doc is NOT bound to the WebView editor; the
 // WebView holds the canonical editing Y.Doc.
+//
+// Awareness cleanup: useRealtimeRoom's effect cleanup (see
+// `packages/@tinycld/core/lib/realtime/use-realtime-room.ts`) already
+// calls `awareness.setLocalState(null)` before tearing down the
+// transport on unmount or roomKind/roomID change. That covers logout,
+// route change, and tab close — remote peers see a clean awareness
+// removal frame instead of a frozen ghost cursor. No additional
+// cleanup is needed here.
 //
 // TODO(text-native v1.1): on native, the in-WebView editor opens a
 // SEPARATE realtime connection with its OWN awareness identity. That
@@ -63,22 +84,39 @@ export function useTextRoom(driveItemId: string): RealtimeRoomHandle | null {
 }
 
 // typedServerHello narrows the realtime room's opaque serverHello payload
-// to the text-specific shape, with safe defaults when the hello hasn't
-// arrived yet (e.g. during the open handshake) or the room handle is
-// still null.
+// to the text-specific shape via zod, with safe defaults when the hello
+// hasn't arrived yet, the room handle is still null, or the payload
+// fails validation (e.g. a server-side schema drift). Parse failures
+// route through captureException so a silently-discarded payload still
+// surfaces in Sentry.
 export function typedServerHello(room: RealtimeRoomHandle | null): TextServerHello {
     if (room == null || room.serverHello == null) {
-        return { readOnly: false, importWarnings: [] }
+        return defaultHello
     }
-    return room.serverHello as TextServerHello
+    const result = serverHelloSchema.safeParse(room.serverHello)
+    if (!result.success) {
+        captureException('useTextRoom.serverHello.parse', result.error, {
+            payload: room.serverHello,
+        })
+        return defaultHello
+    }
+    return result.data
 }
 
 // typedServerSlot narrows the realtime room's opaque serverSlot payload
-// to the text-specific shape. Defaults to 'ok' so the SaveStatus
-// indicator doesn't flash 'failed' before the first slot frame arrives.
+// via zod. Defaults to 'ok' so the SaveStatus indicator doesn't flash
+// 'failed' before the first slot frame arrives; the SaveStatusIndicator
+// layers its own Offline state on top when isConnected is false.
 export function typedServerSlot(room: RealtimeRoomHandle | null): TextServerSlot {
     if (room == null || room.serverSlot == null) {
-        return { saveStatus: 'ok' }
+        return defaultSlot
     }
-    return room.serverSlot as TextServerSlot
+    const result = serverSlotSchema.safeParse(room.serverSlot)
+    if (!result.success) {
+        captureException('useTextRoom.serverSlot.parse', result.error, {
+            payload: room.serverSlot,
+        })
+        return defaultSlot
+    }
+    return result.data
 }

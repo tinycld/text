@@ -1,3 +1,4 @@
+import { captureException } from '@tinycld/core/lib/errors'
 import type { ComponentType } from 'react'
 import { Platform, Pressable } from 'react-native'
 import { ToolbarTooltip } from './ToolbarTooltip'
@@ -10,25 +11,36 @@ interface ImageInsertButtonProps {
 }
 
 // v1 uses data: URIs; v2 will upload to drive and use the resulting URL.
+// We avoid any drive upload here because (a) we haven't surfaced a generic
+// "upload file" hook the text package can call yet, and (b) data URIs
+// round-trip through ProseMirror → docx fine for small images.
 //
-// Opens a file picker, reads the picked image as a base64 data: URI,
-// and hands it back to the toolbar for insertion via Tiptap's setImage.
-// This intentionally avoids any drive upload because (a) we haven't
-// surfaced a generic "upload file" hook the text package can call yet,
-// and (b) data URIs round-trip through ProseMirror → docx fine for
-// small images. v2 should swap to a real upload + URL once the API
-// surface stabilises.
+// Pure async body, exported for unit testing — any picker exception or FS
+// read failure routes to captureException so we don't lose the signal
+// silently. A null result means the user cancelled — that's not an error.
+export async function handleImageInsert(
+    onInsert: (dataUri: string) => void,
+    deps: {
+        pickImageAsDataUri: () => Promise<string | null>
+        captureException: (tag: string, err: unknown) => void
+    } = { pickImageAsDataUri, captureException }
+): Promise<void> {
+    try {
+        const dataUri = await deps.pickImageAsDataUri()
+        if (dataUri == null) return
+        onInsert(dataUri)
+    } catch (err) {
+        deps.captureException('text.imageInsert', err)
+    }
+}
+
 export function ImageInsertButton({
     icon: Icon,
     iconColor,
     disabled = false,
     onInsert,
 }: ImageInsertButtonProps) {
-    const handlePress = async () => {
-        const dataUri = await pickImageAsDataUri()
-        if (dataUri == null) return
-        onInsert(dataUri)
-    }
+    const handlePress = () => handleImageInsert(onInsert)
 
     return (
         <ToolbarTooltip label="Insert image">

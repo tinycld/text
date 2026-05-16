@@ -89,7 +89,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     {itemName}
                 </Text>
                 <PresenceAvatars awareness={room.awareness} />
-                <SaveStatusIndicator status={saveStatus} />
+                <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
                 <ReconnectingIndicator isVisible={!room.isConnected} />
             </View>
             <ImportWarningBanner warnings={hello.importWarnings} />

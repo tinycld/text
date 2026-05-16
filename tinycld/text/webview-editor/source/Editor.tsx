@@ -6,6 +6,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import { applyCellBorders } from '../../lib/apply-cell-borders'
+import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -356,6 +357,12 @@ function EditorMounted({ init }: EditorMountedProps) {
                     }
                     editor.commands.focus()
                     applyCellBorders(editor, { preset: payload.preset, border: payload.border })
+                    break
+                }
+                case 'set-cell-shading': {
+                    const payload = parsed.payload as { color: string | null }
+                    editor.commands.focus()
+                    applyCellShading(editor, payload.color)
                     break
                 }
                 case 'insert-image': {

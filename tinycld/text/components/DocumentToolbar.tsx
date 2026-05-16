@@ -19,6 +19,7 @@ import {
     List,
     ListOrdered,
     Outdent,
+    PaintBucket,
     Quote,
     Redo2,
     Table as TableIcon,
@@ -33,6 +34,7 @@ import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
+import { ShadingMenu } from './ShadingMenu'
 import { TableMenu } from './TableMenu'
 import { ToolbarTooltip } from './ToolbarTooltip'
 
@@ -54,6 +56,7 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
     const [linkOpen, setLinkOpen] = useState(false)
     const [tableOpen, setTableOpen] = useState(false)
     const [borderOpen, setBorderOpen] = useState(false)
+    const [shadingOpen, setShadingOpen] = useState(false)
     const isInTable = state.isInTable ?? false
 
     return (
@@ -275,6 +278,15 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />
+                    <FormatButton
+                        icon={PaintBucket}
+                        accessibilityLabel="Cell shading"
+                        isActive={false}
+                        disabled={disabled || !isInTable}
+                        onPress={() => setShadingOpen(true)}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
                     <ImageInsertButton
                         icon={ImageIcon}
                         disabled={disabled}
@@ -322,6 +334,12 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
             <BorderMenu
                 isOpen={borderOpen}
                 onClose={() => setBorderOpen(false)}
+                commands={commands}
+            />
+
+            <ShadingMenu
+                isOpen={shadingOpen}
+                onClose={() => setShadingOpen(false)}
                 commands={commands}
             />
         </View>

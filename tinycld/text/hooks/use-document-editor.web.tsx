@@ -27,6 +27,7 @@ import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { ImageNodeView } from '../components/ImageNodeView.web'
 import { applyCellBorders } from '../lib/apply-cell-borders'
+import { applyCellShading } from '../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../lib/editor/block-indent'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
@@ -526,6 +527,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 if (!tiptapEditor) return
                 tiptapEditor.commands.focus()
                 applyCellBorders(tiptapEditor, { preset, border })
+            },
+            setCellShading: (color: string | null) => {
+                if (!tiptapEditor) return
+                tiptapEditor.commands.focus()
+                applyCellShading(tiptapEditor, color)
             },
             cut: () => {
                 tiptapEditor?.commands.focus()

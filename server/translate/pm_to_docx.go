@@ -923,9 +923,9 @@ func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode)
 			return err
 		}
 	}
-	// Borders attached to the cell flow through to <w:tcBorders>. We do
-	// this after the paragraph emission because GetCell expects the
-	// cell to exist in the underlying table model already.
+	// Borders + shading on the cell flow through to <w:tcBorders> /
+	// <w:shd>. Both happen after the paragraph emission because
+	// GetCell needs the cell to exist in the underlying table model.
 	if borders := tcBordersFromAttr(cell.Attrs); borders != nil {
 		c, err := tbl.GetCell(row, col)
 		if err == nil && c != nil {
@@ -933,6 +933,15 @@ func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode)
 				c.Properties = &document.TableCellProperties{}
 			}
 			c.Properties.TcBorders = borders
+		}
+	}
+	if shading := tcShadingFromAttr(cell.Attrs); shading != nil {
+		c, err := tbl.GetCell(row, col)
+		if err == nil && c != nil {
+			if c.Properties == nil {
+				c.Properties = &document.TableCellProperties{}
+			}
+			c.Properties.Shd = shading
 		}
 	}
 	return nil

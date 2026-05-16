@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { Platform, Pressable } from 'react-native'
+import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface ImageInsertButtonProps {
     icon: ComponentType<{ size: number; color: string }>
@@ -30,22 +31,26 @@ export function ImageInsertButton({
     }
 
     return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Insert image"
-            accessibilityState={{ disabled }}
-            disabled={disabled}
-            onPress={handlePress}
-            className="rounded-md p-1.5"
-            style={disabled ? { opacity: 0.4 } : undefined}
-            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
-        >
-            <Icon size={16} color={iconColor} />
-        </Pressable>
+        <ToolbarTooltip label="Insert image">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Insert image"
+                accessibilityState={{ disabled }}
+                disabled={disabled}
+                onPress={handlePress}
+                className="rounded-md p-1.5"
+                style={disabled ? { opacity: 0.4 } : undefined}
+                hitSlop={
+                    Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
+                }
+            >
+                <Icon size={16} color={iconColor} />
+            </Pressable>
+        </ToolbarTooltip>
     )
 }
 
-async function pickImageAsDataUri(): Promise<string | null> {
+export async function pickImageAsDataUri(): Promise<string | null> {
     if (Platform.OS === 'web') {
         return pickImageWeb()
     }

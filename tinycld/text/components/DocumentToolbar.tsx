@@ -17,13 +17,14 @@ import {
     Underline,
     Undo2,
 } from 'lucide-react-native'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
 import { BorderMenu } from './BorderMenu'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { TableMenu } from './TableMenu'
+import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface DocumentToolbarProps {
     commands: EditorCommands
@@ -46,9 +47,9 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
     const isInTable = state.isInTable ?? false
 
     return (
-        <View className="border-b border-border">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View className="flex-row items-center gap-0.5 px-2 py-1.5">
+        <View className="border-b border-border overflow-visible">
+            <ToolbarRow>
+                <View className="flex-row items-center gap-0.5 px-2 py-1.5 overflow-visible">
                     <FormatButton
                         icon={Bold}
                         accessibilityLabel="Bold"
@@ -152,6 +153,8 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         isOpen={tableOpen}
                         onOpenChange={setTableOpen}
                         isInTable={isInTable}
+                        canMergeCells={state.canMergeCells ?? false}
+                        canSplitCell={state.canSplitCell ?? false}
                         commands={commands}
                         trigger={
                             <FormatButton
@@ -202,7 +205,7 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         activeColor={activeColor}
                     />
                 </View>
-            </ScrollView>
+            </ToolbarRow>
 
             <LinkPopover
                 isOpen={linkOpen}
@@ -224,6 +227,24 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                 commands={commands}
             />
         </View>
+    )
+}
+
+// On web we render a plain overflow-visible row so hover tooltips
+// (which extend above the row) aren't clipped by react-native-web's
+// ScrollView, which sets overflow-y:hidden on its horizontal scroller.
+// RN-Web's View defaults to overflow:hidden too, so `overflow-visible`
+// is needed even without a ScrollView — same pattern as @tinycld/calc's
+// Toolbar. Native keeps the horizontal ScrollView so the row stays
+// swipeable on narrow widths; there's no hover surface to clip there.
+function ToolbarRow({ children }: { children: ReactNode }) {
+    if (Platform.OS === 'web') {
+        return <View className="overflow-visible">{children}</View>
+    }
+    return (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {children}
+        </ScrollView>
     )
 }
 
@@ -262,19 +283,23 @@ function FormatButton({
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
             : {}
     return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={accessibilityLabel}
-            accessibilityState={{ disabled, selected: isActive }}
-            disabled={disabled}
-            onPress={onPress}
-            {...webProps}
-            className="rounded-md p-1.5"
-            style={{ backgroundColor, opacity }}
-            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
-        >
-            <Icon size={16} color={color} />
-        </Pressable>
+        <ToolbarTooltip label={accessibilityLabel}>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={accessibilityLabel}
+                accessibilityState={{ disabled, selected: isActive }}
+                disabled={disabled}
+                onPress={onPress}
+                {...webProps}
+                className="rounded-md p-1.5"
+                style={{ backgroundColor, opacity }}
+                hitSlop={
+                    Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
+                }
+            >
+                <Icon size={16} color={color} />
+            </Pressable>
+        </ToolbarTooltip>
     )
 }
 

@@ -1,17 +1,22 @@
 import { eq } from '@tanstack/db'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
+import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
-import { useLocalSearchParams } from 'expo-router'
-import { useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
+import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
+import { router, useLocalSearchParams } from 'expo-router'
+import { useEffect, useState } from 'react'
+import { ActivityIndicator, Linking, Platform, ScrollView, Text, View } from 'react-native'
 import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
+import { MenuBar } from '../components/menubar/MenuBar'
 import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
+import { useDocumentFileActions } from '../hooks/use-document-file-actions'
+import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
 
@@ -43,22 +48,34 @@ export default function TextDetail() {
         return <CenteredMessage label="Opening…" spinner />
     }
 
-    return <DocumentScreen itemName={item.name} room={room} driveItemId={item.id} />
+    return (
+        <DocumentScreen
+            itemName={item.name}
+            itemFile={item.file ?? ''}
+            room={room}
+            driveItemId={item.id}
+        />
+    )
 }
 
 interface DocumentScreenProps {
     itemName: string
+    itemFile: string
     room: NonNullable<ReturnType<typeof useTextRoom>>
     driveItemId: string
 }
 
-function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
-    const { EditorComponent, commands, toolbarState, saveStatus } = useTextDocument(
+function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
+    const { EditorComponent, editor, commands, toolbarState, saveStatus } = useTextDocument(
         room,
         driveItemId
     )
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
+    const printDocument = usePrintDocument(editor)
+    usePrintShortcut(printDocument)
+    const fileActions = useDocumentFileActions(driveItemId)
+    const orgHref = useOrgHref()
     // Link popover is reached from two surfaces — the toolbar's link
     // button and the context menu's "Insert link" item. We hoist its
     // open state here so both surfaces can drive it; the toolbar still
@@ -76,6 +93,21 @@ function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
                 <ReconnectingIndicator isVisible={!room.isConnected} />
             </View>
             <ImportWarningBanner warnings={hello.importWarnings} />
+            <MenuBar
+                documentName={itemName}
+                documentId={driveItemId}
+                sourceFile={itemFile}
+                commands={commands}
+                toolbarState={toolbarState}
+                fileActions={fileActions}
+                disabled={isReadOnly}
+                onPrint={() => {
+                    void printDocument()
+                }}
+                onOpenKeyboardShortcuts={() => void Linking.openURL('https://tinycld.org/docs')}
+                onRequestInsertLink={() => setContextLinkOpen(true)}
+                onInsertImage={dataUri => commands.insertImage?.(dataUri)}
+            />
             <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
             <DocumentContextMenu
                 commands={commands}
@@ -108,6 +140,12 @@ function DocumentScreen({ itemName, room, driveItemId }: DocumentScreenProps) {
                 toolbarState={toolbarState}
                 editable={!isReadOnly}
             />
+            <CopyToFolderDialog
+                itemId={driveItemId}
+                onCopied={newItemId =>
+                    router.replace(orgHref('text/[id]', { id: newItemId }))
+                }
+            />
         </View>
     )
 }
@@ -124,4 +162,21 @@ function CenteredMessage({ label, spinner }: CenteredMessageProps) {
             <Text className="text-sm text-muted-foreground">{label}</Text>
         </View>
     )
+}
+
+// Bind ⌘P / Ctrl+P → print. Web-only: native has no equivalent
+// keyboard surface, and the upcoming menubar work will wire the
+// platform-appropriate trigger for mobile.
+function usePrintShortcut(printDocument: () => Promise<void>) {
+    useEffect(() => {
+        if (Platform.OS !== 'web' || typeof document === 'undefined') return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+                e.preventDefault()
+                void printDocument()
+            }
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+    }, [printDocument])
 }

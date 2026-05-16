@@ -43,7 +43,8 @@ For each of these the parser drops the feature on import:
 - [ ] **IMPORTANT** — Comments — the body markers are removed (with a `WarningComments`) but `comments.xml` is dropped entirely.
 - [ ] **IMPORTANT** — Tracked deletions are dropped silently aside from the warning. Insertions are kept (good).
 - [ ] **IMPORTANT** — Hyperlinks: `parseHyperlink` works for v1, but the post-process emitter (`pm_to_docx.go:962-1057`, the `{{__pmlink:N:open}}` / `{{__pmlink:N:close}}` token + `applyLinkRewrites` pair) is text-substitution-based and brittle — a literal `{{__pmlink:1:open}}` token appearing in user text would corrupt the file. Either escape user text or switch to a proper WordZero hyperlink API (would require forking the dep).
-- [ ] **IMPORTANT** — Image dimensions are dropped (`extent` EMUs intentionally not preserved). Means resizing images in the editor is impossible.
+- [ ] **IMPORTANT** — Image dimensions are dropped (`extent` EMUs intentionally not preserved). Means resizing images in the editor is impossible
+- [ ] **IMPORTANT** - Advanced image support: Paste image from system clipboard, add resize handles to images, adjust float behavior so text wraps in right click context menu
 - [x] **IMPORTANT** — Table cell merges (`gridSpan`, `vMerge`), column widths, and borders are now parsed (`docx_to_pm.go:1391-1571`, plus `cell_borders.go` and `colwidth_test.go`). Shading (`<w:shd>`) is still dropped.
 - [ ] **IMPORTANT** — Styles: only Heading1-6, Quote/IntenseQuote, Normal, ListParagraph are recognized. Any other `pStyle` gets `WarningUnsupportedStyle` and normalizes to plain paragraph. Custom `rStyle` is silently dropped.
 - [ ] **IMPORTANT** — Code blocks: no `code` / `codeBlock` mark or node in `SupportedNodeTypes`.

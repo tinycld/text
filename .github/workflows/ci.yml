@@ -8,7 +8,10 @@ on:
 
 env:
   APP_REPO: tinycld/tinycld
-  APP_REF: main
+  # Pin to a known-good app-shell revision. Bump manually after verifying
+  # compat. The previous `main` floated and silently broke builds on
+  # upstream changes; tracked in docs/TODO.md under "CI / build".
+  APP_REF: 7bf89673ba958cbb6ba354662ee5c81a32128677
 
 jobs:
   checks:
@@ -55,3 +58,104 @@ jobs:
       - name: Run unit tests
         working-directory: text
         run: pnpm exec vitest run
+
+  go-tests:
+    name: Go server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: text
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPO }}
+          ref: ${{ env.APP_REF }}
+          path: tinycld
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      # text/server/go.mod has `replace tinycld.org/core =>
+      # ../../tinycld/packages/@tinycld/core/server`, so the core Go source
+      # must exist at that path before `go test` can resolve imports. The
+      # `packages:link` step is not strictly required for the replace to
+      # resolve (core is bundled in the app shell, not behind the symlink
+      # tree), but we run it to mirror the layout the other jobs use and
+      # to surface any link-time errors in CI.
+      - name: Install app shell deps
+        working-directory: tinycld
+        run: pnpm install --frozen-lockfile
+
+      - name: Link text into tinycld app shell
+        working-directory: tinycld
+        run: pnpm run packages:link ../text
+
+      - name: Run Go server tests
+        working-directory: text/server
+        run: go test ./...
+
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: text
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.APP_REPO }}
+          ref: ${{ env.APP_REF }}
+          path: tinycld
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+      # Playwright owns its own dev-server lifecycle via playwright.config.ts
+      # `webServer` (which chains reset-dev-db.ts + dev.ts and spawns
+      # PocketBase). The dev script invokes the bundled Go binaries, so we
+      # need Go available even though Playwright itself is JS.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install app shell deps
+        working-directory: tinycld
+        run: pnpm install --frozen-lockfile
+
+      # Expects tinycld/packages/@tinycld/text to be a symlink to ../text
+      # after this step, matching the layout that
+      # playwright.config.ts::siblingProjects() walks.
+      - name: Link text into tinycld app shell
+        working-directory: tinycld
+        run: pnpm run packages:link ../text
+
+      # Cache the browser binaries — `playwright install` downloads ~150 MB
+      # of Chromium otherwise. Key by Playwright version (from the app
+      # shell's lockfile) so a Playwright bump invalidates automatically.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tinycld/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browsers
+        working-directory: tinycld
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright (text project only)
+        working-directory: tinycld
+        run: pnpm run test:e2e -- --project=@tinycld/text
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tinycld/playwright-report
+          retention-days: 7

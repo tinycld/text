@@ -1,26 +1,21 @@
 import { and, eq } from '@tanstack/db'
+import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
 import { FilePlus2, FileText } from 'lucide-react-native'
-import { useCallback } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
+import { createBlankTextDocument } from '../lib/create-blank-text-document'
 import { DOCX_MIME_TYPE } from '../lib/mime'
-
-// blankDocxBlob returns an empty Blob carrying the docx mime type. The
-// server-side bootstrap hook is responsible for synthesizing a minimal
-// valid .docx skeleton when the doc is empty — clients only need a
-// mime-type-tagged placeholder so the drive_items row gets created.
-function blankDocxBlob(): Blob {
-    return new Blob([], { type: DOCX_MIME_TYPE })
-}
 
 export default function TextIndex() {
     const orgHref = useOrgHref()
     const [driveItemsCollection] = useStore('drive_items')
     const create = useCreateDriveItem()
+    const accentFg = useThemeColor('accent-foreground')
 
     const { data: items = [] } = useOrgLiveQuery((query, { orgId }) =>
         query
@@ -35,14 +30,13 @@ export default function TextIndex() {
             .orderBy(({ item }) => item.updated, 'desc')
     )
 
-    const handleNew = useCallback(async () => {
-        const result = await create.mutateAsync({
-            body: blankDocxBlob(),
-            name: 'Untitled.docx',
-            mimeType: DOCX_MIME_TYPE,
+    const handleNew = () => {
+        createBlankTextDocument({
+            mutate: create.mutate,
+            onCreated: itemId => router.push(orgHref('text/[id]', { id: itemId })),
+            captureException,
         })
-        router.push(orgHref('text/[id]', { id: result.itemId }))
-    }, [create, orgHref])
+    }
 
     const isEmpty = items.length === 0
 
@@ -64,7 +58,7 @@ export default function TextIndex() {
                         disabled={create.isPending}
                         className="flex-row items-center gap-2 px-3 py-2 rounded-md bg-accent"
                     >
-                        <FilePlus2 size={16} color="white" />
+                        <FilePlus2 size={16} color={accentFg} />
                         <Text className="text-sm font-medium text-accent-foreground">
                             {create.isPending ? 'Creating…' : 'New document'}
                         </Text>
@@ -88,10 +82,11 @@ interface EmptyStateProps {
 }
 
 function EmptyState({ isVisible }: EmptyStateProps) {
+    const mutedFg = useThemeColor('muted-foreground')
     if (!isVisible) return null
     return (
         <View className="py-12 items-center gap-2">
-            <FileText size={32} color="#888" />
+            <FileText size={32} color={mutedFg} />
             <Text className="text-sm text-muted-foreground">No documents yet</Text>
             <Text className="text-xs text-muted-foreground">Create one to get started.</Text>
         </View>
@@ -104,12 +99,17 @@ interface DocumentRowProps {
 
 function DocumentRow({ item }: DocumentRowProps) {
     const orgHref = useOrgHref()
+    // `primary` is the project's brand teal — the closest semantic match for the
+    // original `#3b82f6` file-icon tint. `accent` in this theme is a soft
+    // background fill (very pale teal in light mode) and would render invisible
+    // here, so we deliberately don't use it.
+    const primary = useThemeColor('primary')
     return (
         <Pressable
             onPress={() => router.push(orgHref('text/[id]', { id: item.id }))}
             className="flex-row items-center gap-3 px-3 py-2 rounded-md hover:bg-surface-secondary"
         >
-            <FileText size={20} color="#3b82f6" />
+            <FileText size={20} color={primary} />
             <View className="flex-1">
                 <Text className="text-sm text-foreground" numberOfLines={1}>
                     {item.name}

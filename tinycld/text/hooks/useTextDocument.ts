@@ -28,5 +28,9 @@ export function useTextDocument(room: RealtimeRoomHandle, driveItemId: string) {
     return {
         ...editorResult,
         saveStatus: slot.saveStatus,
+        // `tiptapEditor` is the raw Tiptap Editor (web) or null (native).
+        // Forwarded so WordCountBadge can subscribe to transactions
+        // directly without rerendering the toolbar each keystroke.
+        tiptapEditor: editorResult.tiptapEditor,
     }
 }

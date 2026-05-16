@@ -58,7 +58,7 @@ For each of these the parser drops the feature on import:
 - [x] **IMPORTANT** — Create flows use the project-standard `mutate` (fire-and-forget with `onSuccess`/`onError` callbacks). `mutateAsync` calls and surrounding async `useCallback`s removed at both call sites.
 - [x] **IMPORTANT** — Raw hex colors in `screens/index.tsx` replaced with `useThemeColor`: `'white'` → `accent-foreground` (matches the button's `bg-accent`), `'#888'` → `muted-foreground`, `'#3b82f6'` → `primary` (the project's brand teal — `accent` would render invisible as it's a soft pale-teal background, not an icon tint). `lib/color-for-user.ts` palette is a legitimate exception (Yjs awareness needs literal CSS strings).
 - [ ] **IMPORTANT** — Duplicate query+create block between `screens/index.tsx` and `sidebar.tsx`. Extract a `useTextDocuments()` + `useCreateBlankTextDocument()` hook.
-- [ ] **IMPORTANT** — `useState` + `useEffect` sync in `components/LinkPopover.tsx:18,27-29`. The `biome-ignore` comment is a tell. Replace with a Zustand store or `key={isOpen}` remount.
+- [x] **IMPORTANT** — `useState` + `useEffect` sync in `components/LinkPopover.tsx:18,27-29` replaced with a `key={...}` remount. The popover now splits into a `LinkPopover` shell (the Modal) and a `LinkPopoverContents` form; the inner is keyed via `linkPopoverContentsKey(isOpen, initialUrl)` so React's reconciler unmounts/remounts whenever either axis changes. The `biome-ignore` is gone. Pure key derivation is unit-tested in `tests/link-popover-remount.test.tsx`.
 
 ### Collaboration correctness
 - [x] **IMPORTANT** — `SaveStatusIndicator` now accepts `isConnected` and renders an "Offline" pill (`CloudOff` + muted-foreground) that wins over `saveStatus`. The state transitions live in `components/save-status-state.ts`; `screens/[id].tsx` passes `room.isConnected` through.
@@ -92,7 +92,7 @@ Ordered roughly by user-visible ROI:
 - [ ] Version history — Yjs has snapshot APIs; .docx is already persisted, so checkpoints are cheap.
 - [ ] Tracked changes — fixture and Playwright test are skipped pending implementation.
 - [ ] Document templates — no "new from template" on `screens/index.tsx`.
-- [ ] Word count / outline / table-of-contents panel.
+- [x] Word count — shipped via `components/WordCountBadge.tsx` + pure helpers in `lib/word-count.ts`; rendered in the document header next to the save indicator and updates live via `editor.on('update', ...)` so only the badge re-renders per keystroke (not the toolbar). Outline / TOC are deferred — file a follow-up if/when there's user demand.
 - [ ] Find-across-documents search.
 - [ ] Star / favorite / pin to top.
 - [ ] Move-to-folder.

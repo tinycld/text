@@ -1,8 +1,13 @@
 package translate
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -287,4 +292,204 @@ func TestPMJSONToDocx_RichRoundTrip(t *testing.T) {
 			}
 		}
 	}
+}
+
+// makeListDocPMJSON builds a PM doc containing one bulleted and one
+// numbered list — the two code paths that exercise WordZero's global
+// NumberingManager. The label is interpolated into item text so the
+// caller can match returned bytes back to the input later.
+func makeListDocPMJSON(t *testing.T, label string) []byte {
+	t.Helper()
+	doc := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{
+				Type: NodeTypeBulletList,
+				Content: []PMNode{
+					{
+						Type: NodeTypeListItem,
+						Content: []PMNode{
+							{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: label + "-bul-1"}}},
+						},
+					},
+					{
+						Type: NodeTypeListItem,
+						Content: []PMNode{
+							{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: label + "-bul-2"}}},
+						},
+					},
+				},
+			},
+			{
+				Type: NodeTypeOrderedList,
+				Content: []PMNode{
+					{
+						Type: NodeTypeListItem,
+						Content: []PMNode{
+							{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: label + "-ord-1"}}},
+						},
+					},
+					{
+						Type: NodeTypeListItem,
+						Content: []PMNode{
+							{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: label + "-ord-2"}}},
+						},
+					},
+				},
+			},
+		},
+	}
+	bs, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal pm doc: %v", err)
+	}
+	return bs
+}
+
+// extractNumberingXML pulls word/numbering.xml from a docx zip, or
+// returns an empty slice if the document has no list content.
+func extractNumberingXML(t *testing.T, docxBytes []byte) []byte {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(docxBytes), int64(len(docxBytes)))
+	if err != nil {
+		t.Fatalf("extractNumberingXML: open zip: %v", err)
+	}
+	for _, f := range zr.File {
+		if f.Name == "word/numbering.xml" {
+			r, err := f.Open()
+			if err != nil {
+				t.Fatalf("open numbering.xml: %v", err)
+			}
+			data, err := io.ReadAll(r)
+			r.Close()
+			if err != nil {
+				t.Fatalf("read numbering.xml: %v", err)
+			}
+			return data
+		}
+	}
+	return nil
+}
+
+// TestPMJSONToDocx_ConcurrentNumbering fires many parallel emits in
+// flight at once and asserts that each resulting docx has a coherent
+// numbering.xml whose numIds match the document body's references.
+// Without the package mutex around WordZero's NumberingManager
+// singleton, concurrent allocations interleave: one document's body
+// references a numId that another concurrent document's numbering.xml
+// defined, or numbering.xml duplicates a numId, etc. Run with `-race`
+// for additional read/write race coverage on the shared allocator.
+func TestPMJSONToDocx_ConcurrentNumbering(t *testing.T) {
+	t.Parallel()
+
+	const workers = 16
+	// Build inputs up front on the test goroutine — t.Fatalf inside a
+	// child goroutine is unsafe per the testing package contract.
+	inputs := make([][]byte, workers)
+	for i := 0; i < workers; i++ {
+		inputs[i] = makeListDocPMJSON(t, fmt.Sprintf("w%d", i))
+	}
+
+	results := make([][]byte, workers)
+	errs := make([]error, workers)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			bs, err := PMJSONToDocx(inputs[idx])
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			results[idx] = bs
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("worker %d: PMJSONToDocx: %v", i, err)
+		}
+	}
+
+	for i, bs := range results {
+		if len(bs) < 100 {
+			t.Fatalf("worker %d: docx suspiciously small: %d bytes", i, len(bs))
+		}
+		numXML := extractNumberingXML(t, bs)
+		if len(numXML) == 0 {
+			t.Fatalf("worker %d: docx has no word/numbering.xml — lists were dropped", i)
+		}
+
+		// Reuse the import-side parser: it returns numId -> first-level
+		// numFmt, which is only populated when numbering.xml is well
+		// formed and every <w:num> resolves to a defined <w:abstractNum>.
+		numFmts := parseNumberingFormats(numXML)
+		if len(numFmts) == 0 {
+			t.Fatalf("worker %d: numbering.xml present but no <w:num> entries parsed; raw=%s", i, string(numXML))
+		}
+		// Each doc emits one bullet list and one ordered list, so we
+		// expect at least two numIds, with at least one bullet and one
+		// non-bullet (decimal) format. A torn allocation manifests as
+		// missing or duplicated definitions.
+		seenBullet, seenOrdered := false, false
+		seenIDs := make(map[string]bool, len(numFmts))
+		for id, fmtStr := range numFmts {
+			if seenIDs[id] {
+				t.Errorf("worker %d: duplicate numId %q in numbering.xml", i, id)
+			}
+			seenIDs[id] = true
+			if fmtStr == "bullet" {
+				seenBullet = true
+			} else if fmtStr != "" {
+				seenOrdered = true
+			}
+		}
+		if !seenBullet {
+			t.Errorf("worker %d: no bullet-format numId in numbering.xml; got %+v", i, numFmts)
+		}
+		if !seenOrdered {
+			t.Errorf("worker %d: no ordered-format numId in numbering.xml; got %+v", i, numFmts)
+		}
+
+		// Cross-check: every numId referenced by the body must be
+		// defined in numbering.xml. A race where one goroutine's body
+		// captured a numId before another goroutine bumped the counter
+		// shows up here as a body-side reference with no definition.
+		docXML := extractDocumentXML(t, bs)
+		bodyRefs := findNumIDRefs(docXML)
+		if len(bodyRefs) == 0 {
+			t.Fatalf("worker %d: body has no <w:numId> references but the input had lists", i)
+		}
+		for ref := range bodyRefs {
+			if _, ok := numFmts[ref]; !ok {
+				t.Errorf("worker %d: body references numId %q with no matching definition in numbering.xml (defs=%v)", i, ref, numFmts)
+			}
+		}
+	}
+}
+
+// findNumIDRefs scans word/document.xml for `w:numId w:val="N"`
+// attribute literals. Cheap substring scan — sufficient for the test,
+// which only needs the set of referenced ids.
+func findNumIDRefs(docXML []byte) map[string]bool {
+	out := make(map[string]bool)
+	s := string(docXML)
+	const tag = `<w:numId w:val="`
+	for {
+		i := strings.Index(s, tag)
+		if i < 0 {
+			break
+		}
+		s = s[i+len(tag):]
+		j := strings.Index(s, `"`)
+		if j < 0 {
+			break
+		}
+		out[s[:j]] = true
+		s = s[j+1:]
+	}
+	return out
 }

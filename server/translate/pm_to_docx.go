@@ -57,9 +57,20 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
+
+// numberingMu serializes WordZero document emission across concurrent
+// callers. WordZero's document package keeps a process-global
+// NumberingManager singleton that allocates <w:numId> values; two
+// goroutines flushing different rooms at the same time race for that
+// counter and can interleave numbering definitions across documents,
+// producing malformed list output. The emit path is short and runs off
+// the SaveCoordinator's worker pool, so the contention cost of a single
+// package-level mutex is acceptable v1; revisit if we replace WordZero.
+var numberingMu sync.Mutex
 
 // Silence WordZero's INFO-level chatter — every table create / cell
 // clear / cell add prints to stdout by default. Errors still flow
@@ -118,6 +129,13 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 	if root.Type != NodeTypeDoc {
 		return nil, nil, fmt.Errorf("translate: pmJSON root must be type=doc, got %q", root.Type)
 	}
+
+	// Hold numberingMu across the entire emit + serialize so every call
+	// that might touch WordZero's global NumberingManager (AddBulletList /
+	// AddNumberedList allocations, plus ToBytes which materializes
+	// numbering.xml from that shared state) is serialized.
+	numberingMu.Lock()
+	defer numberingMu.Unlock()
 
 	em := newEmitter()
 	for _, child := range root.Content {

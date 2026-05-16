@@ -1,18 +1,12 @@
-import { and, eq } from '@tanstack/db'
 import {
     SidebarActionButton,
     SidebarHeading,
     SidebarItem,
     SidebarNav,
 } from '@tinycld/core/components/sidebar-primitives'
-import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
-import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
-import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router, usePathname } from 'expo-router'
-import { createBlankTextDocument } from './lib/create-blank-text-document'
-import { DOCX_MIME_TYPE } from './lib/mime'
+import { useCreateBlankTextDocument, useTextDocuments } from './hooks/use-text-documents'
 
 interface TextSidebarProps {
     isCollapsed: boolean
@@ -21,28 +15,11 @@ interface TextSidebarProps {
 export default function TextSidebar(_props: TextSidebarProps) {
     const orgHref = useOrgHref()
     const pathname = usePathname()
-    const [driveItemsCollection] = useStore('drive_items')
-    const create = useCreateDriveItem()
-
-    const { data: items = [] } = useOrgLiveQuery((query, { orgId }) =>
-        query
-            .from({ item: driveItemsCollection })
-            .where(({ item }) =>
-                and(
-                    eq(item.org, orgId),
-                    eq(item.mime_type, DOCX_MIME_TYPE),
-                    eq(item.is_folder, false)
-                )
-            )
-            .orderBy(({ item }) => item.updated, 'desc')
-    )
+    const { data: items = [] } = useTextDocuments()
+    const { create } = useCreateBlankTextDocument()
 
     const handleCreate = () => {
-        createBlankTextDocument({
-            mutate: create.mutate,
-            onCreated: itemId => router.push(orgHref('text/[id]', { id: itemId })),
-            captureException,
-        })
+        create(itemId => router.push(orgHref('text/[id]', { id: itemId })))
     }
 
     const recentItems = items.slice(0, 10)

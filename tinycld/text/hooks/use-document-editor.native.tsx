@@ -14,7 +14,6 @@ import {
 } from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
-import type { EditorResult } from '@tinycld/core/lib/editor/types'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
 import { pb } from '@tinycld/core/lib/pocketbase'
 import { useMemo } from 'react'
@@ -22,6 +21,7 @@ import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
 import { editorHtml } from '../webview-editor/build/editorHtml'
+import type { ExtendedEditorResult } from './use-document-editor'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -63,7 +63,7 @@ export interface UseDocumentEditorOptions {
 // must match the cases handled in webview-editor/source/Editor.tsx;
 // note that TenTap emits camelCase for some list types
 // ('toggle-bulletList', 'toggle-orderedList').
-export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResult {
+export function useDocumentEditor(options: UseDocumentEditorOptions): ExtendedEditorResult {
     const { user } = useAuth()
     const userId = user?.id ?? ''
     const userName = user?.name ?? ''
@@ -82,7 +82,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         [options.driveItemId, options.editable, options.placeholder, userId, userName, userColor]
     )
 
-    return useWebViewEditor({
+    const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
             CoreBridge,
@@ -101,4 +101,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): EditorResu
         initPayload,
         editable: options.editable ?? true,
     })
+    // findReplaceEditor is web-only; native delegates editing to the
+    // WebView's in-frame ProseMirror, which the host shell has no
+    // dispatch handle into.
+    return { ...result, findReplaceEditor: null }
 }

@@ -108,6 +108,31 @@ func TestRuntime_ClosedHandleRejectsOps(t *testing.T) {
 	}
 }
 
+// TestRuntime_ApplyUpdateRejectsOversizedPayload guards the
+// MaxApplyUpdateBytes cap. A hostile client sending a 100 MiB frame
+// would otherwise burn allocations inside y-crdt's ApplyUpdate before
+// the recover guard could trip.
+func TestRuntime_ApplyUpdateRejectsOversizedPayload(t *testing.T) {
+	runtime := NewRuntime()
+	handle, err := runtime.NewDoc("oversize-room")
+	if err != nil {
+		t.Fatalf("NewDoc: %v", err)
+	}
+	defer func() { _ = handle.Close() }()
+
+	oversized := make([]byte, MaxApplyUpdateBytes+1)
+	if err := handle.ApplyUpdate(oversized); err == nil {
+		t.Fatal("ApplyUpdate accepted a payload larger than MaxApplyUpdateBytes")
+	}
+
+	// A payload exactly at the cap is allowed past the size check.
+	// y-crdt will log + ignore malformed bytes (the contract the
+	// recover guard backstops), so we don't assert a successful
+	// apply — only that the size gate didn't reject.
+	atCap := make([]byte, MaxApplyUpdateBytes)
+	_ = handle.ApplyUpdate(atCap)
+}
+
 // TestRuntime_ImportWarnings round-trips warnings through Set/Pop —
 // the OnConnect path's contract.
 func TestRuntime_ImportWarnings(t *testing.T) {

@@ -21,11 +21,12 @@ import (
 // rooms; the SaveCoordinator never re-enters the same room concurrently.
 //
 // PMJSONToDocx wraps WordZero, which has historically panicked on
-// malformed inputs (and uses a global NumberingManager singleton —
-// see translate/pm_to_docx.go for the v1 caveats). The named-return
-// + deferred recover here converts any panic into an error so the
-// SaveCoordinator's retry/backoff path can handle it instead of the
-// broker goroutine going down.
+// malformed inputs. Concurrent calls from different rooms are
+// serialized inside the translate package via numberingMu — WordZero's
+// NumberingManager is a process-global singleton. The named-return +
+// deferred recover here converts any remaining panic into an error so
+// the SaveCoordinator's retry/backoff path can handle it instead of
+// the broker goroutine going down.
 func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 	return func(driveItemID string, handle realtime.DocHandle) (returnedErr error) {
 		defer func() {

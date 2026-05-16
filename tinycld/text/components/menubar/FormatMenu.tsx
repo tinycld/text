@@ -78,26 +78,78 @@ export function FormatMenu(props: MenuBarProps) {
                     <Menu.ItemTitle>Bullets &amp; numbering</Menu.ItemTitle>
                 </Menu.SubTrigger>
                 <Menu.SubContent>
-                    <Menu.Item
-                        onPress={() => commands.toggleBulletList()}
-                        isDisabled={disabled}
-                    >
+                    <Menu.Item onPress={() => commands.toggleBulletList()} isDisabled={disabled}>
                         <CheckedIndicator isOn={toolbarState.isBulletListActive} />
                         <Menu.ItemTitle>Bulleted list</Menu.ItemTitle>
                     </Menu.Item>
-                    <Menu.Item
-                        onPress={() => commands.toggleOrderedList()}
-                        isDisabled={disabled}
-                    >
+                    <Menu.Item onPress={() => commands.toggleOrderedList()} isDisabled={disabled}>
                         <CheckedIndicator isOn={toolbarState.isOrderedListActive} />
                         <Menu.ItemTitle>Numbered list</Menu.ItemTitle>
                     </Menu.Item>
-                    <Menu.Item
-                        onPress={() => commands.toggleBlockquote()}
-                        isDisabled={disabled}
-                    >
+                    <Menu.Item onPress={() => commands.toggleBlockquote()} isDisabled={disabled}>
                         <CheckedIndicator isOn={toolbarState.isBlockquoteActive} />
                         <Menu.ItemTitle>Blockquote</Menu.ItemTitle>
+                    </Menu.Item>
+                </Menu.SubContent>
+            </Menu.Sub>
+            <Menu.Sub>
+                <Menu.SubTrigger>
+                    <Menu.ItemTitle>Align &amp; indent</Menu.ItemTitle>
+                </Menu.SubTrigger>
+                <Menu.SubContent>
+                    <Menu.Item
+                        onPress={() => commands.setTextAlign?.('left')}
+                        isDisabled={disabled}
+                    >
+                        <CheckedIndicator
+                            isOn={
+                                toolbarState.currentAlign === 'left' ||
+                                toolbarState.currentAlign == null
+                            }
+                        />
+                        <Menu.ItemTitle>Align left</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘⇧L" />
+                    </Menu.Item>
+                    <Menu.Item
+                        onPress={() => commands.setTextAlign?.('center')}
+                        isDisabled={disabled}
+                    >
+                        <CheckedIndicator isOn={toolbarState.currentAlign === 'center'} />
+                        <Menu.ItemTitle>Center</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘⇧E" />
+                    </Menu.Item>
+                    <Menu.Item
+                        onPress={() => commands.setTextAlign?.('right')}
+                        isDisabled={disabled}
+                    >
+                        <CheckedIndicator isOn={toolbarState.currentAlign === 'right'} />
+                        <Menu.ItemTitle>Align right</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘⇧R" />
+                    </Menu.Item>
+                    <Menu.Item
+                        onPress={() => commands.setTextAlign?.('justify')}
+                        isDisabled={disabled}
+                    >
+                        <CheckedIndicator isOn={toolbarState.currentAlign === 'justify'} />
+                        <Menu.ItemTitle>Justify</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘⇧J" />
+                    </Menu.Item>
+                    <Separator />
+                    <Menu.Item
+                        onPress={() => commands.indentBlock?.()}
+                        isDisabled={disabled || !(toolbarState.canIndent ?? false)}
+                    >
+                        <View style={{ width: 14 }} />
+                        <Menu.ItemTitle>Increase indent</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘]" />
+                    </Menu.Item>
+                    <Menu.Item
+                        onPress={() => commands.outdentBlock?.()}
+                        isDisabled={disabled || !(toolbarState.canOutdent ?? false)}
+                    >
+                        <View style={{ width: 14 }} />
+                        <Menu.ItemTitle>Decrease indent</Menu.ItemTitle>
+                        <MenuShortcut keys="⌘[" />
                     </Menu.Item>
                 </Menu.SubContent>
             </Menu.Sub>

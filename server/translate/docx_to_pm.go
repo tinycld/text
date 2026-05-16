@@ -525,6 +525,8 @@ func (p *docxParser) parseBodyChild(dec *xml.Decoder, start xml.StartElement) (*
 func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
 	var pStyle string
 	var numID, ilvl string
+	var textAlign string
+	var indentLevel int
 	var runs []PMNode
 
 	for {
@@ -536,7 +538,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
-				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl); err != nil {
+				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel); err != nil {
 					return nil, err
 				}
 			case "r":
@@ -591,7 +593,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return p.assembleParagraph(pStyle, numID, ilvl, runs), nil
+				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, runs), nil
 			}
 		}
 	}
@@ -601,7 +603,14 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 // node — heading / paragraph / blockquote, with metadata for list
 // post-processing tucked into Attrs. The temporary attrs are stripped
 // by groupListParagraphs.
-func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, runs []PMNode) *PMNode {
+//
+// textAlign / indentLevel encode <w:jc> and <w:ind w:left> values and
+// are attached to the resulting paragraph or heading node when non-
+// default. List items (numID != "") and blockquote-wrapped paragraphs
+// intentionally do NOT carry these — Word's <w:jc> on a list item is
+// uncommon and would complicate the list round-trip; blockquote
+// formatting is owned by the wrapper.
+func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, runs []PMNode) *PMNode {
 	// Empty paragraph (no runs) is still a valid PM paragraph node;
 	// blank lines in OOXML translate to empty PM paragraphs.
 	if numID != "" {
@@ -626,9 +635,11 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, runs []PMNode
 			p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("heading level %d outside 1-6 normalized to 6", level))
 			level = 6
 		}
+		attrs := map[string]any{"level": float64(level)}
+		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
 		return &PMNode{
 			Type:    NodeTypeHeading,
-			Attrs:   map[string]any{"level": float64(level)},
+			Attrs:   attrs,
 			Content: runs,
 		}
 	case pStyle == "Quote" || pStyle == "IntenseQuote":
@@ -644,7 +655,25 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, runs []PMNode
 		p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("paragraph style %q normalized to default paragraph", pStyle))
 	}
 
-	return &PMNode{Type: NodeTypeParagraph, Content: runs}
+	attrs := map[string]any{}
+	applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+	if len(attrs) == 0 {
+		return &PMNode{Type: NodeTypeParagraph, Content: runs}
+	}
+	return &PMNode{Type: NodeTypeParagraph, Attrs: attrs, Content: runs}
+}
+
+// applyAlignIndentAttrs adds textAlign + indent entries to the given
+// attr map when they are non-default. Defaults (textAlign="left",
+// indentLevel=0) are omitted so the PM JSON stays compact for the
+// 99% of paragraphs that don't carry either.
+func applyAlignIndentAttrs(attrs map[string]any, textAlign string, indentLevel int) {
+	if textAlign != "" && textAlign != "left" {
+		attrs["textAlign"] = textAlign
+	}
+	if indentLevel > 0 {
+		attrs["indent"] = float64(indentLevel)
+	}
 }
 
 // parseInlineGroup is parseHyperlink/parseIns/parseDel without the
@@ -675,9 +704,14 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 	}
 }
 
-// parseParagraphProperties extracts the paragraph style id and (for
-// list items) the numId / ilvl values out of <w:pPr>.
-func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string) error {
+// parseParagraphProperties extracts the paragraph style id, list ids,
+// alignment, and left-indent level out of <w:pPr>.
+//
+// Alignment maps <w:jc w:val="left|center|right|both"/> to "left",
+// "center", "right", or "justify" ("both" is Word's name for what PM
+// calls "justify"). Indent maps <w:ind w:left="…"/> twips through
+// twipsToIndentLevel (720 twips per level, half-inch each).
+func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -695,6 +729,25 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 				if err := p.parseNumPr(dec, t, numID, ilvl); err != nil {
 					return err
 				}
+			case "jc":
+				if v := attrValue(t, "val"); v != "" {
+					*textAlign = normalizeJustification(v)
+				}
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			case "ind":
+				// Only `w:left` is supported in v1 — first-line and
+				// right indent are dropped (and the parser does not
+				// emit a warning for those, since they're far less
+				// common than block left-indent and surface as quiet
+				// fidelity loss rather than visible damage).
+				if v := attrValue(t, "left"); v != "" {
+					*indentLevel = twipsToIndentLevel(v)
+				}
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
 			default:
 				if err := skipElement(dec, t); err != nil {
 					return err
@@ -706,6 +759,44 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 			}
 		}
 	}
+}
+
+// normalizeJustification maps OOXML <w:jc w:val=…> values onto the PM
+// textAlign enum. "both" is Word's term for full justify; anything
+// outside the known set falls back to "left" (default) so unknown
+// values don't propagate downstream as opaque strings.
+func normalizeJustification(v string) string {
+	switch v {
+	case "center":
+		return "center"
+	case "right", "end":
+		return "right"
+	case "both", "distribute":
+		return "justify"
+	default:
+		return "left"
+	}
+}
+
+// twipsToIndentLevel converts a <w:ind w:left> twips string to a
+// 0..MaxIndentLevel integer indent level. One level == 720 twips
+// (Word's standard half-inch indent). Rounds to nearest level so a
+// 1080-twip indent (3/4 inch — what Word writes for a tab stop) lands
+// on level 2.
+func twipsToIndentLevel(twipsStr string) int {
+	twips, err := strconv.Atoi(twipsStr)
+	if err != nil || twips <= 0 {
+		return 0
+	}
+	// Round-to-nearest: +half-step before integer division.
+	level := (twips + twipsPerIndentLevel/2) / twipsPerIndentLevel
+	if level < 0 {
+		return 0
+	}
+	if level > MaxIndentLevel {
+		return MaxIndentLevel
+	}
+	return level
 }
 
 // parseNumPr extracts numId and ilvl from <w:numPr>.

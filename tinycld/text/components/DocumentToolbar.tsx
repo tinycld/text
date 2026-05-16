@@ -1,16 +1,22 @@
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
+    AlignCenter,
+    AlignJustify,
+    AlignLeft,
+    AlignRight,
     Bold,
     Grid3x3,
     Heading1,
     Heading2,
     Heading3,
     Image as ImageIcon,
+    Indent,
     Italic,
     Link2,
     List,
     ListOrdered,
+    Outdent,
     Quote,
     Redo2,
     Table as TableIcon,
@@ -134,6 +140,63 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         isActive={state.isBlockquoteActive}
                         disabled={disabled}
                         onPress={() => commands.toggleBlockquote()}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+
+                    <Separator />
+
+                    <FormatButton
+                        icon={AlignLeft}
+                        accessibilityLabel="Align left"
+                        isActive={state.currentAlign === 'left' || state.currentAlign == null}
+                        disabled={disabled}
+                        onPress={() => commands.setTextAlign?.('left')}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={AlignCenter}
+                        accessibilityLabel="Align center"
+                        isActive={state.currentAlign === 'center'}
+                        disabled={disabled}
+                        onPress={() => commands.setTextAlign?.('center')}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={AlignRight}
+                        accessibilityLabel="Align right"
+                        isActive={state.currentAlign === 'right'}
+                        disabled={disabled}
+                        onPress={() => commands.setTextAlign?.('right')}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={AlignJustify}
+                        accessibilityLabel="Justify"
+                        isActive={state.currentAlign === 'justify'}
+                        disabled={disabled}
+                        onPress={() => commands.setTextAlign?.('justify')}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={Outdent}
+                        accessibilityLabel="Decrease indent"
+                        isActive={false}
+                        disabled={disabled || !(state.canOutdent ?? false)}
+                        onPress={() => commands.outdentBlock?.()}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={Indent}
+                        accessibilityLabel="Increase indent"
+                        isActive={false}
+                        disabled={disabled || !(state.canIndent ?? false)}
+                        onPress={() => commands.indentBlock?.()}
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />

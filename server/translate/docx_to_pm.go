@@ -1867,7 +1867,8 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 			switch t.Name.Local {
 			case "tcPr":
 				var bordersAttr map[string]any
-				tcWDxa, gridSpan, vMerge, bordersAttr, err = p.parseTableCellProperties(dec, t)
+				var shading string
+				tcWDxa, gridSpan, vMerge, bordersAttr, shading, err = p.parseTableCellProperties(dec, t)
 				if err != nil {
 					return nil, err
 				}
@@ -1876,6 +1877,12 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 						cell.Attrs = map[string]any{}
 					}
 					cell.Attrs["borders"] = bordersAttr
+				}
+				if shading != "" {
+					if cell.Attrs == nil {
+						cell.Attrs = map[string]any{}
+					}
+					cell.Attrs["shading"] = shading
 				}
 				if vMerge != "" {
 					if cell.Attrs == nil {
@@ -1943,15 +1950,16 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 //   - <w:vMerge/>                 — this cell continues a merge that
 //     started above. (OOXML allows
 //     w:val="continue" but Word omits it.)
-func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, error) {
+func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, error) {
 	tcWDxa := 0
 	gridSpan := 1
 	vMerge := ""
 	var borders map[string]any
+	shading := ""
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return 0, 0, "", nil, err
+			return 0, 0, "", nil, "", err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -1971,7 +1979,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, err
+					return 0, 0, "", nil, "", err
 				}
 			case "gridSpan":
 				if v := attrValue(t, "val"); v != "" {
@@ -1980,7 +1988,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, err
+					return 0, 0, "", nil, "", err
 				}
 			case "vMerge":
 				v := attrValue(t, "val")
@@ -1991,22 +1999,27 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					vMerge = "continue"
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, err
+					return 0, 0, "", nil, "", err
 				}
 			case "tcBorders":
 				b, err := parseTcBorders(dec, t)
 				if err != nil {
-					return 0, 0, "", nil, err
+					return 0, 0, "", nil, "", err
 				}
 				borders = b
+			case "shd":
+				shading = parseTcShading(t)
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, "", err
+				}
 			default:
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, err
+					return 0, 0, "", nil, "", err
 				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return tcWDxa, gridSpan, vMerge, borders, nil
+				return tcWDxa, gridSpan, vMerge, borders, shading, nil
 			}
 		}
 	}

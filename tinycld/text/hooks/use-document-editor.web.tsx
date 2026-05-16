@@ -162,6 +162,25 @@ const FindReplaceExtension = Extension.create({
     },
 })
 
+// CodeShortcuts overrides the StarterKit-bundled keymaps for inline
+// `code` and `codeBlock` to the Markdown-style backtick shortcuts.
+//   - Mod-` toggles the inline code mark (StarterKit default: Mod-e).
+//   - Mod-Shift-` toggles the code block node (StarterKit default:
+//     Mod-Alt-c).
+// We register on a separate extension so the override is purely
+// additive — Tiptap merges multiple extensions' keymaps, so the
+// StarterKit defaults still work alongside our additions. The Mod-e
+// default is retained for users coming from other Tiptap apps.
+const CodeShortcuts = Extension.create({
+    name: 'tinycldCodeShortcuts',
+    addKeyboardShortcuts() {
+        return {
+            'Mod-`': () => this.editor.commands.toggleCode(),
+            'Mod-Shift-`': () => this.editor.commands.toggleCodeBlock(),
+        }
+    },
+})
+
 // Uploads a pasted/dropped image to drive and invokes onInserted with
 // the resulting PocketBase file URL. Fire-and-forget — the paste/drop
 // handler returns sync, so any error has to route through
@@ -340,6 +359,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     undoRedo: false,
                     link: { openOnClick: false },
                 }),
+                // StarterKit bundles the inline `code` mark and `codeBlock`
+                // node with default keymaps Mod-e / Mod-Alt-c. We layer a
+                // small Extension below that adds the Markdown-style
+                // backtick shortcuts (Mod-` / Mod-Shift-`) on top —
+                // Tiptap merges keymaps across extensions, so the
+                // StarterKit defaults are kept and users get both.
+                CodeShortcuts,
                 // TextStyle + Color provide the `textStyle` mark with a
                 // `color` attribute. The .docx importer maps <w:color> on
                 // a run to this mark, so headings/runs that carry an
@@ -440,6 +466,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             toggleBulletList: () => tiptapEditor?.chain().focus().toggleBulletList().run(),
             toggleOrderedList: () => tiptapEditor?.chain().focus().toggleOrderedList().run(),
             toggleBlockquote: () => tiptapEditor?.chain().focus().toggleBlockquote().run(),
+            toggleCode: () => tiptapEditor?.chain().focus().toggleCode().run(),
+            toggleCodeBlock: () => tiptapEditor?.chain().focus().toggleCodeBlock().run(),
             toggleHeading: (level: number) =>
                 tiptapEditor
                     ?.chain()
@@ -527,6 +555,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         isOrderedListActive: tiptapEditor?.isActive('orderedList') ?? false,
         isBlockquoteActive: tiptapEditor?.isActive('blockquote') ?? false,
         isLinkActive: tiptapEditor?.isActive('link') ?? false,
+        isCodeActive: tiptapEditor?.isActive('code') ?? false,
+        isCodeBlockActive: tiptapEditor?.isActive('codeBlock') ?? false,
         currentLink: (tiptapEditor?.getAttributes('link')?.href as string) ?? null,
         activeHeadingLevel: ((): number | null => {
             for (let level = 1; level <= 6; level++) {
@@ -688,6 +718,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                             '--editor-link': linkColor,
                             '--editor-placeholder': placeholderColor,
                             '--editor-table-header': surfaceSecondaryColor,
+                            // Inline-code and code-block share the same
+                            // surface-secondary token Word-style call-out blocks
+                            // use; the editor-content-styles.ts var() falls back
+                            // to a neutral grey for unstyled contexts.
+                            '--editor-code-bg': surfaceSecondaryColor,
                         }}
                     >
                         <EditorContent editor={tiptapEditor} />

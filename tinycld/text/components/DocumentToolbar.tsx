@@ -6,6 +6,8 @@ import {
     AlignLeft,
     AlignRight,
     Bold,
+    Code,
+    Code2,
     Grid3x3,
     Heading1,
     Heading2,
@@ -95,6 +97,24 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         isActive={state.isUnderlineActive}
                         disabled={disabled}
                         onPress={() => commands.toggleUnderline()}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={Code}
+                        accessibilityLabel="Inline code"
+                        isActive={state.isCodeActive ?? false}
+                        disabled={disabled}
+                        onPress={() => commands.toggleCode?.()}
+                        iconColor={iconColor}
+                        activeColor={activeColor}
+                    />
+                    <FormatButton
+                        icon={Code2}
+                        accessibilityLabel="Code block"
+                        isActive={state.isCodeBlockActive ?? false}
+                        disabled={disabled}
+                        onPress={() => commands.toggleCodeBlock?.()}
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />

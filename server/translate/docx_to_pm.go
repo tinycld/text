@@ -650,6 +650,15 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 				{Type: NodeTypeParagraph, Content: runs},
 			},
 		}
+	case isCodeBlockStyle(pStyle):
+		// Collapse the paragraph's runs into a single plain-text child;
+		// the PM codeBlock schema doesn't carry inline marks, so any
+		// bold/italic/code marks from the source are dropped (visually
+		// they would not survive the monospace verbatim render anyway).
+		return &PMNode{
+			Type:    NodeTypeCodeBlock,
+			Content: codeBlockChildren(runs),
+		}
 	case pStyle != "" && pStyle != "Normal" && pStyle != "ListParagraph":
 		// Unknown style — fall back to plain paragraph with a warning.
 		p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("paragraph style %q normalized to default paragraph", pStyle))
@@ -674,6 +683,39 @@ func applyAlignIndentAttrs(attrs map[string]any, textAlign string, indentLevel i
 	if indentLevel > 0 {
 		attrs["indent"] = float64(indentLevel)
 	}
+}
+
+// isCodeBlockStyle returns true for the paragraph style names we
+// recognise as code blocks on import. "CodeBlock" is what our own
+// exporter writes; the others are common aliases produced by Word,
+// pandoc, and HTML-export tooling — accepting all four lets users
+// paste pre-formatted content from a wider set of source files
+// without losing the monospace render.
+func isCodeBlockStyle(pStyle string) bool {
+	switch pStyle {
+	case "CodeBlock", "Code", "HTMLPreformatted", "Preformatted":
+		return true
+	}
+	return false
+}
+
+// codeBlockChildren flattens a paragraph's parsed runs into the
+// plain-text children a PM codeBlock node accepts. Marks are dropped
+// (codeBlock doesn't carry inline formatting); adjacent text nodes
+// are concatenated so a multi-run paragraph collapses to one text
+// child — matches Tiptap's <pre><code>…</code></pre> render where
+// the entire block content is a single text node.
+func codeBlockChildren(runs []PMNode) []PMNode {
+	var sb strings.Builder
+	for _, r := range runs {
+		if r.Type == NodeTypeText {
+			sb.WriteString(r.Text)
+		}
+	}
+	if sb.Len() == 0 {
+		return nil
+	}
+	return []PMNode{{Type: NodeTypeText, Text: sb.String()}}
 }
 
 // parseInlineGroup is parseHyperlink/parseIns/parseDel without the
@@ -1100,11 +1142,15 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 					textStyleAttrs["fontFamily"] = name
 				}
 			case "rStyle":
-				// A character style. We pick up the "Hyperlink"
-				// character style as an underline+link signal at the
-				// surrounding paragraph level (parseHyperlink handles
-				// link href). For other styles, drop silently — too
+				// Character style names. "VerbatimChar" is the standard
+				// pandoc / HTML-export mark for inline code; we also
+				// accept "Code" as a common alias. Hyperlink character
+				// style is handled at the paragraph level via
+				// parseHyperlink. Other styles drop silently — too
 				// noisy to warn on.
+				if v := attrValue(t, "val"); v == "VerbatimChar" || v == "Code" {
+					marks = append(marks, PMMark{Type: MarkTypeCode})
+				}
 			}
 			if err := skipElement(dec, t); err != nil {
 				return nil, err

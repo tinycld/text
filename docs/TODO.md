@@ -71,10 +71,10 @@ For each of these the parser drops the feature on import:
 - [x] **IMPORTANT** — `serverHello` / `serverSlot` are now zod-validated. `serverHelloSchema` / `serverSlotSchema` live at the top of `hooks/useTextRoom.ts`; `TextServerHello` / `TextServerSlot` are `z.infer`. Parse failures route through `captureException` with tags `useTextRoom.serverHello.parse` / `useTextRoom.serverSlot.parse` and fall back to the existing safe defaults. Covered by `tests/use-text-room-schemas.test.tsx`.
 
 ### CI / build
-- [ ] **IMPORTANT** — Go server tests never run in CI. `.github/workflows/ci.yml` runs vitest only. `server/{authorize,bootstrap,flush,runtime,fixtures}_test.go` and `server/translate/*_test.go` execute locally only. Add a `go test ./server/...` step.
-- [ ] **IMPORTANT** — Playwright never runs in CI. `tests/text-document.spec.ts` exists but isn't executed on PRs. Add a workflow step.
-- [ ] **IMPORTANT** — `APP_REF: main` is unpinned. Silent break risk on app-shell changes.
-- [ ] **IMPORTANT** — `tests/assets/feature-test.expected.json` (48KB) has no consumer in `tests/`. Either an orphan or it belongs alongside the Go translate tests. Locate or remove.
+- [x] **IMPORTANT** — Go server tests run in CI. `.github/workflows/ci.yml` now has a `go-tests` job that installs Go 1.25, checks out the pinned app shell, links text in (so the `go.mod` `replace tinycld.org/core => ../../tinycld/packages/@tinycld/core/server` resolves), and runs `go test ./...` from `text/server`.
+- [x] **IMPORTANT** — Playwright runs in CI via a dedicated `e2e` job: caches `~/.cache/ms-playwright`, runs `playwright install --with-deps chromium`, then `pnpm run test:e2e -- --project=@tinycld/text`. Playwright owns its own dev-server lifecycle through `webServer` in `playwright.config.ts`; the job just sets up Go (needed by `dev.ts`) and the link.
+- [x] **IMPORTANT** — `APP_REF` is pinned to `tinycld/tinycld@7bf89673ba958cbb6ba354662ee5c81a32128677` (was floating `main`). Bump manually after verifying compat against the new app-shell revision.
+- [x] **IMPORTANT** — `tests/assets/feature-test.expected.json` (48KB) is **not** orphaned. Consumed by `server/translate/docx_to_pm_test.go` (`TestDocxToPMJSON_FeatureTestFixture`) and `server/translate/roundtrip_test.go` via relative path `../../tests/assets/feature-test.expected.json`. Now also referenced by the `tests/text-document.spec.ts` Playwright spec. Keep.
 - [ ] **IMPORTANT** — No tests for permissions/roles via Playwright, read-only enforcement, concurrent edits at the same cursor, reconnect/offline, oversized/malformed docx, FE-side "Open in Text" from drive UI, sidebar list rendering/sorting/empty state, delete flow, navigation to missing/unauthorized docs.
 
 ### Missing features (a "documents" product needs these)

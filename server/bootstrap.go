@@ -16,6 +16,13 @@ import (
 // ARE drive_items with mime=docx).
 const driveItemsCollection = "drive_items"
 
+// MaxDocxBytes caps the size of a drive_items file the bootstrap loads
+// into memory at 25 MiB. A pathological or hostile blob bigger than
+// this is rejected with an error rather than being slurped via
+// io.ReadAll; the bootstrap-failure path in Runtime.NewDoc then
+// degrades to an empty Y.Doc with a Warn log.
+const MaxDocxBytes = 25 * 1024 * 1024
+
 // makeDocxBootstrap returns the runtime bootstrap closure. On first
 // open of a text room, it loads the drive_items docx referenced by
 // roomID, parses it via translate.DocxToPMJSON, and seeds the result
@@ -64,9 +71,8 @@ func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *
 }
 
 // readDriveItemBytes loads the file attachment from a drive_items
-// record. Mirrors calc/server/persist.go::readDriveItemBytes verbatim —
-// both packages read drive_items the same way; the only divergence is
-// what's done with the bytes after.
+// record. Mirrors calc/server/persist.go::readDriveItemBytes; the only
+// divergence is the MaxDocxBytes cap enforced via readCappedBytes.
 func readDriveItemBytes(app core.App, item *core.Record) ([]byte, error) {
 	filename := item.GetString("file")
 	if filename == "" {
@@ -86,5 +92,21 @@ func readDriveItemBytes(app core.App, item *core.Record) ([]byte, error) {
 	}
 	defer rdr.Close()
 
-	return io.ReadAll(rdr)
+	return readCappedBytes(rdr, MaxDocxBytes)
+}
+
+// readCappedBytes reads from r up to limit+1 bytes; if the read
+// returns more than `limit` bytes the source is over-sized and we
+// surface an error instead of returning truncated content. Separated
+// out so bootstrap_test.go can exercise the cap with a synthetic
+// reader.
+func readCappedBytes(r io.Reader, limit int64) ([]byte, error) {
+	buf, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > limit {
+		return nil, fmt.Errorf("docx exceeds size cap of %d bytes", limit)
+	}
+	return buf, nil
 }

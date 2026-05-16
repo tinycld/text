@@ -68,9 +68,32 @@ func init() {
 	document.SetGlobalLevel(document.LogLevelSilent)
 }
 
+// MaxImageBytes caps a single embedded image at 4 MiB. Larger images
+// are dropped with WarningImageTooLarge rather than embedded — the
+// limit bounds the memory cost of round-tripping a docx that contains
+// a hostile or accidentally enormous data: URI from the client.
+const MaxImageBytes = 4 * 1024 * 1024
+
+// allowedImageMediaTypes is the whitelist of data: URI media types the
+// emitter embeds. Anything outside (image/svg+xml, image/bmp, …) is
+// dropped with WarningUnsupportedImageType — Word rejects unknown image
+// parts and SVG specifically would require rasterization we don't
+// perform.
+var allowedImageMediaTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/jpg":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
 // PMJSONToDocx translates a ProseMirror JSON tree into .docx bytes.
 // Returns an error if the JSON is malformed or contains node/mark
 // types outside the supported set.
+//
+// Soft degradations (e.g. an oversized image dropped) are silently
+// discarded by this wrapper. Callers that want to surface them to the
+// user should use PMJSONToDocxWithWarnings instead.
 //
 // Implementation strategy: drive WordZero for the bulk of the
 // document (paragraphs, headings, lists, tables, blockquote-styled
@@ -79,33 +102,42 @@ func init() {
 // are rewritten as <w:hyperlink r:id=…> wrappers and matching
 // Relationship rows are appended to word/_rels/document.xml.rels.
 func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
+	bs, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	return bs, err
+}
+
+// PMJSONToDocxWithWarnings is the warnings-aware variant of
+// PMJSONToDocx. The returned slice contains every soft-degradation
+// signal the emitter raised (e.g. an oversized image was dropped) —
+// hard errors still come back via the error return.
+func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 	var root PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
-		return nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
+		return nil, nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
 	}
 	if root.Type != NodeTypeDoc {
-		return nil, fmt.Errorf("translate: pmJSON root must be type=doc, got %q", root.Type)
+		return nil, nil, fmt.Errorf("translate: pmJSON root must be type=doc, got %q", root.Type)
 	}
 
 	em := newEmitter()
 	for _, child := range root.Content {
 		if err := em.emitBlock(child, 0, ""); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	bs, err := em.doc.ToBytes()
 	if err != nil {
-		return nil, fmt.Errorf("translate: serialize docx: %w", err)
+		return nil, nil, fmt.Errorf("translate: serialize docx: %w", err)
 	}
 
 	if len(em.linkRels) > 0 {
 		bs, err = postProcessLinks(bs, em.linkRels)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return bs, nil
+	return bs, em.warnings, nil
 }
 
 // emitter wraps a fresh WordZero document with the side state we
@@ -132,6 +164,27 @@ type emitter struct {
 	// expected resumed numbers (Word's behavior when an ordered list is
 	// visually interrupted by a nested bulleted list and then resumed).
 	lastOrderedNumIDAtLevel0 string
+
+	// warnings accumulates soft-degradation signals raised during
+	// emission (currently: oversized / unsupported-type images dropped).
+	// Surfaced by PMJSONToDocxWithWarnings; the legacy PMJSONToDocx
+	// signature drops them silently.
+	warnings   []Warning
+	warningSet map[WarningCode]struct{}
+}
+
+// addWarning records a unique soft-degradation signal. Same dedupe
+// behaviour as the docxParser-side addWarning: one entry per code,
+// since the user only cares "did images get dropped?", not "how many."
+func (em *emitter) addWarning(code WarningCode, detail string) {
+	if em.warningSet == nil {
+		em.warningSet = make(map[WarningCode]struct{})
+	}
+	if _, seen := em.warningSet[code]; seen {
+		return
+	}
+	em.warningSet[code] = struct{}{}
+	em.warnings = append(em.warnings, Warning{Code: code, Detail: detail})
 }
 
 type linkRel struct {
@@ -700,9 +753,12 @@ func (em *emitter) emitImageBlock(node PMNode) error {
 	if src == "" {
 		return fmt.Errorf("translate: image node missing src attr")
 	}
-	data, format, err := decodeImageSrc(src)
+	data, format, skip, err := em.decodeAndValidateImage(src)
 	if err != nil {
 		return err
+	}
+	if skip {
+		return nil
 	}
 	cfg := &document.ImageConfig{}
 	if alt, ok := node.Attrs["alt"].(string); ok && alt != "" {
@@ -717,6 +773,55 @@ func (em *emitter) emitImageBlock(node PMNode) error {
 		return fmt.Errorf("translate: add image: %w", err)
 	}
 	return nil
+}
+
+// decodeAndValidateImage runs the byte / MIME validation pipeline that
+// sits between the client-supplied data: URI and WordZero's
+// AddImageFromData. Returns (data, format, skip=true) when the image
+// should be silently dropped with a warning attached — used for
+// payloads that exceed MaxImageBytes or carry an unsupported media
+// type (image/svg+xml etc.). A non-nil error means a malformed URI
+// the caller should propagate.
+//
+// Note: validation is by declared MIME (data: header), not by sniffing
+// magic bytes. A client that lies about its content type can still get
+// the bytes embedded as long as the size cap is respected; WordZero
+// then surfaces the format mismatch to Word at open time. We accept
+// that risk in v1 since the only ingress is the editor's image-insert
+// flow, which constructs the header from a typed File.
+func (em *emitter) decodeAndValidateImage(src string) ([]byte, document.ImageFormat, bool, error) {
+	if strings.HasPrefix(src, "data:") {
+		mediaType, _ := parseDataURIHeader(src)
+		if mediaType != "" && !allowedImageMediaTypes[strings.ToLower(mediaType)] {
+			em.addWarning(WarningUnsupportedImageType,
+				fmt.Sprintf("image with media type %q dropped", mediaType))
+			return nil, "", true, nil
+		}
+	}
+	data, format, err := decodeImageSrc(src)
+	if err != nil {
+		return nil, "", false, err
+	}
+	if len(data) > MaxImageBytes {
+		em.addWarning(WarningImageTooLarge,
+			fmt.Sprintf("image of %d bytes exceeded %d-byte cap and was dropped", len(data), MaxImageBytes))
+		return nil, "", true, nil
+	}
+	return data, format, false, nil
+}
+
+// parseDataURIHeader returns the media type from a data: URI without
+// decoding the body. Returns ("", false) if the URI is malformed.
+func parseDataURIHeader(src string) (string, bool) {
+	if !strings.HasPrefix(src, "data:") {
+		return "", false
+	}
+	comma := strings.IndexByte(src, ',')
+	if comma < 0 {
+		return "", false
+	}
+	header := src[len("data:"):comma]
+	return strings.SplitN(header, ";", 2)[0], true
 }
 
 // applyImageWrap reads the image's `wrap` attribute and configures
@@ -879,6 +984,13 @@ func (em *emitter) emitInlineImage(p *document.Paragraph, node PMNode) error {
 		return err
 	}
 	bodyLenAfter := len(em.doc.Body.Elements)
+	// When validation dropped the image (oversized / unsupported type),
+	// emitImageBlock returns nil without adding a body element. The
+	// warning has already been recorded; the host paragraph just keeps
+	// its remaining inline runs.
+	if bodyLenAfter == bodyLenBefore {
+		return nil
+	}
 	// AddImageFromData appends exactly one Paragraph element on success.
 	if bodyLenAfter != bodyLenBefore+1 {
 		return fmt.Errorf("translate: emitInlineImage expected 1 new body element, got %d", bodyLenAfter-bodyLenBefore)

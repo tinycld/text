@@ -4,12 +4,35 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/packages/text/translate"
 )
+
+// Janitor / TTL knobs. Package-level vars (not consts) so tests can
+// drop them to milliseconds and observe eviction without slow sleeps.
+//
+// JanitorInterval — how often the janitor wakes to scan registries.
+// MaxIdleDuration — docs with no ApplyUpdate / EncodeStateAsUpdate
+// activity for this long are forcibly Close()d to bound memory.
+// ImportWarningsTTL — bootstrap warnings that no joiner has popped
+// after this long are dropped (otherwise a doc that's bootstrapped but
+// never opened leaks a slice of warnings forever).
+// MaxImportWarningRooms — hard ceiling on the warnings map; oldest
+// entry is evicted on overflow.
+var (
+	JanitorInterval       = 5 * time.Minute
+	MaxIdleDuration       = 30 * time.Minute
+	ImportWarningsTTL     = 1 * time.Hour
+	MaxImportWarningRooms = 256
+)
+
+// now is the clock the runtime / janitor read. Replaced in tests to
+// drive the TTL paths deterministically without sleeping.
+var now = time.Now
 
 // Runtime is the text package's server-side Y.Doc registry. One per
 // process; the broker calls NewDoc once per active room and the
@@ -27,24 +50,130 @@ type Runtime struct {
 	// it nil — they construct doc state via ApplyUpdate.
 	bootstrap func(roomID string, doc *ycrdt.Doc) error
 
-	mu   sync.Mutex
-	docs map[string]*ycrdt.Doc
+	mu      sync.Mutex
+	docs    map[string]*ycrdt.Doc
+	handles map[string]*textDocHandle
 
 	// importWarnings holds per-room warnings produced during bootstrap
 	// (e.g. tracked changes stripped, comments dropped). The OnConnect
 	// ServerHelloFn pops the entry for a freshly-bootstrapping
 	// connection's roomID and includes the warnings in MsgServerHello.
+	//
+	// Entries are time-stamped on insert so the janitor can evict
+	// stale rooms whose first joiner never arrived (otherwise a
+	// bootstrap-only doc would leak its warnings slice forever).
 	importWarningsMu sync.Mutex
-	importWarnings   map[string][]translate.Warning
+	importWarnings   map[string]importWarningEntry
+
+	// janitor goroutine state. stop is closed by Stop() to break the
+	// ticker loop; janitorDone signals the goroutine has exited so
+	// Stop() can be synchronous. janitorStarted is set by StartJanitor
+	// and read by Stop to know whether to wait on janitorDone.
+	janitorOnce    sync.Once
+	stopOnce       sync.Once
+	stop           chan struct{}
+	janitorDone    chan struct{}
+	janitorStarted bool
+	janitorStartMu sync.Mutex
+}
+
+// importWarningEntry pairs a warnings slice with the time it was
+// inserted so the janitor can evict stale entries past ImportWarningsTTL.
+type importWarningEntry struct {
+	warnings []translate.Warning
+	at       time.Time
 }
 
 // NewRuntime returns an empty Runtime. Cheap; no doc state is allocated
-// until NewDoc is called.
+// until NewDoc is called. The janitor goroutine is not started here —
+// call StartJanitor (production wires this from Register; tests opt
+// in selectively).
 func NewRuntime() *Runtime {
 	return &Runtime{
 		docs:           map[string]*ycrdt.Doc{},
-		importWarnings: map[string][]translate.Warning{},
+		handles:        map[string]*textDocHandle{},
+		importWarnings: map[string]importWarningEntry{},
+		stop:           make(chan struct{}),
+		janitorDone:    make(chan struct{}),
 	}
+}
+
+// StartJanitor spins up the background goroutine that evicts idle docs
+// and stale import warnings. Idempotent — subsequent calls are no-ops,
+// so it's safe for both Register and tests to call.
+func (r *Runtime) StartJanitor() {
+	r.janitorOnce.Do(func() {
+		r.janitorStartMu.Lock()
+		r.janitorStarted = true
+		r.janitorStartMu.Unlock()
+		go r.janitorLoop()
+	})
+}
+
+// Stop signals the janitor goroutine to exit and blocks until it has.
+// Safe to call even if StartJanitor was never invoked. Idempotent —
+// subsequent calls are no-ops.
+func (r *Runtime) Stop() {
+	r.stopOnce.Do(func() {
+		close(r.stop)
+	})
+	r.janitorStartMu.Lock()
+	started := r.janitorStarted
+	r.janitorStartMu.Unlock()
+	if started {
+		<-r.janitorDone
+	}
+}
+
+// janitorLoop is the background reaper. It wakes on JanitorInterval,
+// evicts idle docs (lastActivity older than MaxIdleDuration) and
+// import warnings older than ImportWarningsTTL. The loop exits when
+// Stop() closes the `stop` channel.
+func (r *Runtime) janitorLoop() {
+	defer close(r.janitorDone)
+	ticker := time.NewTicker(JanitorInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.stop:
+			return
+		case <-ticker.C:
+			r.evictIdleDocs()
+			r.evictStaleImportWarnings()
+		}
+	}
+}
+
+// evictIdleDocs closes every handle whose lastActivity is older than
+// MaxIdleDuration.
+//
+// Lock ordering matters: Close acquires h.mu and then calls
+// closeDoc, which acquires r.mu — so taking r.mu first and then
+// h.mu (the natural shape for "scan handles") would deadlock.
+// Instead we snapshot the handle pointers under r.mu, release it,
+// and only then read lastActivity / call Close per handle.
+func (r *Runtime) evictIdleDocs() {
+	cutoff := now().Add(-MaxIdleDuration)
+	r.mu.Lock()
+	snapshot := make([]*textDocHandle, 0, len(r.handles))
+	for _, h := range r.handles {
+		snapshot = append(snapshot, h)
+	}
+	r.mu.Unlock()
+	for _, h := range snapshot {
+		if h.LastActivity().Before(cutoff) {
+			_ = h.Close()
+		}
+	}
+}
+
+// evictStaleImportWarnings removes entries past ImportWarningsTTL.
+// Called by the janitor on the JanitorInterval tick; SetImportWarnings
+// also expires entries inline so insertions never see a stale view.
+func (r *Runtime) evictStaleImportWarnings() {
+	r.importWarningsMu.Lock()
+	defer r.importWarningsMu.Unlock()
+	r.expireStaleImportWarningsLocked()
 }
 
 // SetBootstrap registers a per-room bootstrap hook. NewDoc invokes the
@@ -76,6 +205,8 @@ func (r *Runtime) NewDoc(roomID string) (realtime.DocHandle, error) {
 	}
 	doc := ycrdt.NewDoc(roomID, false, nil, nil, false)
 	r.docs[roomID] = doc
+	handle := &textDocHandle{runtime: r, id: roomID, doc: doc, lastActivity: now()}
+	r.handles[roomID] = handle
 	hook := r.bootstrap
 	r.mu.Unlock()
 
@@ -85,7 +216,7 @@ func (r *Runtime) NewDoc(roomID string) (realtime.DocHandle, error) {
 				"roomID", roomID, "err", err)
 		}
 	}
-	return &textDocHandle{runtime: r, id: roomID, doc: doc}, nil
+	return handle, nil
 }
 
 // closeDoc removes the doc from the registry. Returns true if the
@@ -97,6 +228,7 @@ func (r *Runtime) closeDoc(roomID string) bool {
 		return false
 	}
 	delete(r.docs, roomID)
+	delete(r.handles, roomID)
 	return true
 }
 
@@ -106,16 +238,52 @@ func (r *Runtime) closeDoc(roomID string) bool {
 // broker to thread the handle through.
 //
 // Called from the bootstrap closure once parse finishes. A subsequent
-// PopImportWarnings drains the entry — there's no expiry beyond that;
-// cold rooms accumulate at most one entry per bootstrap.
+// PopImportWarnings drains the entry; the janitor evicts entries past
+// ImportWarningsTTL to bound the map for rooms whose first joiner
+// never arrives. On overflow past MaxImportWarningRooms we drop the
+// oldest entry to keep the map size deterministic.
 func (r *Runtime) SetImportWarnings(roomID string, warnings []translate.Warning) {
 	r.importWarningsMu.Lock()
 	defer r.importWarningsMu.Unlock()
-	r.importWarnings[roomID] = warnings
+	r.expireStaleImportWarningsLocked()
+	r.importWarnings[roomID] = importWarningEntry{warnings: warnings, at: now()}
+	if len(r.importWarnings) > MaxImportWarningRooms {
+		r.evictOldestImportWarningLocked()
+	}
+}
+
+// expireStaleImportWarningsLocked drops every entry older than
+// ImportWarningsTTL. Caller must hold importWarningsMu.
+func (r *Runtime) expireStaleImportWarningsLocked() {
+	cutoff := now().Add(-ImportWarningsTTL)
+	for id, entry := range r.importWarnings {
+		if entry.at.Before(cutoff) {
+			delete(r.importWarnings, id)
+		}
+	}
+}
+
+// evictOldestImportWarningLocked drops the single oldest entry from
+// importWarnings. Caller must hold importWarningsMu.
+func (r *Runtime) evictOldestImportWarningLocked() {
+	var oldestID string
+	var oldestAt time.Time
+	first := true
+	for id, entry := range r.importWarnings {
+		if first || entry.at.Before(oldestAt) {
+			oldestID = id
+			oldestAt = entry.at
+			first = false
+		}
+	}
+	if oldestID != "" {
+		delete(r.importWarnings, oldestID)
+	}
 }
 
 // PopImportWarnings returns and clears the warnings for the given room.
-// Returns nil if no warnings were recorded (or they've already been popped).
+// Returns nil if no warnings were recorded, the entry has already been
+// popped, or it expired past ImportWarningsTTL.
 //
 // The OnConnect handler calls this once per connection. The first
 // connection in a freshly-bootstrapped room sees the warnings; later
@@ -124,9 +292,15 @@ func (r *Runtime) SetImportWarnings(roomID string, warnings []translate.Warning)
 func (r *Runtime) PopImportWarnings(roomID string) []translate.Warning {
 	r.importWarningsMu.Lock()
 	defer r.importWarningsMu.Unlock()
-	w := r.importWarnings[roomID]
+	entry, ok := r.importWarnings[roomID]
+	if !ok {
+		return nil
+	}
 	delete(r.importWarnings, roomID)
-	return w
+	if now().Sub(entry.at) > ImportWarningsTTL {
+		return nil
+	}
+	return entry.warnings
 }
 
 // textDocHandle is the broker's handle on one room's server-side Y.Doc.
@@ -134,9 +308,20 @@ type textDocHandle struct {
 	runtime *Runtime
 	id      string
 
-	mu     sync.Mutex
-	doc    *ycrdt.Doc // nil after Close
-	closed bool
+	mu           sync.Mutex
+	doc          *ycrdt.Doc // nil after Close
+	closed       bool
+	lastActivity time.Time // updated on every ApplyUpdate / EncodeStateAsUpdate
+}
+
+// LastActivity returns the timestamp of the most recent ApplyUpdate /
+// EncodeStateAsUpdate call. Used by the janitor to decide whether to
+// evict the doc as idle. Read under the handle mutex so it's safe
+// against concurrent activity updates.
+func (h *textDocHandle) LastActivity() time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lastActivity
 }
 
 // ApplyUpdate folds an inbound MsgDocUpdate payload into the server's
@@ -153,6 +338,7 @@ func (h *textDocHandle) ApplyUpdate(payload []byte) error {
 	if h.closed || h.doc == nil {
 		return fmt.Errorf("text: ApplyUpdate on closed room %s", h.id)
 	}
+	h.lastActivity = now()
 	var applyErr error
 	func() {
 		defer func() {
@@ -174,6 +360,7 @@ func (h *textDocHandle) EncodeStateAsUpdate() ([]byte, error) {
 	if h.closed || h.doc == nil {
 		return nil, fmt.Errorf("text: EncodeStateAsUpdate on closed room %s", h.id)
 	}
+	h.lastActivity = now()
 	return ycrdt.EncodeStateAsUpdate(h.doc, nil), nil
 }
 

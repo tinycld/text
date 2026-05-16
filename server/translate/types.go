@@ -96,6 +96,23 @@ var SupportedMarks = map[string]bool{
 	MarkTypeComment:   true,
 }
 
+// Paragraph alignment + indent. textAlign is "left" | "center" |
+// "right" | "justify" on paragraph and heading nodes; indent is a
+// non-negative integer level (0..MaxIndentLevel) on the same nodes.
+// Defaults ("left" / 0) are omitted from the PM JSON to keep the
+// 99% of paragraphs that don't carry either compact.
+//
+// twipsPerIndentLevel is Word's standard half-inch tab indent (1440
+// twips = 1 inch, so 720 twips = 0.5 inch). Importer round-trips
+// existing Word indents to nearest level. The editor's CSS render
+// uses indentPxPerLevel = 36 px/level — slightly narrower than the
+// Word default 48 px (0.5 inch) so deeply indented paragraphs don't
+// crowd the right margin in the 680px-wide editor canvas.
+const (
+	MaxIndentLevel      = 8
+	twipsPerIndentLevel = 720
+)
+
 // Warning is a typed signal that an OOXML import succeeded but
 // dropped or simplified some content. Surfaced to the client via
 // MsgServerHello on bootstrap; rendered as a dismissable banner.

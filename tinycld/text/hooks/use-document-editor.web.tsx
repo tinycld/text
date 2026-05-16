@@ -15,6 +15,7 @@ import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
+import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -25,6 +26,7 @@ import type * as Y from 'yjs'
 import { ImageNodeView } from '../components/ImageNodeView.web'
 import { applyCellBorders } from '../lib/apply-cell-borders'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
+import { BlockIndent, MAX_INDENT_LEVEL } from '../lib/editor/block-indent'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
@@ -188,6 +190,42 @@ function uploadAndInsertImage(
     )
 }
 
+// deriveCurrentAlign reads the textAlign attr off whichever indentable
+// block the caret is in (paragraph or heading). Returns null when no
+// attr is set — the schema default is "left", which we deliberately
+// represent as the absence of an attr (matches the DOCX exporter,
+// which emits <w:jc> only for non-left values). The toolbar's "Left"
+// button uses null as the highlight condition so it appears active by
+// default and disengages whenever another alignment is set.
+type AlignValue = 'left' | 'center' | 'right' | 'justify' | null
+function deriveCurrentAlign(tiptapEditor: ReturnType<typeof useEditor>): AlignValue {
+    if (!tiptapEditor) return null
+    const fromPara = tiptapEditor.getAttributes('paragraph')?.textAlign
+    const fromHeading = tiptapEditor.getAttributes('heading')?.textAlign
+    const v = fromPara || fromHeading
+    if (v === 'center' || v === 'right' || v === 'justify') return v
+    if (v === 'left') return 'left'
+    return null
+}
+
+// deriveActiveIndent returns the integer indent attr of the active
+// paragraph/heading, clamped non-negative. Returns 0 when the caret
+// is not in an indentable block, which keeps canOutdent=false there
+// (the buttons should appear disabled, not crash).
+function deriveActiveIndent(tiptapEditor: ReturnType<typeof useEditor>): number {
+    if (!tiptapEditor) return 0
+    const paraAttrs = tiptapEditor.getAttributes('paragraph')
+    const headingAttrs = tiptapEditor.getAttributes('heading')
+    const raw =
+        typeof paraAttrs?.indent === 'number'
+            ? paraAttrs.indent
+            : typeof headingAttrs?.indent === 'number'
+              ? headingAttrs.indent
+              : 0
+    if (!Number.isFinite(raw) || raw < 0) return 0
+    return raw
+}
+
 // useDocumentEditor returns a Tiptap editor configured for collaborative
 // .docx-style document editing. The hook MUST be called only after the
 // caller has a Y.Doc + Awareness pair from a connected realtime room —
@@ -275,6 +313,24 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // explicit color in Word render with the same color here.
                 TextStyle,
                 Color,
+                // TextAlign: adds the textAlign attr to paragraph +
+                // heading and exposes setTextAlign / unsetTextAlign +
+                // Cmd-Shift-L/E/R/J keymaps. List items are excluded
+                // (Word's <w:jc> on a list item is uncommon and would
+                // complicate the round-trip). defaultAlignment is null
+                // so unaligned blocks emit no style attr — matching the
+                // DOCX exporter, which writes <w:jc> only for non-left
+                // alignment.
+                TextAlign.configure({
+                    types: ['paragraph', 'heading'],
+                    alignments: ['left', 'center', 'right', 'justify'],
+                    defaultAlignment: null,
+                }),
+                // BlockIndent: adds an integer indent level (0..N) to
+                // paragraph + heading, plus indentBlock / outdentBlock
+                // commands and Cmd-]/Cmd-[ keymaps. CSS renders as
+                // padding-inline-start per level (see block-indent.ts).
+                BlockIndent.configure({ types: ['paragraph', 'heading'] }),
                 Placeholder.configure({ placeholder: options.placeholder ?? 'Start writing…' }),
                 // Column resize: Tiptap's TableView mounts a
                 // columnResizing plugin that draws drag handles on
@@ -411,6 +467,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             },
             deleteSelection: () => tiptapEditor?.chain().focus().deleteSelection().run(),
             selectAll: () => tiptapEditor?.chain().focus().selectAll().run(),
+            setTextAlign: align => tiptapEditor?.chain().focus().setTextAlign(align).run(),
+            unsetTextAlign: () => tiptapEditor?.chain().focus().unsetTextAlign().run(),
+            indentBlock: () => tiptapEditor?.chain().focus().indentBlock().run(),
+            outdentBlock: () => tiptapEditor?.chain().focus().outdentBlock().run(),
         }),
         [tiptapEditor]
     )
@@ -439,6 +499,14 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         // caret sit in a cell with colspan>1 or rowspan>1".
         canMergeCells: tiptapEditor?.can().mergeCells() ?? false,
         canSplitCell: tiptapEditor?.can().splitCell() ?? false,
+        currentAlign: deriveCurrentAlign(tiptapEditor),
+        // The active block's indent level governs both buttons:
+        // canIndent is false at the cap (further nudges would no-op),
+        // canOutdent is false at 0 (already flush-left). We read the
+        // attr off whichever indentable node type is active so the
+        // value stays in sync with the caret as it moves.
+        canIndent: deriveActiveIndent(tiptapEditor) < MAX_INDENT_LEVEL,
+        canOutdent: deriveActiveIndent(tiptapEditor) > 0,
     }
 
     // findReplaceEditor exposes the minimum surface the FindReplaceBar

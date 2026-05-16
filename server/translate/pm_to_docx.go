@@ -311,7 +311,79 @@ func (em *emitter) emitParagraph(node PMNode, listLevel int, parentList string) 
 		return em.emitListParagraph(node, listLevel, parentList)
 	}
 	p := em.doc.AddParagraph("")
+	applyAlignIndent(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
+}
+
+// applyAlignIndent writes textAlign and indent attrs onto a
+// WordZero paragraph as <w:jc> and <w:ind w:left>. Defaults
+// ("left" / 0) are silently no-ops so the produced pPr stays empty
+// for the common case.
+//
+// Indent is set by manipulating the Indentation struct directly
+// (instead of calling SetIndentation, which converts cm -> twips
+// lossily). One PM level == 720 twips, matching the importer.
+func applyAlignIndent(p *document.Paragraph, attrs map[string]any) {
+	if p == nil || attrs == nil {
+		return
+	}
+	if v, ok := attrs["textAlign"].(string); ok {
+		if oox := pmAlignToOOXML(v); oox != "" {
+			p.SetAlignment(document.AlignmentType(oox))
+		}
+	}
+	if level := indentLevelFromAttrs(attrs); level > 0 {
+		if p.Properties == nil {
+			p.Properties = &document.ParagraphProperties{}
+		}
+		if p.Properties.Indentation == nil {
+			p.Properties.Indentation = &document.Indentation{}
+		}
+		p.Properties.Indentation.Left = strconv.Itoa(level * twipsPerIndentLevel)
+	}
+}
+
+// pmAlignToOOXML maps PM textAlign values to <w:jc w:val=…>. Empty
+// string means "no attribute" — left is the default and we omit it
+// so the resulting docx is byte-identical to one Word would have
+// produced for an unaligned paragraph.
+func pmAlignToOOXML(v string) string {
+	switch v {
+	case "center":
+		return "center"
+	case "right":
+		return "right"
+	case "justify":
+		return "both"
+	default:
+		return ""
+	}
+}
+
+// indentLevelFromAttrs extracts the indent level from a PM attrs
+// map, clamped to 0..MaxIndentLevel. JSON decoded numbers arrive as
+// float64; ints are handled too for direct in-process callers.
+func indentLevelFromAttrs(attrs map[string]any) int {
+	raw, ok := attrs["indent"]
+	if !ok {
+		return 0
+	}
+	var level int
+	switch n := raw.(type) {
+	case float64:
+		level = int(n)
+	case int:
+		level = n
+	default:
+		return 0
+	}
+	if level < 0 {
+		return 0
+	}
+	if level > MaxIndentLevel {
+		return MaxIndentLevel
+	}
+	return level
 }
 
 // emitListParagraph appends one list-item paragraph. The first
@@ -398,6 +470,7 @@ func (em *emitter) emitHeading(node PMNode) error {
 		level = 6
 	}
 	p := em.doc.AddHeadingParagraph("", level)
+	applyAlignIndent(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
 }
 

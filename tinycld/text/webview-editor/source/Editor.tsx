@@ -16,6 +16,7 @@ import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
+import { countWords } from '../../lib/word-count'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -264,6 +265,14 @@ function EditorMounted({ init }: EditorMountedProps) {
                 canOutdent: deriveActiveIndent(editor) > 0,
                 currentFontSize: deriveCurrentFontSize(editor),
                 currentFontFamily: deriveCurrentFontFamily(editor),
+                // Broadcast the live word count alongside every other
+                // toolbar state field. The rAF-coalesce + identity-skip
+                // already throttle this; doc.textContent is O(N) over
+                // doc text which matches the web variant's per-update
+                // cost. Native consumer surfaces this as
+                // toolbarState.wordCount via useWebViewEditor's loose-
+                // state read.
+                wordCount: countWords(editor.state.doc.textContent),
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
             if (serialized !== lastSerialized) {

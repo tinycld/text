@@ -157,7 +157,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     />
                     <PresenceAvatars awareness={room.awareness} />
                     <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
-                    <WordCountBadge editor={tiptapEditor} />
+                    <WordCountBadge wordCount={toolbarState.wordCount} />
                     <ReconnectingIndicator isVisible={!room.isConnected} />
                     <View className="ml-auto flex-row items-center gap-1">
                         <OpenCommentsDrawerButton

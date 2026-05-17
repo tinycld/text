@@ -35,6 +35,7 @@ import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
+import { countWords } from '../lib/word-count'
 import {
     CodeShortcuts,
     deriveActiveIndent,
@@ -546,6 +547,17 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         canOutdent: deriveActiveIndent(tiptapEditor) > 0,
         currentFontSize: deriveCurrentFontSize(tiptapEditor),
         currentFontFamily: deriveCurrentFontFamily(tiptapEditor),
+        // Word count rides through toolbarState so the WordCountBadge
+        // can read it the same way on web and native. Recomputes once
+        // per transaction (the editor already rerenders on every tx
+        // for the other derived fields — currentFontSize etc. — so the
+        // O(N) textContent walk piggybacks on that pass without adding
+        // a new rerender path). Undefined when the editor hasn't
+        // mounted yet, matching the WebView variant's pre-stateUpdate
+        // shape; the badge renders nothing in that case.
+        wordCount: tiptapEditor
+            ? countWords(tiptapEditor.state.doc.textContent)
+            : undefined,
     }
 
     // findReplaceEditor exposes the minimum surface the FindReplaceBar

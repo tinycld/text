@@ -264,7 +264,7 @@ mutations go through `useMutation`. Mentions resolve through
 | Cell shading                       | ✅  | ✅                      |
 | Slash menu                         | ✅  | ✅                      |
 | Find / replace                     | ✅  | not yet                |
-| Word count                         | ✅  | not yet                |
+| Word count                         | ✅  | ✅                      |
 | Print                              | browser print | iOS print sheet |
 | Soft-keyboard accessory toolbar    | n/a | ✅ (iOS)               |
 

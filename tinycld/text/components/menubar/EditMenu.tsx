@@ -16,21 +16,49 @@ export function EditMenu(props: MenuBarProps) {
     // to insertContent — Tiptap inserts each top-level block at the
     // caret. The change rides one collaborative transaction so peers
     // see it as a single edit.
+    //
+    // The chain explicitly seeks the cursor to end-of-doc before
+    // inserting. On a brand-new collaborative doc the user has often
+    // never clicked into the editor, so the selection is still the
+    // default <0, 0> at position 0, which is *outside* every block —
+    // insertContent at that position silently rejects every block-level
+    // node and the user sees nothing happen.
     const pasteAsMarkdown = () => {
         if (!tiptapEditor) return
         if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
         navigator.clipboard
             .readText()
             .then(text => {
-                if (!text) return
+                if (!text) {
+                    captureException('text.pasteAsMarkdown', new Error('clipboard was empty'))
+                    return
+                }
                 const doc = markdownToPM(text)
                 const blocks = doc.content ?? []
-                if (blocks.length === 0) return
-                tiptapEditor
+                if (blocks.length === 0) {
+                    captureException(
+                        'text.pasteAsMarkdown',
+                        new Error(`markdownToPM produced no blocks (input length ${text.length})`)
+                    )
+                    return
+                }
+                const endPos = Math.max(0, tiptapEditor.state.doc.content.size)
+                const ok = tiptapEditor
                     .chain()
                     .focus()
-                    .insertContent(blocks as Parameters<typeof tiptapEditor.commands.insertContent>[0])
+                    .setTextSelection(endPos)
+                    .insertContent(
+                        blocks as Parameters<typeof tiptapEditor.commands.insertContent>[0]
+                    )
                     .run()
+                if (!ok) {
+                    captureException(
+                        'text.pasteAsMarkdown',
+                        new Error(
+                            `insertContent chain refused (${blocks.length} blocks at pos ${endPos})`
+                        )
+                    )
+                }
             })
             .catch(err => captureException('text.pasteAsMarkdown', err))
     }

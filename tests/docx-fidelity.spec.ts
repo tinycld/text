@@ -400,4 +400,90 @@ test.describe('Text — .docx fidelity', () => {
             expect(c, 'Sample Document should paint as imported red').toBe(HEADING1_RED_RGB)
         }
     })
+
+    test('left-wrapped image floats with text flowing to its right', async ({ page }) => {
+        // Regression: when the resize NodeView landed, it wrapped the
+        // <img> in two non-floating spans. The float-left CSS was still
+        // on the inner <img>, but floats only push siblings of their
+        // direct parent — so text dropped *below* the image instead of
+        // wrapping. This test guards two invariants:
+        //   1. The floated wrapper's box matches the rendered <img>'s
+        //      box (no skew / no oversized outline).
+        //   2. At least one text-run in the paragraph that contains the
+        //      image sits to the right of it (i.e. text actually wraps).
+        // Both invariants together fail under the regression even when
+        // the underlying width/height attrs are correct.
+        await openFixture(page)
+        const layout = await page.evaluate(() => {
+            const pmDom = document.querySelector<HTMLElement>('.ProseMirror')
+            if (!pmDom) throw new Error('no ProseMirror DOM')
+            const wrapper = pmDom.querySelector<HTMLElement>(
+                '[data-node-view-wrapper][data-wrap="left"]'
+            )
+            if (!wrapper) return { found: false as const }
+            const img = wrapper.querySelector<HTMLImageElement>('img')
+            if (!img) throw new Error('wrapped image has no <img>')
+            const wRect = wrapper.getBoundingClientRect()
+            const iRect = img.getBoundingClientRect()
+            const para = wrapper.closest('p')
+            // Find a non-empty text node in the same paragraph and read
+            // its first client rect. If text wrapping works, that rect's
+            // left edge sits to the right of the image's right edge.
+            let firstTextRectLeft: number | null = null
+            if (para) {
+                const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT, null)
+                let node = walker.nextNode()
+                while (node) {
+                    const text = (node.nodeValue ?? '').trim()
+                    if (text.length > 0) {
+                        const range = document.createRange()
+                        range.selectNodeContents(node)
+                        const r = range.getClientRects()[0]
+                        if (r) {
+                            firstTextRectLeft = r.left
+                            break
+                        }
+                    }
+                    node = walker.nextNode()
+                }
+            }
+            return {
+                found: true as const,
+                wrapper: { width: wRect.width, height: wRect.height, right: wRect.right },
+                img: { width: iRect.width, height: iRect.height, right: iRect.right },
+                firstTextRectLeft,
+            }
+        })
+
+        expect(layout.found, 'fixture should contain at least one left-wrapped image').toBe(
+            true
+        )
+        if (!layout.found) return
+        // The wrapper's box must match the rendered <img>'s box within a
+        // sub-pixel rounding tolerance. Under the regression the wrapper
+        // is sized to the committed attrs while the img is clamped by
+        // a CSS max-width — width/height diverge by tens of pixels.
+        expect(
+            Math.abs(layout.wrapper.width - layout.img.width),
+            'wrapper width should match img width (no max-width skew)'
+        ).toBeLessThanOrEqual(1)
+        expect(
+            Math.abs(layout.wrapper.height - layout.img.height),
+            'wrapper height should match img height (aspect ratio preserved)'
+        ).toBeLessThanOrEqual(1)
+        // Text wrap: a text run in the same paragraph must sit to the
+        // right of the floated image. Under the regression the float
+        // does not push the run, so its left edge would be at or near
+        // the paragraph's left edge.
+        expect(
+            layout.firstTextRectLeft,
+            'expected to find a text run in the image paragraph'
+        ).not.toBeNull()
+        if (layout.firstTextRectLeft !== null) {
+            expect(
+                layout.firstTextRectLeft,
+                'text should flow to the right of the floated image'
+            ).toBeGreaterThan(layout.img.right - 1)
+        }
+    })
 })

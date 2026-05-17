@@ -133,35 +133,46 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
         }
     }
 
+    // The wrapper carries `data-wrap` (not the inner <img>) because the
+    // NodeView adds two non-floating spans between the paragraph and
+    // the img. Floating the img directly would no longer push text
+    // around the wrapper. Sizing the wrapper to the committed pixel
+    // dimensions (rather than letting it fit-to-content) keeps the
+    // selection outline + drag handles in lockstep with whatever the
+    // <img> renders at — and it gives the float a deterministic box
+    // when wrapped CSS would otherwise also re-apply max-width.
     const wrapperStyle = {
         position: 'relative' as const,
         display: 'inline-block',
-        // Allow the handles to escape the <img>'s box without forcing
-        // layout reflow on every pointermove.
+        // Suppress the half-line of descender space the inline-block
+        // wrapper would otherwise add below the img.
         lineHeight: 0,
-    }
-
-    const imgStyle = {
-        display: 'block' as const,
         ...(displayWidth ? { width: `${displayWidth}px` } : {}),
         ...(displayHeight ? { height: `${displayHeight}px` } : {}),
+    }
+
+    // When the wrapper has explicit pixel dimensions (from the resize
+    // attrs or the DOCX import), the img stretches to fill it — that
+    // keeps the rendered image in lockstep with the selection outline
+    // and the drag handles even if the stylesheet would otherwise have
+    // imposed a `max-width` on the img. When dimensions are absent
+    // (freshly inserted image with no width/height attrs yet), leave
+    // the img at its intrinsic size so the wrapper can sizes-to-content.
+    const hasExplicitSize = displayWidth !== null && displayHeight !== null
+    const imgStyle = {
+        display: 'block' as const,
+        ...(hasExplicitSize ? { width: '100%', height: '100%' } : {}),
     }
 
     const showHandles = selected && isEditable
 
     return (
-        <NodeViewWrapper as="span" style={wrapperStyle}>
+        <NodeViewWrapper as="span" style={wrapperStyle} data-wrap={wrap ?? undefined}>
             <img
                 ref={imgRef}
                 src={src}
                 alt={alt || undefined}
                 title={title || undefined}
-                // data-wrap on the <img> (not the wrapper span) lets the
-                // existing editor-content-styles.ts rules — which target
-                // `.ProseMirror img[data-wrap='left'|'right']` — keep
-                // applying float + max-width without needing to know
-                // about the NodeView's wrapper.
-                data-wrap={wrap ?? undefined}
                 style={imgStyle}
                 width={displayWidth ?? undefined}
                 height={displayHeight ?? undefined}

@@ -1,5 +1,4 @@
 {
-    "extends": "../tinycld/tsconfig.json",
     "compilerOptions": {
         "baseUrl": ".",
         "rootDir": "..",
@@ -9,14 +8,17 @@
             "@tinycld/core/*": ["../tinycld/packages/@tinycld/core/*"],
             "~/*": ["../tinycld/packages/@tinycld/core/*"]
         },
+        "strict": true,
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "preserveSymlinks": false,
+        "skipLibCheck": true,
+        "jsx": "react-jsx",
+        "noImplicitAny": false,
         "noEmit": true,
-        "preserveSymlinks": false
+        "types": ["node", "react"],
+        "lib": ["dom", "esnext"]
     },
-    "include": [
-        "**/*.ts",
-        "**/*.tsx",
-        "../tinycld/uniwind-types.d.ts",
-        "../tinycld/expo-env.d.ts"
-    ],
+    "include": ["**/*.ts", "**/*.tsx"],
     "exclude": ["node_modules", "server", "pb-migrations", "tests/**/*.spec.ts"]
 }

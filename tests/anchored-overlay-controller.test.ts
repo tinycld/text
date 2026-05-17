@@ -114,6 +114,26 @@ describe('decodeUiMessage', () => {
         })
         expect(result).toEqual({ type: 'dismiss-on-scroll' })
     })
+
+    it('decodes popover-exited into a webview-exited action with the request id', () => {
+        const result = decodeUiMessage({
+            namespace: 'ui',
+            type: 'popover-exited',
+            requestId: 'r1',
+            payload: null,
+        })
+        expect(result).toEqual({ type: 'webview-exited', requestId: 'r1' })
+    })
+
+    it('rejects popover-exited without a requestId', () => {
+        expect(
+            decodeUiMessage({
+                namespace: 'ui',
+                type: 'popover-exited',
+                payload: null,
+            })
+        ).toBeNull()
+    })
 })
 
 describe('anchoredOverlayReducer', () => {
@@ -216,6 +236,36 @@ describe('anchoredOverlayReducer', () => {
         const opened = anchoredOverlayReducer(initialAnchoredOverlayState, sampleShow)
         const closed = anchoredOverlayReducer(opened, { type: 'dismiss-external' })
         expect(closed.open).toBeNull()
+    })
+
+    it('webview-exited closes the popover when requestId matches', () => {
+        const opened = anchoredOverlayReducer(initialAnchoredOverlayState, sampleShow)
+        const closed = anchoredOverlayReducer(opened, {
+            type: 'webview-exited',
+            requestId: 'r1',
+        })
+        expect(closed.open).toBeNull()
+    })
+
+    it('webview-exited is a no-op when requestId does not match', () => {
+        // The WebView exited for a request the host has already moved
+        // past (e.g. the host opened a new popover via show-popover
+        // before the old request's onExit landed). The stale exit
+        // must not close the new popover.
+        const opened = anchoredOverlayReducer(initialAnchoredOverlayState, sampleShow)
+        const same = anchoredOverlayReducer(opened, {
+            type: 'webview-exited',
+            requestId: 'r-stale',
+        })
+        expect(same).toBe(opened)
+    })
+
+    it('webview-exited is a no-op when no popover is open', () => {
+        const same = anchoredOverlayReducer(initialAnchoredOverlayState, {
+            type: 'webview-exited',
+            requestId: 'r1',
+        })
+        expect(same).toBe(initialAnchoredOverlayState)
     })
 
     it('opening over an already-open popover replaces it', () => {

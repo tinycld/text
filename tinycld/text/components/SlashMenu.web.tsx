@@ -49,9 +49,9 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
 // for .measure() / .postMessage(); the web mount accepts the same
 // prop signature and ignores it so the screen-level mount is
 // platform-agnostic.
-//
-// biome-ignore lint/correctness/noUnusedFunctionParameters: prop kept for cross-platform parity
-export function SlashMenu(_props: { webViewRef?: React.RefObject<unknown> | null } = {}) {
+export function SlashMenu({}: { webViewRef?: React.RefObject<unknown> | null } = {}) {
+    // webViewRef accepted for cross-platform parity; the web variant
+    // renders via portals so it has no use for the ref.
     const isOpen = useSlashMenuStore(s => s.isOpen)
     const items = useSlashMenuStore(s => s.items)
     const anchor = useSlashMenuStore(s => s.anchor)

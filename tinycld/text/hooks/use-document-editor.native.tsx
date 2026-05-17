@@ -112,7 +112,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             return
         }
         // Forward everything else (show-popover, popover-update,
-        // popover-dismissed, future kinds) to the bus. The bus is
+        // popover-exited, future kinds) to the bus. The bus is
         // a process-global publisher so subscribers don't have to
         // reach up through the editor result to find a callback.
         publishUiMessage(message)

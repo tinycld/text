@@ -1,4 +1,5 @@
 import type { Editor, Range } from '@tiptap/core'
+import type { SlashMenuIconName } from './slash-menu-icon-lookup'
 // Side-effect type imports: load the module augmentations these
 // extensions ship in their .d.ts so editor.chain().toggleHeading /
 // toggleBulletList / toggleOrderedList / toggleBlockquote /
@@ -50,7 +51,10 @@ export interface SlashMenuCommand {
     // string here keeps this module — and the WebView bundle that
     // consumes SLASH_MENU_COMMANDS — free of lucide-react-native,
     // which transitively pulls in react-native and breaks esbuild.
-    iconName: string
+    //
+    // Typed as `keyof typeof SLASH_MENU_ICONS` (the lookup table in
+    // slash-menu-icon-lookup.ts) so a typo here fails typecheck.
+    iconName: SlashMenuIconName
     run: (ctx: SlashMenuCommandContext) => void
 }
 

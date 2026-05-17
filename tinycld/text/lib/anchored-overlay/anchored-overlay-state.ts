@@ -58,6 +58,7 @@ export type AnchoredOverlayAction =
     | { type: 'respond'; requestId: string }
     | { type: 'dismiss-on-scroll' }
     | { type: 'dismiss-external' }
+    | { type: 'webview-exited'; requestId: string }
 
 export const initialAnchoredOverlayState: AnchoredOverlayState = { open: null }
 
@@ -111,6 +112,17 @@ export function anchoredOverlayReducer(
             // them identically.
             if (!state.open) return state
             return { open: null }
+
+        case 'webview-exited':
+            // popover-exited from the WebView: the in-editor suggestion
+            // plugin has wound down on its own (item selected, trigger
+            // broken by typing space, Escape pressed). Close the overlay
+            // if the requestId still matches; ignore stale exits for a
+            // request the host has already moved past. No postMessage
+            // needed — the WebView already knows it's done.
+            if (!state.open) return state
+            if (state.open.requestId !== action.requestId) return state
+            return { open: null }
     }
 }
 
@@ -153,6 +165,11 @@ export function decodeUiMessage(message: EditorMessage): AnchoredOverlayAction |
     }
     if (message.type === 'popover-dismiss-on-scroll') {
         return { type: 'dismiss-on-scroll' }
+    }
+    if (message.type === 'popover-exited') {
+        const requestId = message.requestId
+        if (!requestId) return null
+        return { type: 'webview-exited', requestId }
     }
     return null
 }

@@ -69,8 +69,10 @@ interface AnchoredOverlayControllerProps {
 // Promise wrapper around .measure(). Resolves to null when the ref is
 // missing, the current value isn't a measurable, or measure returns
 // without invoking the callback (the RN runtime can drop measure calls
-// when a view isn't laid out yet). The caller falls back to (0,0) on
-// null — the popover still renders, just clamped to the top-left.
+// when a view isn't laid out yet). On null the controller fails closed —
+// dismisses the request and posts popover-result so the WebView clears
+// its trigger — rather than rendering the popover at (0, 0) with no
+// relationship to the caret.
 async function measureWebView(
     ref: WebViewRef
 ): Promise<{ pageX: number; pageY: number; width: number; height: number } | null> {
@@ -129,9 +131,10 @@ export function AnchoredOverlayController({
     const [screenPos, setScreenPos] = useState<{ top: number; left: number } | null>(null)
 
     // Subscribe to the bus so 'show-popover' / 'popover-update' /
-    // 'popover-dismiss-on-scroll' messages get reduced into state.
-    // The native variant of useDocumentEditor is responsible for
-    // publishing every 'ui' message into the bus; we just consume.
+    // 'popover-dismiss-on-scroll' / 'popover-exited' messages get
+    // reduced into state. The native variant of useDocumentEditor is
+    // responsible for publishing every 'ui' message into the bus; we
+    // just consume.
     useEffect(() => {
         const unsubscribe = subscribeUiMessage(message => {
             const action: AnchoredOverlayAction | null = decodeUiMessage(message)
@@ -145,6 +148,13 @@ export function AnchoredOverlayController({
     // a fresh request (requestId change) so popover-update messages
     // don't trigger a remeasure — the anchor is fixed once the popover
     // opens, and an in-flight scroll already dismisses.
+    //
+    // webViewRef is intentionally omitted from the dep array: the
+    // useEditorBridge hook returns a stable RefObject whose identity
+    // doesn't change across renders. Including it would invite a
+    // re-measure on a hypothetical ref swap that the surrounding code
+    // doesn't actually perform.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
     useEffect(() => {
         if (!state.open) {
             setScreenPos(null)
@@ -155,12 +165,28 @@ export function AnchoredOverlayController({
         ;(async () => {
             const m = await measureWebView(webViewRef)
             if (cancelled) return
+            if (!m) {
+                // Measure failed (no ref, timed out, threw). Falling
+                // back to (0, 0) would render the popover in the
+                // top-left of the screen with no visual relationship
+                // to the caret — worse than showing nothing. Fail
+                // closed: dismiss the request and tell the WebView we
+                // gave up so the suggestion plugin clears its trigger.
+                postUiToWebView(
+                    webViewRef,
+                    'popover-result',
+                    { action: 'dismiss' as AnchoredOverlayResponseAction },
+                    open.requestId
+                )
+                dispatch({ type: 'dismiss-external' })
+                return
+            }
             const { width: vw, height: vh } = Dimensions.get('window')
             setScreenPos(
                 resolvePopoverPosition({
                     rect: open.rect,
-                    webViewOriginX: m?.pageX ?? 0,
-                    webViewOriginY: m?.pageY ?? 0,
+                    webViewOriginX: m.pageX,
+                    webViewOriginY: m.pageY,
                     viewportWidth: vw,
                     viewportHeight: vh,
                     popoverWidth: POPOVER_WIDTH_PX,
@@ -172,7 +198,7 @@ export function AnchoredOverlayController({
         return () => {
             cancelled = true
         }
-    }, [state.open?.requestId, webViewRef])
+    }, [state.open?.requestId])
 
     if (Platform.OS === 'web') return null
     if (!state.open || !screenPos) return null

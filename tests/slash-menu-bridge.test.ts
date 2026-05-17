@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-    createSlashMenuBridgeRender,
-    serializeSlashMenuItems,
-    toAnchoredSlashMenuRect,
-} from '../tinycld/text/lib/editor/slash-menu'
-import {
     SLASH_MENU_COMMANDS,
     type SlashMenuCommand,
 } from '../tinycld/text/lib/editor/slash-menu-commands'
+import { createSlashMenuBridgeRender } from '../tinycld/text/lib/editor/slash-menu-render-bridge'
+import {
+    serializeSlashMenuItems,
+    toAnchoredSlashMenuRect,
+} from '../tinycld/text/lib/editor/slash-menu-shared'
 
 // slash-menu-bridge tests: the bridge render strategy is the WebView
 // side of the anchored-overlay protocol. We test the wire-shape
@@ -248,7 +248,7 @@ describe('createSlashMenuBridgeRender — wire shape', () => {
         expect(exitSuggestionStub).toHaveBeenCalledTimes(1)
     })
 
-    it('posts ui.popover-dismissed on onExit', () => {
+    it('posts ui.popover-exited on onExit', () => {
         const postToHost = vi.fn()
         const render = createSlashMenuBridgeRender({
             postToHost,
@@ -265,14 +265,17 @@ describe('createSlashMenuBridgeRender — wire shape', () => {
             requestId: string
         }
         expect(msg.namespace).toBe('ui')
-        expect(msg.type).toBe('popover-dismissed')
+        // The WebView -> host direction is popover-exited so it is
+        // unambiguous against the (currently reserved) host -> WebView
+        // popover-dismissed.
+        expect(msg.type).toBe('popover-exited')
         expect(msg.requestId).toBe('req-7')
     })
 
-    it('onExit without a live request does not post popover-dismissed', () => {
+    it('onExit without a live request does not post popover-exited', () => {
         // Simulates an onStart that failed early (null clientRect) so
-        // the request was never opened; onExit must not post a
-        // dismissal for a request that never existed.
+        // the request was never opened; onExit must not post an
+        // exit for a request that never existed.
         const postToHost = vi.fn()
         const render = createSlashMenuBridgeRender({
             postToHost,
@@ -304,5 +307,143 @@ describe('createSlashMenuBridgeRender — wire shape', () => {
         })
         expect(consumed).toBe(false)
         expect(postToHost).not.toHaveBeenCalled()
+    })
+
+    it('full cycle: open, navigate, select, exit, re-open with fresh requestId', () => {
+        // Catches state-reset regressions: the bridge's internal
+        // currentRequestId / currentItems / selectedIndex / editorView
+        // refs MUST all clear on onExit so a second onStart in the same
+        // session gets a clean slate and a fresh requestId.
+        const postToHost = vi.fn()
+        const exitSuggestionStub = vi.fn()
+        const requestIds = ['req-cycle-1', 'req-cycle-2']
+        const newRequestId = vi.fn(() => requestIds.shift() ?? 'unexpected')
+        const command1 = vi.fn()
+        const command3 = vi.fn()
+
+        const render = createSlashMenuBridgeRender({
+            postToHost,
+            newRequestId,
+            exitSuggestion: exitSuggestionStub,
+        })
+        const handlers = render()
+
+        // 1. onStart(props1) — show-popover for req-cycle-1.
+        handlers.onStart?.(makeProps({ command: command1 }) as never)
+        expect(postToHost).toHaveBeenCalledTimes(1)
+        const showMsg = postToHost.mock.calls[0]?.[0] as {
+            type: string
+            requestId: string
+            payload: { kind: string }
+        }
+        expect(showMsg.type).toBe('show-popover')
+        expect(showMsg.requestId).toBe('req-cycle-1')
+        expect(showMsg.payload.kind).toBe('slash-menu')
+
+        // 2. onUpdate(props2) — popover-update preserves req-cycle-1.
+        postToHost.mockClear()
+        handlers.onUpdate?.(
+            makeProps({
+                command: command1,
+                items: SLASH_MENU_COMMANDS.filter(c => c.id.startsWith('heading')),
+                query: 'h',
+            }) as never
+        )
+        const updateMsg = postToHost.mock.calls[0]?.[0] as {
+            type: string
+            requestId: string
+            payload: { query: string }
+        }
+        expect(updateMsg.type).toBe('popover-update')
+        expect(updateMsg.requestId).toBe('req-cycle-1')
+        expect(updateMsg.payload.query).toBe('h')
+
+        // 3. ArrowDown bumps selectedIndex on the same requestId.
+        postToHost.mockClear()
+        const arrowEvent = {
+            key: 'ArrowDown',
+            preventDefault: vi.fn(),
+        } as unknown as KeyboardEvent
+        handlers.onKeyDown?.({ view: {} as never, event: arrowEvent, range: { from: 0, to: 1 } })
+        const arrowMsg = postToHost.mock.calls[0]?.[0] as {
+            requestId: string
+            payload: { selectedIndex: number }
+        }
+        expect(arrowMsg.requestId).toBe('req-cycle-1')
+        expect(arrowMsg.payload.selectedIndex).toBe(1)
+
+        // 4. Enter applies the selected command. The bridge's
+        //    exitSuggestion is invoked by the suggestion plugin (not
+        //    us), so we don't assert it here — only that command1 ran.
+        postToHost.mockClear()
+        const enterEvent = {
+            key: 'Enter',
+            preventDefault: vi.fn(),
+        } as unknown as KeyboardEvent
+        handlers.onKeyDown?.({ view: {} as never, event: enterEvent, range: { from: 0, to: 1 } })
+        expect(command1).toHaveBeenCalledTimes(1)
+        // After Enter (which doesn't post anything itself), the next
+        // life-cycle step is onExit fired by the suggestion plugin
+        // tearing the trigger down.
+
+        // 5. onExit — popover-exited posted for req-cycle-1; internal
+        //    state must reset so the next onStart starts clean.
+        postToHost.mockClear()
+        handlers.onExit?.(makeProps() as never)
+        const exitMsg = postToHost.mock.calls[0]?.[0] as {
+            type: string
+            requestId: string
+        }
+        expect(exitMsg.type).toBe('popover-exited')
+        expect(exitMsg.requestId).toBe('req-cycle-1')
+
+        // 6. onStart(props3) — a brand-new trigger. requestId MUST be
+        //    fresh (req-cycle-2, not req-cycle-1). The new show-popover
+        //    must reflect the new items / query, not the previous
+        //    cycle's filter state.
+        postToHost.mockClear()
+        handlers.onStart?.(
+            makeProps({
+                command: command3,
+                items: SLASH_MENU_COMMANDS.filter(c => c.id === 'image'),
+                query: 'i',
+            }) as never
+        )
+        const reopenMsg = postToHost.mock.calls[0]?.[0] as {
+            type: string
+            requestId: string
+            payload: {
+                payload: {
+                    selectedIndex: number
+                    items: { id: string }[]
+                    query: string
+                }
+            }
+        }
+        expect(reopenMsg.type).toBe('show-popover')
+        expect(reopenMsg.requestId).toBe('req-cycle-2')
+        // selectedIndex reset to 0 even though the previous cycle
+        // pushed it to 1.
+        expect(reopenMsg.payload.payload.selectedIndex).toBe(0)
+        // The new items and query are the ones from props3, not the
+        // stale filter from cycle 1.
+        expect(reopenMsg.payload.payload.items.map(i => i.id)).toEqual(['image'])
+        expect(reopenMsg.payload.payload.query).toBe('i')
+
+        // 7. Sanity: an Enter in cycle 2 invokes command3, NOT command1
+        //    (which would mean the stale closure leaked across cycles).
+        const enterEvent2 = {
+            key: 'Enter',
+            preventDefault: vi.fn(),
+        } as unknown as KeyboardEvent
+        handlers.onKeyDown?.({
+            view: {} as never,
+            event: enterEvent2,
+            range: { from: 0, to: 1 },
+        })
+        expect(command3).toHaveBeenCalledTimes(1)
+        expect(command1).toHaveBeenCalledTimes(1) // no additional calls
+        const picked = command3.mock.calls[0]?.[0] as SlashMenuCommand
+        expect(picked.id).toBe('image')
     })
 })

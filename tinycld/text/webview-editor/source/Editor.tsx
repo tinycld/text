@@ -195,7 +195,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             CommentMark,
             CodeShortcuts,
             // SlashMenu — the `bridge` strategy posts ui.show-popover /
-            // popover-update / popover-dismissed messages out of the
+            // popover-update / popover-exited messages out of the
             // WebView so the host's AnchoredOverlayController renders
             // the popover as a Modal positioned over the WebView. The
             // host-side `openImageInsert` action isn't reachable from

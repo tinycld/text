@@ -42,4 +42,20 @@ describe('slash-menu icon lookup', () => {
         expect(resolveSlashMenuIcon('NotARealIcon')).toBeNull()
         expect(resolveSlashMenuIcon('')).toBeNull()
     })
+
+    it('SlashMenuIconName is keyof typeof SLASH_MENU_ICONS (compile-time check)', () => {
+        // Type-level proof: a literal known to be in the map is
+        // assignable; a typo isn't. The `@ts-expect-error` line MUST
+        // remain a compile error — if it stops being one, the union
+        // has regressed back to `string` and typos slip through.
+        const valid: keyof typeof SLASH_MENU_ICONS = 'Heading1'
+        // @ts-expect-error — 'BogusIcon' is not in SLASH_MENU_ICONS
+        const bogus: keyof typeof SLASH_MENU_ICONS = 'BogusIcon'
+        expect(valid).toBe('Heading1')
+        // Cast for runtime check — the test exists to lock the type
+        // constraint above; resolveSlashMenuIcon accepts strings at
+        // runtime so an unregistered name returns null rather than
+        // crashing.
+        expect(resolveSlashMenuIcon(bogus as string)).toBeNull()
+    })
 })

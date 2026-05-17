@@ -1,7 +1,7 @@
 import { openHelp, openHelpPackage } from '@tinycld/core/lib/help/open-help'
+import { useHelpSearchStore } from '@tinycld/core/lib/help/search-store'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { Platform } from 'react-native'
-import { useHelpSearchStore } from '../../lib/stores/help-search-store'
 import type { MenuBarProps } from './MenuBar'
 
 // The Help menu is glanceable on purpose: one global search entry,

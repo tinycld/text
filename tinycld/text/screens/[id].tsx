@@ -16,7 +16,6 @@ import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
-import { HelpSearchPalette } from '../components/HelpSearchPalette'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
@@ -28,7 +27,6 @@ import { SlashMenu } from '../components/SlashMenu'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
-import { useHelpSearchShortcut } from '../hooks/use-help-search-shortcut'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
@@ -113,7 +111,6 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const isReadOnly = hello.readOnly
     const printDocument = usePrintDocument(editor)
     usePrintShortcut(printDocument)
-    useHelpSearchShortcut()
     const fileActions = useDocumentFileActions(driveItemId)
     const orgHref = useOrgHref()
     // Link popover is reached from two surfaces — the toolbar's link
@@ -207,7 +204,6 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     commentBridge={commentBridge}
                 />
                 <SlashMenu />
-                <HelpSearchPalette />
             </View>
         </FindReplaceEditorContext.Provider>
     )

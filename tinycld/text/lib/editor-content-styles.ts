@@ -186,6 +186,26 @@ export const EDITOR_CONTENT_STYLES = `
     display: block;
     margin: 0.5em 0;
 }
+/* The web editor renders images through ImageNodeView, which wraps the
+   img in a [data-node-view-wrapper] span and copies the wrap attr onto
+   it as data-wrap. Float the WRAPPER (not the img) — text only wraps
+   around a floated direct child of the paragraph. Sizing comes from
+   the inline width/height the NodeView sets on the wrapper, so the
+   cap below is just a safety net for oversized fixtures. */
+.ProseMirror [data-node-view-wrapper][data-wrap='left'] {
+    float: left;
+    margin: 0.25em 1em 0.5em 0;
+    max-width: 50%;
+}
+.ProseMirror [data-node-view-wrapper][data-wrap='right'] {
+    float: right;
+    margin: 0.25em 0 0.5em 1em;
+    max-width: 50%;
+}
+/* Legacy selectors for the native WebView editor, which still renders
+   images as bare <img>s with data-wrap on the element itself (no
+   NodeView wrapping). Keep these in sync with the wrapper rules above
+   so behavior on native matches the web. */
 .ProseMirror img[data-wrap='left'] {
     float: left;
     display: inline;

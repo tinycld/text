@@ -44,12 +44,13 @@ export interface DocumentCommentBridge {
     onRemoved: (handler: (commentIds: string[]) => void) => () => void
 }
 
-// The web variant exposes the raw Tiptap editor so callers can attach
-// their own transaction listeners (WordCountBadge) without rendering
-// the whole toolbar each keystroke. It also exposes findReplaceEditor
+// The web variant exposes the raw Tiptap editor so web-only consumers
+// (FileMenu's markdown export, EditMenu's paste-as-markdown) can walk
+// the ProseMirror doc directly. It also exposes findReplaceEditor
 // (the state+dispatch shim driven by the Cmd+F bar). Both are null on
 // native, where the WebView owns the canonical editor and the host
-// shell has no ProseMirror dispatch handle.
+// shell has no ProseMirror dispatch handle. Live word count rides
+// toolbarState.wordCount on both platforms — no editor handle needed.
 export interface DocumentEditorResult extends EditorResult {
     tiptapEditor: TiptapEditor | null
     findReplaceEditor: FindReplaceEditor | null

@@ -73,11 +73,12 @@ export function HelpSearchPalette() {
         return () => document.removeEventListener('mousedown', onPointerDown, true)
     }, [isOpen, close])
 
-    // Keyboard navigation. Bound to document keydown while the palette
-    // is open: react-native-web's TextInput.onKeyPress only fires for
-    // character-producing keys (Enter, Escape, printable chars) —
-    // ArrowUp/ArrowDown never reach it. The document listener captures
-    // every key regardless, and we filter to the palette being open.
+    // Keyboard navigation. Bound to document keydown in CAPTURE phase
+    // while the palette is open. Capture phase matters because
+    // react-native-web's TextInput swallows Escape on its own internal
+    // bubble-phase handler — a non-capturing listener never sees it.
+    // ArrowUp/ArrowDown likewise need this because TextInput.onKeyPress
+    // doesn't fire for non-character keys.
     useEffect(() => {
         if (!isOpen || typeof document === 'undefined') return
         function onKeyDown(event: KeyboardEvent) {
@@ -108,8 +109,8 @@ export function HelpSearchPalette() {
                 }
             }
         }
-        document.addEventListener('keydown', onKeyDown)
-        return () => document.removeEventListener('keydown', onKeyDown)
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => document.removeEventListener('keydown', onKeyDown, true)
     }, [isOpen, results, clampedIndex, close, setSelectedIndex])
 
     if (!isOpen || typeof document === 'undefined') return null

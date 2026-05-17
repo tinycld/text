@@ -51,10 +51,11 @@ test.describe('Text — Help search palette', () => {
         await page.keyboard.press('Enter')
 
         // The palette dismisses and the help drawer surfaces with the
-        // matched topic. The drawer uses its own portal root; assert on
-        // a heading matching the topic title.
+        // matched topic. The drawer renders the topic title in a Text
+        // (not a semantic heading), so locate by text — "Shading table
+        // cells" is the title of the text:table-shading topic.
         const palette = page.locator('[data-tinycld-help-palette]')
         await expect(palette).not.toBeVisible()
-        await expect(page.getByRole('heading', { name: /shading/i })).toBeVisible()
+        await expect(page.getByText(/Shading table cells/i).first()).toBeVisible()
     })
 })

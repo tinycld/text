@@ -5,7 +5,7 @@ tags: [keyboard, shortcuts, hotkeys, reference]
 order: 80
 ---
 
-Every shortcut below works on macOS as written. On Windows and Linux, substitute **Ctrl** for **⌘**.
+Shortcuts are shown for whichever platform you're reading from — on Windows or Linux, **Ctrl** and **Shift** stand in for the Mac modifier keys automatically.
 
 ## Inline formatting
 

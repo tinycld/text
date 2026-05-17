@@ -262,7 +262,7 @@ mutations go through `useMutation`. Mentions resolve through
 | Font family / font size            | ✅  | ✅                      |
 | Inline code + code block           | ✅  | ✅                      |
 | Cell shading                       | ✅  | ✅                      |
-| Slash menu                         | ✅  | not yet                |
+| Slash menu                         | ✅  | ✅                      |
 | Find / replace                     | ✅  | not yet                |
 | Word count                         | ✅  | not yet                |
 | Print                              | browser print | iOS print sheet |

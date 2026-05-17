@@ -105,6 +105,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         tiptapEditor,
         findReplaceEditor,
         commentBridge,
+        webViewRef,
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
     })
@@ -238,7 +239,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     commentBridge={commentBridge}
                 />
                 {newCommentFlow.modal}
-                <SlashMenu />
+                <SlashMenu webViewRef={webViewRef ?? null} />
             </View>
         </FindReplaceEditorContext.Provider>
     )

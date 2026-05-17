@@ -709,6 +709,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         EditorComponent,
         commands,
         toolbarState,
+        // Web's editor has no underlying RN WebView; anchored-popover
+        // code paths on web bypass the controller entirely (they render
+        // through `SlashMenu.web.tsx` portals instead). Explicit null
+        // here makes the difference visible at every type site that
+        // pulls `webViewRef` off the result, rather than relying on
+        // implicit `undefined`.
+        webViewRef: null,
         tiptapEditor: tiptapEditor ?? null,
         findReplaceEditor,
         commentBridge,

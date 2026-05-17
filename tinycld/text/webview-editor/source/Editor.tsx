@@ -59,6 +59,7 @@ import { useEffect, useState } from 'react'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { CommentMark } from '../../lib/editor/comment-mark'
+import { SlashMenu } from '../../lib/editor/slash-menu'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { RealtimeClient } from './realtime-client'
 
@@ -193,6 +194,17 @@ function EditorMounted({ init }: EditorMountedProps) {
             WrappedImage,
             CommentMark,
             CodeShortcuts,
+            // SlashMenu — the `bridge` strategy posts ui.show-popover /
+            // popover-update / popover-dismissed messages out of the
+            // WebView so the host's AnchoredOverlayController renders
+            // the popover as a Modal positioned over the WebView. The
+            // host-side `openImageInsert` action isn't reachable from
+            // inside the WebView (the file picker lives at the screen
+            // level on native), so we don't wire that option through —
+            // the slash-menu Image entry deletes the trigger and
+            // inserts nothing on native, matching the web variant's
+            // behavior when openImageInsert isn't supplied.
+            SlashMenu.configure({ renderStrategy: 'bridge' }),
             Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
             CollaborationCaret.configure({
                 provider: { awareness },
@@ -551,6 +563,41 @@ function EditorMounted({ init }: EditorMountedProps) {
         const bridge = installCommentBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
+
+    // Forward in-document scroll events out to the host. The host's
+    // useWebViewEditor receives this on its 'ui' namespace channel and
+    // fires its onScroll callback, which the native variant uses to
+    // dismiss any open anchored popover (slash menu, future popovers).
+    //
+    // iOS RN-WebView's own `onScroll` doesn't fire for in-document
+    // scrolling when scrollEnabled=false (which TenTap sets), so the
+    // signal has to come from the WebView's document. Coalesced via
+    // rAF so a smooth scroll doesn't flood the message bus.
+    useEffect(() => {
+        let scheduled = false
+        function onScroll() {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                postToNative({
+                    namespace: 'ui',
+                    type: 'document-scroll',
+                    payload: null,
+                })
+            })
+        }
+        window.addEventListener('scroll', onScroll, { passive: true })
+        // Some Tiptap scroll containers nest the scrolling viewport
+        // inside .ProseMirror rather than at window level. Capture
+        // scroll events from any element so the dismiss policy fires
+        // regardless of which container actually scrolls.
+        document.addEventListener('scroll', onScroll, { passive: true, capture: true })
+        return () => {
+            window.removeEventListener('scroll', onScroll)
+            document.removeEventListener('scroll', onScroll, true)
+        }
+    }, [])
 
     return <EditorContent editor={editor} />
 }

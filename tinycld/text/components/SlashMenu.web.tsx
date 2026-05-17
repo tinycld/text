@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react-native'
 import { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Pressable, Text, View } from 'react-native'
+import { resolveSlashMenuIcon } from '../lib/editor/slash-menu-icon-lookup'
 import type { SlashMenuAnchor } from '../lib/stores/slash-menu-store'
 import { useSlashMenuStore } from '../lib/stores/slash-menu-store'
 
@@ -43,7 +44,14 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
 // extension (lib/editor/slash-menu.ts). Web-only: portals to the
 // document body so the popover overlays the editor surface without
 // being clipped by the editor's scroll container.
-export function SlashMenu() {
+//
+// The native variant takes a `webViewRef` prop the controller needs
+// for .measure() / .postMessage(); the web mount accepts the same
+// prop signature and ignores it so the screen-level mount is
+// platform-agnostic.
+//
+// biome-ignore lint/correctness/noUnusedFunctionParameters: prop kept for cross-platform parity
+export function SlashMenu(_props: { webViewRef?: React.RefObject<unknown> | null } = {}) {
     const isOpen = useSlashMenuStore(s => s.isOpen)
     const items = useSlashMenuStore(s => s.items)
     const anchor = useSlashMenuStore(s => s.anchor)
@@ -103,7 +111,7 @@ export function SlashMenu() {
                     <SlashMenuRow
                         key={item.id}
                         label={item.label}
-                        Icon={item.icon}
+                        Icon={resolveSlashMenuIcon(item.iconName)}
                         isSelected={index === selectedIndex}
                         onPress={() => onSelect?.(item)}
                     />
@@ -116,7 +124,7 @@ export function SlashMenu() {
 
 interface SlashMenuRowProps {
     label: string
-    Icon: LucideIcon
+    Icon: LucideIcon | null
     isSelected: boolean
     onPress: () => void
 }
@@ -139,7 +147,7 @@ function SlashMenuRow({ label, Icon, isSelected, onPress }: SlashMenuRowProps) {
                 isSelected ? 'bg-surface-secondary' : 'bg-transparent'
             }`}
         >
-            <Icon size={16} color={foregroundColor} />
+            {Icon ? <Icon size={16} color={foregroundColor} /> : null}
             <Text className="text-sm text-foreground">{label}</Text>
         </Pressable>
     )

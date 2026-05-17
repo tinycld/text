@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
+import { publishUiMessage } from '../lib/anchored-overlay/ui-message-bus'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 import type { ImageSelection } from '../webview-editor/source/editor-state'
 import { editorHtml } from '../webview-editor/build/editorHtml'
@@ -86,9 +87,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     )
 
     // Push image-selection events from the WebView into the shared
-    // store the bottom sheet subscribes to. Ignores every non-image-
-    // selection 'ui' message — the union is currently a single type,
-    // but the switch will fan out as future Milestone B+ events land.
+    // store the bottom sheet subscribes to. Every other 'ui' message
+    // is fanned out to the ui-message-bus so the anchored-overlay
+    // controller (and future subscribers — comments, mentions, …)
+    // can consume them without each one having to thread its own
+    // onUiMessage prop through the editor stack.
     //
     // Payload-narrowing is done at runtime here (not via a single
     // `as` cast) so that a future selection-kind we don't yet handle
@@ -97,15 +100,37 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // branch is the narrowest possible — just the .image field after
     // we've verified kind === 'image'.
     const onUiMessage = useCallback((message: EditorMessage) => {
-        if (message.type !== 'selection-changed') return
-        const payload = message.payload
-        if (payload === null || typeof payload !== 'object') return
-        if (!('kind' in payload)) return
-        if (payload.kind === 'image' && 'image' in payload) {
-            useImageSelectionStore.getState().setSelection(payload.image as ImageSelection)
-        } else if (payload.kind === 'none') {
-            useImageSelectionStore.getState().setSelection(null)
+        if (message.type === 'selection-changed') {
+            const payload = message.payload
+            if (payload === null || typeof payload !== 'object') return
+            if (!('kind' in payload)) return
+            if (payload.kind === 'image' && 'image' in payload) {
+                useImageSelectionStore.getState().setSelection(payload.image as ImageSelection)
+            } else if (payload.kind === 'none') {
+                useImageSelectionStore.getState().setSelection(null)
+            }
+            return
         }
+        // Forward everything else (show-popover, popover-update,
+        // popover-dismissed, future kinds) to the bus. The bus is
+        // a process-global publisher so subscribers don't have to
+        // reach up through the editor result to find a callback.
+        publishUiMessage(message)
+    }, [])
+
+    // WebView scroll closes any open anchored popover. Implemented by
+    // publishing a synthetic 'popover-dismiss-on-scroll' message into
+    // the ui-message-bus that the controller's reducer reduces to a
+    // dismiss. iOS RN-WebView doesn't surface in-document scrolls via
+    // its `onScroll` when scrollEnabled=false (which TenTap sets), so
+    // the WebView source posts a 'document-scroll' message and we
+    // re-emit it on the bus here.
+    const onScroll = useCallback(() => {
+        publishUiMessage({
+            namespace: 'ui',
+            type: 'popover-dismiss-on-scroll',
+            payload: null,
+        })
     }, [])
 
     // Clear the store on unmount so navigating away (or remounting the
@@ -137,6 +162,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         initPayload,
         editable: options.editable ?? true,
         onUiMessage,
+        onScroll,
     })
     // tiptapEditor + findReplaceEditor are web-only — native delegates
     // editing to the WebView's in-frame ProseMirror, which the host

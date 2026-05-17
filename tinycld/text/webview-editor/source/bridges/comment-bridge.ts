@@ -111,6 +111,13 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
                 const from = typeof range.from === 'number' ? range.from : null
                 const to = typeof range.to === 'number' ? range.to : null
                 if (from === null || to === null) return
+                // Deliberately no `.focus()` here, unlike the bare 'add'
+                // case. add-with-range is the modal-stolen-focus path:
+                // the host opened a dialog to capture the new-comment
+                // body, then submitted. Focusing the editor would steal
+                // focus back from the dismissing modal and cause a
+                // flicker. The mark applies cleanly without editor
+                // focus.
                 editor.chain().setTextSelection({ from, to }).addComment(commentId).run()
                 return
             }

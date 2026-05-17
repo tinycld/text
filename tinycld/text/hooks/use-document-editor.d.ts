@@ -32,6 +32,14 @@ export interface UseDocumentEditorOptions {
 // fire-and-forget — the mark application is a single WebView message
 // with no host-side response needed.
 //
+// Unmount caveat (native only): a Promise returned by `focusComment`
+// or `getSelection` that's still in flight when the editor unmounts
+// will never resolve — the WebView is torn down before posting its
+// response. Callers should either `void` the result (TextCommentDrawer's
+// onJump does this) or guard their `await` with a mounted-flag pattern.
+// The leaked resolver is cheap (one Map entry) and doesn't block
+// teardown.
+//
 // Returns null when the editor handle isn't ready yet — web variant
 // returns null until the Tiptap editor mounts; native returns a real
 // bridge as soon as the hook runs (the bridge talks to the WebView,

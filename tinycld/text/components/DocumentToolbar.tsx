@@ -1,3 +1,4 @@
+import { HelpSearchButton } from '@tinycld/core/components/help/HelpSearchButton'
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
@@ -33,7 +34,6 @@ import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
-import { HelpSearchButton } from './HelpSearchButton'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'

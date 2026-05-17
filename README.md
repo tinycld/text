@@ -26,6 +26,13 @@ Editing features:
 - Slash menu (`SlashMenu`) for block-level insertions; link popover
   (`LinkPopover`) for inline link editing
 - Document templates (`TemplatePicker` + `lib/templates/`)
+- Markdown import and export — **Edit → Paste as Markdown** parses the
+  clipboard as Markdown and inserts structured content; **File →
+  Download (.md)** saves the document as Markdown alongside the
+  canonical `.docx` (`lib/markdown/`)
+- Manual version snapshots — **File → Save version** flushes the
+  current Y.Doc to a labeled `drive_item_versions` row so a named
+  state can be restored later
 - Find and replace (`FindReplaceBar`)
 - Undo / redo via Y.UndoManager
 - Print (browser print on web, iOS print sheet on iPad)

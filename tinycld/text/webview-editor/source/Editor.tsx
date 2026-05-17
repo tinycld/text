@@ -5,13 +5,24 @@ import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
+import TextAlign from '@tiptap/extension-text-align'
+import { TextStyle } from '@tiptap/extension-text-style'
+import { FontFamily } from '@tiptap/extension-text-style/font-family'
+import { FontSize } from '@tiptap/extension-text-style/font-size'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import { applyCellBorders } from '../../lib/apply-cell-borders'
 import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
-import { TextStyle } from '@tiptap/extension-text-style'
-import { EditorContent, useEditor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
+import {
+    CodeShortcuts,
+    deriveActiveIndent,
+    deriveCurrentAlign,
+    deriveCurrentFontFamily,
+    deriveCurrentFontSize,
+} from './editor-state'
 
 // Inline image variant carrying a `wrap` attr (left|right|none) on
 // the rendered <img> as data-wrap, so editor-content-styles can
@@ -154,9 +165,22 @@ function EditorMounted({ init }: EditorMountedProps) {
             }),
             // See use-document-editor.web.tsx for the rationale — both
             // editor mounts must share the same schema so a doc seeded
-            // by one is readable by the other.
+            // by one is readable by the other. TextStyle/Color/FontSize/
+            // FontFamily share a single textStyle mark on the schema;
+            // TextAlign and BlockIndent contribute attrs on paragraph +
+            // heading. Without these extensions the WebView's schema
+            // diverges from the web schema and attrs written by a web
+            // peer would be silently dropped on a native edit.
             TextStyle,
             Color,
+            FontSize,
+            FontFamily,
+            TextAlign.configure({
+                types: ['paragraph', 'heading'],
+                alignments: ['left', 'center', 'right', 'justify'],
+                defaultAlignment: null,
+            }),
+            BlockIndent.configure({ types: ['paragraph', 'heading'] }),
             Placeholder.configure({
                 placeholder: init.placeholder ?? 'Start writing…',
             }),
@@ -166,6 +190,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             BorderedTableCell,
             WrappedImage,
             CommentMark,
+            CodeShortcuts,
             Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
             CollaborationCaret.configure({
                 provider: { awareness },
@@ -212,6 +237,19 @@ function EditorMounted({ init }: EditorMountedProps) {
                 selectionEmpty: editor.state.selection.empty,
                 canMergeCells: editor.can().mergeCells(),
                 canSplitCell: editor.can().splitCell(),
+                isCodeActive: editor.isActive('code'),
+                isCodeBlockActive: editor.isActive('codeBlock'),
+                activeHeadingLevel: ((): number | null => {
+                    for (let level = 1; level <= 6; level++) {
+                        if (editor.isActive('heading', { level })) return level
+                    }
+                    return null
+                })(),
+                currentAlign: deriveCurrentAlign(editor),
+                canIndent: deriveActiveIndent(editor) < MAX_INDENT_LEVEL,
+                canOutdent: deriveActiveIndent(editor) > 0,
+                currentFontSize: deriveCurrentFontSize(editor),
+                currentFontFamily: deriveCurrentFontFamily(editor),
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
             if (serialized === lastSerialized) return
@@ -372,6 +410,42 @@ function EditorMounted({ init }: EditorMountedProps) {
                     applyCellShading(editor, payload.color)
                     break
                 }
+                case 'toggle-code':
+                    editor.chain().focus().toggleCode().run()
+                    break
+                case 'toggle-code-block':
+                    editor.chain().focus().toggleCodeBlock().run()
+                    break
+                case 'set-text-align': {
+                    const align = parsed.payload as 'left' | 'center' | 'right' | 'justify'
+                    editor.chain().focus().setTextAlign(align).run()
+                    break
+                }
+                case 'unset-text-align':
+                    editor.chain().focus().unsetTextAlign().run()
+                    break
+                case 'indent-block':
+                    editor.chain().focus().indentBlock().run()
+                    break
+                case 'outdent-block':
+                    editor.chain().focus().outdentBlock().run()
+                    break
+                case 'set-font-size': {
+                    const px = parsed.payload as number
+                    editor.chain().focus().setFontSize(`${px}px`).run()
+                    break
+                }
+                case 'unset-font-size':
+                    editor.chain().focus().unsetFontSize().run()
+                    break
+                case 'set-font-family': {
+                    const family = parsed.payload as string
+                    editor.chain().focus().setFontFamily(family).run()
+                    break
+                }
+                case 'unset-font-family':
+                    editor.chain().focus().unsetFontFamily().run()
+                    break
                 case 'insert-image': {
                     const { src, alt } = parsed.payload as { src: string; alt?: string }
                     editor.chain().focus().setImage({ src, alt }).run()

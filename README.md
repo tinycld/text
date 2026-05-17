@@ -252,12 +252,19 @@ mutations go through `useMutation`. Mentions resolve through
 | Open / view documents              | ✅  | ✅ (WebView host)      |
 | Edit                               | ✅  | ✅                      |
 | Realtime collaboration             | ✅  | ✅                      |
-| Find / replace                     | ✅  | ✅                      |
 | Tables (insert, shading, borders)  | ✅  | ✅                      |
-| Inline images                      | ✅  | ✅                      |
-| Comments                           | ✅  | ✅                      |
-| Mentions                           | ✅  | ✅                      |
+| Inline images (insert)             | ✅  | ✅                      |
+| Inline images (wrap / resize)      | ✅  | not yet                |
+| Comments                           | ✅  | not yet                |
+| Mentions                           | ✅  | not yet                |
 | Templates                          | ✅  | ✅                      |
+| Alignment + indent / outdent       | ✅  | ✅                      |
+| Font family / font size            | ✅  | ✅                      |
+| Inline code + code block           | ✅  | ✅                      |
+| Cell shading                       | ✅  | ✅                      |
+| Slash menu                         | ✅  | not yet                |
+| Find / replace                     | ✅  | not yet                |
+| Word count                         | ✅  | not yet                |
 | Print                              | browser print | iOS print sheet |
 | Soft-keyboard accessory toolbar    | n/a | ✅ (iOS)               |
 

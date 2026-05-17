@@ -32,6 +32,7 @@ import { Platform, Pressable, ScrollView, View } from 'react-native'
 import { BorderMenu } from './BorderMenu'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
+import { HelpSearchButton } from './HelpSearchButton'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'
@@ -314,6 +315,10 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         iconColor={iconColor}
                         activeColor={activeColor}
                     />
+
+                    <View className="ml-auto">
+                        <HelpSearchButton />
+                    </View>
                 </View>
             </ToolbarRow>
 

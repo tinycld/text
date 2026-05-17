@@ -255,21 +255,21 @@ test.describe('Text — Menubar', () => {
     })
 
     test.describe('Help menu', () => {
-        test('topic items and Browse all are present', async ({ page }) => {
+        test('three-item launcher set is present', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-help')
             await openMenubarMenu(page, 'Help')
-            // We don't follow the items (they open the help drawer or
-            // navigate to the help hub); presence is the contract this
-            // test pins so the Help menu can't quietly turn back into
-            // a website link.
+            // The Help menu was trimmed to three launchers: the search
+            // palette, the keyboard-shortcuts reference, and the
+            // breadcrumb to the full topic hub. Per-topic shortcuts
+            // moved into the search palette to keep the menu glanceable.
             await expect(
-                page.getByRole('menuitem', { name: 'Slash menu' })
+                page.getByRole('menuitem', { name: /Search help/ })
             ).toBeVisible()
             await expect(
                 page.getByRole('menuitem', { name: 'Keyboard shortcuts' })
             ).toBeVisible()
             await expect(
-                page.getByRole('menuitem', { name: 'Browse all topics…' })
+                page.getByRole('menuitem', { name: /Browse all topics/ })
             ).toBeVisible()
         })
     })

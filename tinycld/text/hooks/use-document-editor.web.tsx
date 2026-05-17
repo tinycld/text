@@ -34,6 +34,7 @@ import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
+import { makeWebFindReplaceController } from '../lib/find-replace-controller'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
 import { countWords } from '../lib/word-count'
 import {
@@ -560,21 +561,23 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             : undefined,
     }
 
-    // findReplaceEditor exposes the minimum surface the FindReplaceBar
-    // needs (state + dispatch) so the screen-level bar can drive the
-    // plugin through the shared context. We expose it as an object
-    // with a getter for `state` so the bar always sees the latest
-    // EditorState — but the wrapper object's identity stays stable
-    // across re-renders, which is what keeps EditorComponent's useMemo
-    // from re-creating the editor tree on every transaction.
+    // findReplaceEditor is the platform-agnostic FindReplaceController
+    // the bar reads through. The web variant wraps the in-process
+    // Tiptap editor's state + dispatch via a small adapter object
+    // (with a getter for `state` so the controller always sees the
+    // latest EditorState while keeping its own identity stable across
+    // re-renders). The screen mounts this on
+    // FindReplaceEditorContext.Provider so the bar resolves it without
+    // a prop-drill.
     const findReplaceEditor = useMemo(() => {
         if (!tiptapEditor) return null
-        return {
+        const editor = {
             get state() {
                 return tiptapEditor.state
             },
             dispatch: tiptapEditor.view.dispatch.bind(tiptapEditor.view),
         }
+        return makeWebFindReplaceController(editor)
     }, [tiptapEditor])
 
     // Host-side comment surface. Tap and removed events are emitted

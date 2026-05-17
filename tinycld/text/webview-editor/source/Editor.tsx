@@ -1,3 +1,4 @@
+import { Extension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
@@ -16,6 +17,7 @@ import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
+import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { countWords } from '../../lib/word-count'
 import {
     CodeShortcuts,
@@ -56,12 +58,26 @@ const WrappedImage = Image.extend({
         }
     },
 })
+
+// FindReplaceExtension wraps the find/replace plugin in a Tiptap
+// Extension wrapper so it can sit alongside the other extensions
+// declared in useEditor(). The plugin itself lives in
+// lib/find-replace-plugin.ts and is shared with the web editor mount.
+// The native FindReplaceBar drives it through the host -> WebView
+// 'find-replace' namespace bridge (see bridges/find-replace-bridge.ts).
+const FindReplaceExtension = Extension.create({
+    name: 'tinycldFindReplace',
+    addProseMirrorPlugins() {
+        return [findReplacePlugin()]
+    },
+})
 import { useEffect, useState } from 'react'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { CommentMark } from '../../lib/editor/comment-mark'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { installCommentBridge } from './bridges/comment-bridge'
+import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { RealtimeClient } from './realtime-client'
 
 interface InitPayload {
@@ -195,6 +211,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             WrappedImage,
             CommentMark,
             CodeShortcuts,
+            FindReplaceExtension,
             // SlashMenu — the `bridge` strategy posts ui.show-popover /
             // popover-update / popover-exited messages out of the
             // WebView so the host's AnchoredOverlayController renders
@@ -333,10 +350,12 @@ function EditorMounted({ init }: EditorMountedProps) {
                 return
             }
             // Init messages handled by parent <Editor />. Comment-bus
-            // messages have their own listener installed by
-            // installCommentBridge below.
+            // and find-replace messages have their own listeners
+            // installed by installCommentBridge / installFindReplaceBridge
+            // below.
             if (parsed.namespace === 'app') return
             if (parsed.namespace === 'comment') return
+            if (parsed.namespace === 'find-replace') return
             const t = parsed.type
             if (!t) return
             switch (t) {
@@ -570,6 +589,12 @@ function EditorMounted({ init }: EditorMountedProps) {
     useEffect(() => {
         if (!editor) return
         const bridge = installCommentBridge(editor, postToNative)
+        return () => bridge.destroy()
+    }, [editor])
+
+    useEffect(() => {
+        if (!editor) return
+        const bridge = installFindReplaceBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
 

@@ -2,7 +2,7 @@ import type { EditorResult } from '@tinycld/core/lib/editor/types'
 import type { Editor as TiptapEditor } from '@tiptap/react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import type { FindReplaceEditor } from '../lib/find-replace-plugin'
+import type { FindReplaceController } from '../lib/find-replace-controller'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -66,14 +66,21 @@ export interface DocumentCommentBridge {
 
 // The web variant exposes the raw Tiptap editor so web-only consumers
 // (FileMenu's markdown export, EditMenu's paste-as-markdown) can walk
-// the ProseMirror doc directly. It also exposes findReplaceEditor
-// (the state+dispatch shim driven by the Cmd+F bar). Both are null on
-// native, where the WebView owns the canonical editor and the host
-// shell has no ProseMirror dispatch handle. Live word count rides
+// the ProseMirror doc directly. `tiptapEditor` is null on native,
+// where the WebView owns the canonical editor and the host shell has
+// no ProseMirror dispatch handle. Live word count rides
 // toolbarState.wordCount on both platforms — no editor handle needed.
+//
+// `findReplaceEditor` is the platform-agnostic FindReplaceController
+// the FindReplaceBar consumes. Both variants implement it: web wraps
+// the in-process Tiptap editor's state + dispatch; native posts
+// commands across the WebView and reads state from a host-side
+// mirror store. The name is kept for compatibility with existing
+// consumers (the underlying type changed from FindReplaceEditor to
+// FindReplaceController in D.3 — a future cleanup pass can rename).
 export interface DocumentEditorResult extends EditorResult {
     tiptapEditor: TiptapEditor | null
-    findReplaceEditor: FindReplaceEditor | null
+    findReplaceEditor: FindReplaceController | null
     commentBridge: DocumentCommentBridge | null
 }
 

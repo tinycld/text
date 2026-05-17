@@ -1,20 +1,29 @@
 import { createContext, useContext } from 'react'
-import type { FindReplaceEditor } from './find-replace-plugin'
+import type { FindReplaceController } from './find-replace-controller'
 
-// Context that publishes the underlying ProseMirror editor (or a
-// thin shim implementing the same dispatch + state surface) so the
-// FindReplaceBar can drive the find/replace plugin without importing
-// the editor hook directly. The provider is mounted by screens/[id].tsx
-// around the document tree; the consumer is FindReplaceBar +
-// useFindReplaceShortcuts.
+// Context that publishes the FindReplaceController for the document
+// editor mounted by the screen, so the FindReplaceBar can drive the
+// find/replace plugin (or its native WebView equivalent) without
+// importing the editor hook directly. The provider is mounted by
+// screens/[id].tsx around the document tree; the consumer is
+// FindReplaceBar + useFindReplaceShortcuts.
+//
+// The controller abstracts the platform: on web it wraps the in-
+// process Tiptap editor's state + dispatch; on native it posts
+// commands to the WebView and reads observable state from a mirror
+// store fed by the WebView's broadcasts. Either way, the bar talks
+// to the same surface.
 //
 // `null` means "no editor mounted" (web variant before tiptap inits,
-// or the native variant where the WebView owns the editor and the
-// host shell has no ProseMirror dispatch handle). The bar should
-// treat that the same as "editor not ready" and disable its action
-// buttons.
-export const FindReplaceEditorContext = createContext<FindReplaceEditor | null>(null)
+// or native before the WebView's first broadcast). The bar should
+// treat that as "editor not ready" and disable its action buttons.
+//
+// The context name and exported hook keep their legacy names
+// (FindReplaceEditorContext / useFindReplaceEditor) for compatibility
+// with existing consumers — the type underneath is now
+// FindReplaceController. A future cleanup pass can rename.
+export const FindReplaceEditorContext = createContext<FindReplaceController | null>(null)
 
-export function useFindReplaceEditor(): FindReplaceEditor | null {
+export function useFindReplaceEditor(): FindReplaceController | null {
     return useContext(FindReplaceEditorContext)
 }

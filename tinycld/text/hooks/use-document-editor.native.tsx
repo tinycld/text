@@ -22,6 +22,10 @@ import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
 import { publishUiMessage } from '../lib/anchored-overlay/ui-message-bus'
+import {
+    dispatchFindReplaceMessage,
+    makeNativeFindReplaceController,
+} from '../lib/native-find-replace-controller'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 import type { ImageSelection } from '../webview-editor/source/editor-state'
 import { editorHtml } from '../webview-editor/build/editorHtml'
@@ -164,6 +168,14 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         dispatchCommentMessage(commentStateRef.current, msg)
     }, [])
 
+    // Fan-out for 'find-replace' namespace messages from the WebView.
+    // The pure dispatcher pushes state-update payloads into the
+    // host-side mirror store the FindReplaceBar reads through its
+    // controller.
+    const onFindReplaceMessage = useCallback((msg: EditorMessage) => {
+        dispatchFindReplaceMessage(msg)
+    }, [])
+
     const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
@@ -185,6 +197,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         onUiMessage,
         onScroll,
         onCommentMessage,
+        onFindReplaceMessage,
     })
 
     // postMessage isn't ref-stable (it depends on the bridge identity)
@@ -205,15 +218,26 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         []
     )
 
-    // tiptapEditor + findReplaceEditor are web-only — native delegates
-    // editing to the WebView's in-frame ProseMirror, which the host
-    // shell has no dispatch handle into. commentBridge IS available on
-    // native — it routes through the WebView's namespace='comment'
-    // message protocol.
+    // Native FindReplaceController. Reads observable state from the
+    // host-side mirror store (use-find-replace-state-store.ts) that
+    // dispatchFindReplaceMessage populates from the WebView's
+    // state-update broadcasts; posts commands across the WebView via
+    // result.postMessage. The controller's identity is pinned through
+    // a ref-backed poster so it stays stable across renders.
+    const findReplaceEditor = useMemo(
+        () => makeNativeFindReplaceController(msg => postMessageRef.current?.(msg) ?? false),
+        []
+    )
+
+    // tiptapEditor is web-only — native delegates editing to the
+    // WebView's in-frame ProseMirror, which the host shell has no
+    // direct dispatch handle into. commentBridge and findReplaceEditor
+    // are now both available on native — they route through their
+    // respective WebView namespace protocols.
     return {
         ...result,
         tiptapEditor: null,
-        findReplaceEditor: null,
+        findReplaceEditor,
         commentBridge,
     }
 }

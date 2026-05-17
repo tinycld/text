@@ -14,12 +14,15 @@ import {
 } from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
+import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
 import { pb } from '@tinycld/core/lib/pocketbase'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
+import { useImageSelectionStore } from '../lib/stores/image-selection-store'
+import type { ImageSelection } from '../webview-editor/source/editor-state'
 import { editorHtml } from '../webview-editor/build/editorHtml'
 import type { DocumentEditorResult } from './use-document-editor'
 
@@ -82,6 +85,31 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         [options.driveItemId, options.editable, options.placeholder, userId, userName, userColor]
     )
 
+    // Push image-selection events from the WebView into the shared
+    // store the bottom sheet subscribes to. Ignores every non-image-
+    // selection 'ui' message — the union is currently a single type,
+    // but the switch will fan out as future Milestone B+ events land.
+    const onUiMessage = useCallback((message: EditorMessage) => {
+        if (message.type !== 'selection-changed') return
+        const payload = message.payload as
+            | { kind: 'image'; image: ImageSelection }
+            | { kind: 'none' }
+            | undefined
+        if (!payload) return
+        const next = payload.kind === 'image' ? payload.image : null
+        useImageSelectionStore.getState().set(next)
+    }, [])
+
+    // Clear the store on unmount so navigating away (or remounting the
+    // editor between documents) can't leave the bottom sheet stuck
+    // open on a stale selection.
+    useEffect(
+        () => () => {
+            useImageSelectionStore.getState().clear()
+        },
+        []
+    )
+
     const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
@@ -100,6 +128,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         ],
         initPayload,
         editable: options.editable ?? true,
+        onUiMessage,
     })
     // tiptapEditor + findReplaceEditor are web-only — native delegates
     // editing to the WebView's in-frame ProseMirror, which the host

@@ -16,6 +16,7 @@ import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
+import { ImageAttrsBottomSheet } from '../components/ImageAttrsBottomSheet'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
@@ -224,6 +225,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     toolbarState={toolbarState}
                     editable={!isReadOnly}
                 />
+                <ImageAttrsBottomSheet editable={!isReadOnly} commands={commands} />
                 <CopyToFolderDialog
                     itemId={driveItemId}
                     onCopied={newItemId =>

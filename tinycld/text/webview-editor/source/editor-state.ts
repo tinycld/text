@@ -1,4 +1,14 @@
 import { Extension } from '@tiptap/core'
+// Side-effect type imports: load the module augmentations from
+// `@tiptap/extension-code` and `@tiptap/extension-code-block` so
+// `editor.commands.toggleCode` / `toggleCodeBlock` resolve on the
+// SingleCommands surface below. The runtime extensions themselves
+// are registered through StarterKit in Editor.tsx; these imports
+// exist only to anchor the `declare module '@tiptap/core'`
+// augmentations that ship inside each extension's .d.ts.
+import '@tiptap/extension-code'
+import '@tiptap/extension-code-block'
+import { NodeSelection } from '@tiptap/pm/state'
 
 // Shared helpers between the WebView's Editor.tsx and the web variant
 // (use-document-editor.web.tsx). These are pure, editor-only deriving
@@ -11,6 +21,12 @@ import { Extension } from '@tiptap/core'
 // in the rest of the web hook (drive uploads, theme tokens, slash
 // menu, etc.). The WebView and web variants of the same package MUST
 // derive identical state so the toolbar lights up consistently.
+//
+// deriveImageSelection (below) is WebView-only — it reads DOM
+// dimensions off the rendered <img> via getBoundingClientRect and
+// naturalWidth/naturalHeight, so it expects to run inside the WebView
+// where document/HTMLImageElement exist. Tests pass `null` for the
+// view parameter to exercise the early-return path without a DOM.
 
 // EditorLike: the minimum surface the helpers need. Matches both
 // `Editor` from @tiptap/react and the return of `useEditor` (which is
@@ -102,6 +118,125 @@ export function deriveActiveHeadingLevel(
         if (editor.isActive('heading', { level })) return level
     }
     return null
+}
+
+// EditorViewLike: the minimum surface deriveImageSelection needs from
+// the editor's ProseMirror view. `nodeDOM(pos)` returns the rendered
+// DOM node for the node-or-text at the given doc position (or null
+// when the doc hasn't been laid out yet). We accept the view as an
+// opaque parameter so tests can pass `null` and exercise the
+// early-return paths without spinning up a full editor.
+export interface EditorViewLike {
+    nodeDOM(pos: number): Node | null
+}
+
+// EditorWithState: deriveImageSelection needs access to
+// editor.state.selection to ask "is the selection a NodeSelection
+// over an image node?". Spelled out as a structural interface so the
+// test stubs don't have to construct a full Tiptap Editor — they
+// build a tiny object whose `state.selection` looks like ProseMirror's
+// shape and pass it in.
+export interface EditorStateLike {
+    selection: unknown
+}
+
+export interface EditorWithState {
+    state: EditorStateLike
+}
+
+export interface ImageSelection {
+    src: string
+    alt: string | null
+    wrap: 'left' | 'right' | 'break' | null
+    width: number | null
+    height: number | null
+    naturalWidth: number
+    naturalHeight: number
+    rect: { top: number; left: number; width: number; height: number } | null
+}
+
+// Narrow an unknown attribute value into the legal wrap-mode literals
+// the WrappedImage schema accepts. Mirrors WrappedImage's parseHTML
+// guard so the broadcast payload's `wrap` field is always one of
+// 'left' | 'right' | 'break' | null — no surprise strings ever flow
+// through ui.selection-changed.
+function asWrapValue(raw: unknown): 'left' | 'right' | 'break' | null {
+    if (raw === 'left' || raw === 'right' || raw === 'break') return raw
+    return null
+}
+
+// Narrow an unknown attribute value into an integer pixel size or null.
+// The schema persists width/height as integers; defensive parsing here
+// keeps a malformed value (e.g. a string that snuck in via legacy data)
+// from blowing up the host's selection store.
+function asPositiveInt(raw: unknown): number | null {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return null
+    return Math.round(raw)
+}
+
+// deriveImageSelection inspects the editor's current selection. If it
+// is a NodeSelection over an Image node, returns the node's attrs plus
+// the rendered <img>'s natural dimensions and document-coords rect.
+// Returns null otherwise (caret in text, regular range selection, or
+// no view available).
+//
+// The host's bottom sheet subscribes to the resulting payload via the
+// 'ui' namespace channel and renders wrap-mode chips + preset size
+// buttons keyed on whether the natural dimensions are known yet (an
+// image whose bytes haven't loaded reports naturalWidth=0; the sheet
+// disables size selection in that state).
+export function deriveImageSelection(
+    editor: EditorWithState | null | undefined,
+    view: EditorViewLike | null | undefined
+): ImageSelection | null {
+    if (!editor) return null
+    const selection = editor.state.selection
+    if (!(selection instanceof NodeSelection)) return null
+    const node = selection.node
+    if (!node || node.type?.name !== 'image') return null
+    const attrs = (node.attrs ?? {}) as Record<string, unknown>
+    const src = typeof attrs.src === 'string' ? attrs.src : ''
+    const alt = typeof attrs.alt === 'string' && attrs.alt !== '' ? attrs.alt : null
+    const wrap = asWrapValue(attrs.wrap)
+    const width = asPositiveInt(attrs.width)
+    const height = asPositiveInt(attrs.height)
+
+    let naturalWidth = 0
+    let naturalHeight = 0
+    let rect: ImageSelection['rect'] = null
+
+    if (view) {
+        // selection.from is the position of the node's open token (i.e.
+        // its left edge). nodeDOM resolves it to the rendered element
+        // — which is the <img> for an inline image. Defensive against
+        // either the view returning null (doc not yet laid out) or
+        // the resolved node not being an HTMLElement (jsdom edge case).
+        const dom = view.nodeDOM(selection.from)
+        if (dom instanceof HTMLElement) {
+            const box = dom.getBoundingClientRect()
+            rect = {
+                top: box.top + (typeof window !== 'undefined' ? window.scrollY : 0),
+                left: box.left + (typeof window !== 'undefined' ? window.scrollX : 0),
+                width: box.width,
+                height: box.height,
+            }
+            if (dom instanceof HTMLImageElement) {
+                naturalWidth = dom.naturalWidth || 0
+                naturalHeight = dom.naturalHeight || 0
+            }
+        }
+    }
+
+    return {
+        src,
+        alt,
+        wrap,
+        width,
+        height,
+        naturalWidth,
+        naturalHeight,
+        rect,
+    }
 }
 
 // CodeShortcuts overrides the StarterKit-bundled keymaps for inline

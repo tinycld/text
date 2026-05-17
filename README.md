@@ -254,7 +254,7 @@ mutations go through `useMutation`. Mentions resolve through
 | Realtime collaboration             | ✅  | ✅                      |
 | Tables (insert, shading, borders)  | ✅  | ✅                      |
 | Inline images (insert)             | ✅  | ✅                      |
-| Inline images (wrap / resize)      | ✅  | not yet                |
+| Inline images (wrap / resize)      | ✅  | ✅ [^image-mobile]      |
 | Comments                           | ✅  | not yet                |
 | Mentions                           | ✅  | not yet                |
 | Templates                          | ✅  | ✅                      |
@@ -272,6 +272,11 @@ The native editor runs inside a WebView hosting the same ProseMirror
 build under `webview-editor/`. The Yjs document and WebSocket live in
 the native (RN) layer; bridge messages keep the editor view and the
 doc in sync.
+
+[^image-mobile]: Native uses a bottom-sheet anchored to the selected
+    image (wrap mode chips + S / M / L / Original size presets) rather
+    than the desktop's drag handles. See the `text:image-on-mobile`
+    help topic.
 
 ## Package layout
 

@@ -497,6 +497,15 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             setFontFamily: (family: string) =>
                 tiptapEditor?.chain().focus().setFontFamily(family).run(),
             unsetFontFamily: () => tiptapEditor?.chain().focus().unsetFontFamily().run(),
+            // Imperative entry point that mirrors what ImageNodeView.web.tsx
+            // does on direct user input — exists so the surface matches
+            // the WebView/native variant, where the bottom sheet routes
+            // user actions through commands.updateImageAttrs?.(...).
+            // ImageNodeView's own NodeView chrome continues to call
+            // updateAttributes directly; this method is not invoked by
+            // existing web UI.
+            updateImageAttrs: payload =>
+                tiptapEditor?.chain().updateAttributes('image', payload).run(),
         }),
         [tiptapEditor]
     )

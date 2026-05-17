@@ -23,6 +23,7 @@ import {
     deriveCurrentAlign,
     deriveCurrentFontFamily,
     deriveCurrentFontSize,
+    deriveImageSelection,
 } from './editor-state'
 
 // Inline image variant carrying a `wrap` attr (left|right|none) on
@@ -215,6 +216,11 @@ function EditorMounted({ init }: EditorMountedProps) {
         if (!editor) return
         let scheduled = false
         let lastSerialized = ''
+        // Shadow string for the ui.selection-changed channel. Kept
+        // separate from lastSerialized so a typing burst inside text
+        // (which churns stateUpdate every frame) doesn't re-broadcast
+        // a stable "no image selected" payload on every transaction.
+        let lastImageSerialized = ''
         function sendState() {
             if (!editor) return
             const payload = {
@@ -248,9 +254,28 @@ function EditorMounted({ init }: EditorMountedProps) {
                 currentFontFamily: deriveCurrentFontFamily(editor),
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
-            if (serialized === lastSerialized) return
-            lastSerialized = serialized
-            window.ReactNativeWebView?.postMessage(serialized)
+            if (serialized !== lastSerialized) {
+                lastSerialized = serialized
+                window.ReactNativeWebView?.postMessage(serialized)
+            }
+
+            // Broadcast image selection on the 'ui' namespace. The
+            // host's native-side bottom sheet subscribes to this and
+            // opens whenever payload.kind === 'image'. Kept outside the
+            // stateUpdate payload so image-related UI concerns don't
+            // contaminate the toolbar's bridge state shape.
+            const imageSel = deriveImageSelection(editor, editor.view)
+            const imageMsg = JSON.stringify({
+                namespace: 'ui',
+                type: 'selection-changed',
+                payload: imageSel
+                    ? { kind: 'image', image: imageSel }
+                    : { kind: 'none' },
+            })
+            if (imageMsg !== lastImageSerialized) {
+                lastImageSerialized = imageMsg
+                window.ReactNativeWebView?.postMessage(imageMsg)
+            }
         }
         function schedule() {
             if (scheduled) return
@@ -456,6 +481,31 @@ function EditorMounted({ init }: EditorMountedProps) {
                 case 'insert-image': {
                     const { src, alt } = parsed.payload as { src: string; alt?: string }
                     editor.chain().focus().setImage({ src, alt }).run()
+                    break
+                }
+                case 'update-image-attrs': {
+                    const payload = parsed.payload
+                    if (payload === null || typeof payload !== 'object') break
+                    const next: Record<string, unknown> = {}
+                    const wrap = (payload as { wrap?: unknown }).wrap
+                    if (
+                        wrap === 'left' ||
+                        wrap === 'right' ||
+                        wrap === 'break' ||
+                        wrap === null
+                    ) {
+                        next.wrap = wrap
+                    }
+                    const width = (payload as { width?: unknown }).width
+                    if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
+                        next.width = Math.round(width)
+                    }
+                    const height = (payload as { height?: unknown }).height
+                    if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
+                        next.height = Math.round(height)
+                    }
+                    if (Object.keys(next).length === 0) break
+                    editor.chain().focus().updateAttributes('image', next).run()
                     break
                 }
                 case 'cut':

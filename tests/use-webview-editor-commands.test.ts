@@ -191,6 +191,36 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
+    it("updateImageAttrs forwards { wrap, width, height } over format/update-image-attrs", () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.updateImageAttrs?.({ wrap: 'left', width: 400, height: 300 })
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'update-image-attrs',
+            payload: { wrap: 'left', width: 400, height: 300 },
+        })
+    })
+
+    it("updateImageAttrs accepts a wrap-only payload (size unchanged)", () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.updateImageAttrs?.({ wrap: null })
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'update-image-attrs',
+            payload: { wrap: null },
+        })
+    })
+
+    it("updateImageAttrs accepts a size-only payload (wrap unchanged)", () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.updateImageAttrs?.({ width: 200, height: 150 })
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'update-image-attrs',
+            payload: { width: 200, height: 150 },
+        })
+    })
+
     it('skips posting when the WebView ref is null (e.g. before bridge mount)', () => {
         // Defensive: production code guards on webview presence so a
         // command-dispatch during the bridge-mount race doesn't throw.

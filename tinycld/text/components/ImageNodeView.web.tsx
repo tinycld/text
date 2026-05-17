@@ -144,11 +144,21 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
     // selection outline + drag handles in lockstep with whatever the
     // <img> renders at — and it gives the float a deterministic box
     // when wrapped CSS would otherwise also re-apply max-width.
+    //
+    // Break mode is the odd one out: it needs `display: block` so the
+    // following text drops to a new line, not `inline-block` (which
+    // lets text sit beside the wrapper's bottom edge). We set display
+    // inline here rather than in CSS because an inline `style` wins
+    // over the stylesheet's [data-wrap='break'] { display: block }
+    // rule — the rule alone never takes effect.
+    const isBreakMode = wrap === 'break'
     const wrapperStyle = {
         position: 'relative' as const,
-        display: 'inline-block',
+        display: isBreakMode ? 'block' : 'inline-block',
         // Suppress the half-line of descender space the inline-block
-        // wrapper would otherwise add below the img.
+        // wrapper would otherwise add below the img. In break mode the
+        // wrapper is a block on its own line, so the descender gap
+        // doesn't apply.
         lineHeight: 0,
         ...(displayWidth ? { width: `${displayWidth}px` } : {}),
         ...(displayHeight ? { height: `${displayHeight}px` } : {}),
@@ -178,6 +188,50 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
         updateAttributes({ wrap: wrapToAttr(next) })
     }
 
+    // Read the underlying <img>'s natural dimensions and clamp them to
+    // the editor's max width while preserving aspect ratio. naturalWidth
+    // is 0 until the image bytes load (and our drive_items URLs always
+    // resolve, but a freshly-pasted data URI can race). canReset gates
+    // the toolbar button so the user doesn't get a no-op click.
+    function getNaturalSize(): { width: number; height: number } | null {
+        const img = imgRef.current
+        if (!img) return null
+        const naturalWidth = img.naturalWidth
+        const naturalHeight = img.naturalHeight
+        if (naturalWidth <= 0 || naturalHeight <= 0) return null
+        const aspectRatio = naturalWidth / naturalHeight
+        // Reuse the corner-drag clamp so the reset path can't produce
+        // a width/height pair the resize path would reject. Mode is
+        // 'corner' because we want both axes scaled together if the
+        // natural width exceeds IMAGE_MAX_WIDTH.
+        return clampImageSize({
+            width: naturalWidth,
+            height: naturalHeight,
+            aspectRatio,
+            mode: 'corner',
+        })
+    }
+
+    function onResetSize() {
+        const natural = getNaturalSize()
+        if (!natural) return
+        // Orthogonal to wrap (same invariant as onWrapChange) — only
+        // touch dimension keys, never bundle a wrap update.
+        updateAttributes({ width: natural.width, height: natural.height })
+    }
+
+    // canReset is false when either the natural dimensions aren't
+    // readable yet OR the current displayed dimensions already match
+    // them (within 1 px of integer rounding). The toolbar dims the
+    // button in that state so the user sees there's nothing to undo.
+    const natural = getNaturalSize()
+    const canReset =
+        natural !== null &&
+        (displayWidth === null ||
+            displayHeight === null ||
+            Math.abs(displayWidth - natural.width) > 1 ||
+            Math.abs(displayHeight - natural.height) > 1)
+
     return (
         <NodeViewWrapper as="span" style={wrapperStyle} data-wrap={wrap ?? undefined}>
             <img
@@ -198,6 +252,8 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
                         mutedColor={mutedColor}
                         onChange={onWrapChange}
                         anchorRight={wrap === 'right'}
+                        onReset={onResetSize}
+                        canReset={canReset}
                     />
                     <ImageResizeHandles
                         primaryColor={primaryColor}

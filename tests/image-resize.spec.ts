@@ -21,6 +21,16 @@ function makePngBuffer(): Buffer {
     return Buffer.from(PNG_1x2_BASE64, 'base64')
 }
 
+// 100×50 PNG — a natural aspect ratio that's tall enough to exercise
+// both the horizontal-drag (width-only) skew path and the reset path
+// without the min-size clamp obscuring what we measure.
+const PNG_100x50_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAQAAAC2zsK6AAAAFElEQVR42u3BAQ0AAADCoPdPbQ8HFAAAACQNDAABNVlPlAAAAABJRU5ErkJggg=='
+
+function make100x50PngBuffer(): Buffer {
+    return Buffer.from(PNG_100x50_BASE64, 'base64')
+}
+
 test.describe('Text — Image resize', () => {
     test.setTimeout(TEXT_TEST_TIMEOUT)
 
@@ -93,5 +103,82 @@ test.describe('Text — Image resize', () => {
         const heightAfter = Number.parseInt((await inserted.getAttribute('height')) ?? '0', 10)
         expect(widthAfter).toBe(widthPx)
         expect(heightAfter).toBe(heightPx)
+    })
+
+    test('reset-size button restores the natural dimensions after a skew', async ({ page }) => {
+        // Drag the right-edge handle to grow the width without touching
+        // the height — that's how a user accidentally produces a skewed
+        // image (e.g. a 100×50 source dragged to 300×50). The reset
+        // button on the wrap toolbar must restore the natural 100×50
+        // dimensions in one click, even when the wrapper currently
+        // carries a non-natural attr pair.
+        await openFreshTextDocument(page, 'image-resize-reset')
+        await editorRoot(page).click()
+        await page.keyboard.press('End')
+
+        const fileChooserPromise = page.waitForEvent('filechooser')
+        await page.getByRole('button', { name: 'Insert image', exact: true }).click()
+        const chooser = await fileChooserPromise
+        await chooser.setFiles({
+            name: 'reset-fixture.png',
+            mimeType: 'image/png',
+            buffer: make100x50PngBuffer(),
+        })
+
+        const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
+        await expect(inserted).toBeVisible({ timeout: 30_000 })
+
+        // Wait until the image has actually loaded so naturalWidth /
+        // naturalHeight are non-zero. Without this the toolbar's
+        // canReset gate would still be false even after the drag.
+        await page.waitForFunction(
+            () => {
+                const img = document.querySelector<HTMLImageElement>(
+                    '.ProseMirror img[src*="/api/files/drive_items/"]'
+                )
+                return img !== null && img.complete && img.naturalWidth > 0
+            },
+            { timeout: 30_000 }
+        )
+
+        await inserted.click()
+        const rightHandle = editorRoot(page).locator('[data-image-handle="right"]').first()
+        await expect(rightHandle).toBeVisible({ timeout: 5_000 })
+
+        // Horizontal-only drag: width grows, height stays — that's the
+        // skew we want the reset button to undo.
+        const handleBox = await rightHandle.boundingBox()
+        if (!handleBox) throw new Error('right handle has no bounding box')
+        const handleX = handleBox.x + handleBox.width / 2
+        const handleY = handleBox.y + handleBox.height / 2
+        await page.mouse.move(handleX, handleY)
+        await page.mouse.down()
+        await page.mouse.move(handleX + 200, handleY, { steps: 10 })
+        await page.mouse.up()
+
+        const widthBeforeReset = Number.parseInt((await inserted.getAttribute('width')) ?? '0', 10)
+        const heightBeforeReset = Number.parseInt((await inserted.getAttribute('height')) ?? '0', 10)
+        // Sanity: the right-edge drag produced a skewed pair — width
+        // grew, height stayed at the natural value (50). If clampImageSize
+        // ever started touching the height on a horizontal drag this
+        // assertion would catch it.
+        expect(widthBeforeReset).toBeGreaterThan(200)
+        expect(heightBeforeReset).toBe(50)
+
+        const resetButton = editorRoot(page).locator('[data-image-wrap-reset]').first()
+        await expect(resetButton).toBeVisible({ timeout: 5_000 })
+        await expect(resetButton).toBeEnabled()
+        await resetButton.click()
+
+        const widthAfter = Number.parseInt((await inserted.getAttribute('width')) ?? '0', 10)
+        const heightAfter = Number.parseInt((await inserted.getAttribute('height')) ?? '0', 10)
+        expect(widthAfter).toBe(100)
+        expect(heightAfter).toBe(50)
+
+        // After reset, the dimensions match natural, so the button
+        // should disable itself. canReset gates this; if the gate ever
+        // started always returning true, a second click would still
+        // commit (a no-op but a wasted Yjs transaction).
+        await expect(resetButton).toBeDisabled()
     })
 })

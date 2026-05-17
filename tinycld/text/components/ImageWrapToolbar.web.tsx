@@ -1,4 +1,4 @@
-import { AlignJustify, Rows3, WrapText } from 'lucide-react-native'
+import { AlignJustify, RotateCcw, Rows3, WrapText } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import {
     IMAGE_WRAP_MODES,
@@ -36,6 +36,14 @@ interface ImageWrapToolbarProps {
     // wrap='right' images we right-align so the toolbar doesn't get
     // pushed off-screen on narrow viewports.
     anchorRight: boolean
+    // Reset-to-natural-size action. The parent NodeView reads the
+    // <img>'s naturalWidth/naturalHeight and clamps to IMAGE_MAX_WIDTH
+    // before calling onReset; the toolbar just renders the button. The
+    // button dims (and the click is a no-op) when canReset is false —
+    // either no explicit dimensions have been set yet (size already
+    // tracks natural) or the natural dimensions aren't loadable.
+    onReset: () => void
+    canReset: boolean
 }
 
 // Lucide-react-native icons render fine on web (the package emits SVG
@@ -67,6 +75,8 @@ export function ImageWrapToolbar({
     mutedColor,
     onChange,
     anchorRight,
+    onReset,
+    canReset,
 }: ImageWrapToolbarProps) {
     const active = normalizeWrap(wrap)
     const positionStyle = anchorRight
@@ -120,7 +130,81 @@ export function ImageWrapToolbar({
                     onPress={() => onChange(mode)}
                 />
             ))}
+            <ToolbarDivider color={mutedColor} />
+            <ResetSizeButton
+                onPress={onReset}
+                disabled={!canReset}
+                mutedColor={mutedColor}
+            />
         </div>
+    )
+}
+
+interface ToolbarDividerProps {
+    color: string
+}
+
+function ToolbarDivider({ color }: ToolbarDividerProps) {
+    // Vertical separator between the wrap-mode group and the reset
+    // action. Same visual weight as the toolbar's border so the two
+    // sections read as related-but-distinct surfaces.
+    return (
+        <span
+            aria-hidden
+            style={{
+                display: 'inline-block',
+                width: 1,
+                alignSelf: 'stretch',
+                marginInline: 2,
+                backgroundColor: color,
+                opacity: 0.4,
+            }}
+        />
+    )
+}
+
+interface ResetSizeButtonProps {
+    onPress: () => void
+    disabled: boolean
+    mutedColor: string
+}
+
+function ResetSizeButton({ onPress, disabled, mutedColor }: ResetSizeButtonProps) {
+    const color = mutedColor
+    return (
+        <button
+            type="button"
+            data-image-wrap-reset=""
+            aria-label="Reset image size"
+            title="Reset image size"
+            disabled={disabled}
+            onMouseDown={event => event.preventDefault()}
+            onClick={event => {
+                event.preventDefault()
+                event.stopPropagation()
+                if (disabled) return
+                onPress()
+            }}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                padding: 0,
+                border: 'none',
+                borderRadius: 3,
+                backgroundColor: 'transparent',
+                cursor: disabled ? 'default' : 'pointer',
+                color,
+                // The button reads "available but inert" when the image
+                // is already at its natural size — same affordance the
+                // resize handles use when min-clamped.
+                opacity: disabled ? 0.4 : 1,
+            }}
+        >
+            <RotateCcw size={16} color={color} />
+        </button>
     )
 }
 

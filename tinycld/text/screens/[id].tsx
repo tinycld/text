@@ -8,7 +8,7 @@ import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Platform, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import { NewCommentButton } from '../components/comments/NewCommentButton'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
 import { TextCommentDrawer } from '../components/comments/TextCommentDrawer'
@@ -16,6 +16,7 @@ import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
+import { HelpSearchPalette } from '../components/HelpSearchPalette'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
@@ -27,6 +28,7 @@ import { SlashMenu } from '../components/SlashMenu'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
+import { useHelpSearchShortcut } from '../hooks/use-help-search-shortcut'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
@@ -111,6 +113,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const isReadOnly = hello.readOnly
     const printDocument = usePrintDocument(editor)
     usePrintShortcut(printDocument)
+    useHelpSearchShortcut()
     const fileActions = useDocumentFileActions(driveItemId)
     const orgHref = useOrgHref()
     // Link popover is reached from two surfaces — the toolbar's link
@@ -156,9 +159,6 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     onPrint={() => {
                         void printDocument()
                     }}
-                    onOpenKeyboardShortcuts={() =>
-                        void Linking.openURL('https://tinycld.org/docs')
-                    }
                     onRequestInsertLink={() => setContextLinkOpen(true)}
                     onInsertImage={url => commands.insertImage?.(url)}
                 />
@@ -207,6 +207,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     commentBridge={commentBridge}
                 />
                 <SlashMenu />
+                <HelpSearchPalette />
             </View>
         </FindReplaceEditorContext.Provider>
     )

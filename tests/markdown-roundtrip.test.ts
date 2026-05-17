@@ -4,7 +4,7 @@
 // and the clipboard import / .md export surfaces.
 
 import { describe, expect, it } from 'vitest'
-import { markdownToPM } from '../tinycld/text/lib/markdown/md-to-pm'
+import { markdownToPM, markdownToPMBlocks } from '../tinycld/text/lib/markdown/md-to-pm'
 import { pmToMarkdown } from '../tinycld/text/lib/markdown/pm-to-md'
 import {
     MARK_BOLD,
@@ -331,5 +331,52 @@ describe('markdownToPM — unknown block degrades gracefully', () => {
         // the documented behaviour, but the important assertion is "no
         // crash" so we leave the exact shape unverified.
         expect(Array.isArray(doc.content)).toBe(true)
+    })
+})
+
+describe('markdownToPMBlocks — source attribution', () => {
+    it('returns an empty array for empty input', () => {
+        expect(markdownToPMBlocks('')).toEqual([])
+    })
+
+    it('attaches the exact line range to each top-level block', () => {
+        const md = '# Title\n\nFirst paragraph.\n\nSecond paragraph.\n'
+        const blocks = markdownToPMBlocks(md)
+        expect(blocks).toHaveLength(3)
+        expect(blocks[0].block.type).toBe(NODE_HEADING)
+        expect(blocks[0].source).toBe('# Title')
+        expect(blocks[1].block.type).toBe(NODE_PARAGRAPH)
+        expect(blocks[1].source).toBe('First paragraph.')
+        expect(blocks[2].block.type).toBe(NODE_PARAGRAPH)
+        expect(blocks[2].source).toBe('Second paragraph.')
+    })
+
+    it('captures a whole list as one block with its full source', () => {
+        const md = '- one\n- two\n- three\n'
+        const blocks = markdownToPMBlocks(md)
+        expect(blocks).toHaveLength(1)
+        expect(blocks[0].block.type).toBe(NODE_BULLET_LIST)
+        expect(blocks[0].source).toBe('- one\n- two\n- three')
+    })
+
+    it('captures a fenced code block including its source fences', () => {
+        const md = '```\nconst x = 1\n```\n'
+        const blocks = markdownToPMBlocks(md)
+        expect(blocks).toHaveLength(1)
+        expect(blocks[0].block.type).toBe(NODE_CODE_BLOCK)
+        expect(blocks[0].source).toBe('```\nconst x = 1\n```')
+    })
+
+    it('keeps blocks in source order through mixed content', () => {
+        const md = '# H\n\npara\n\n- a\n- b\n\n```\nfn()\n```\n\n---\n'
+        const blocks = markdownToPMBlocks(md)
+        const types = blocks.map(b => b.block.type)
+        expect(types).toEqual([
+            NODE_HEADING,
+            NODE_PARAGRAPH,
+            NODE_BULLET_LIST,
+            NODE_CODE_BLOCK,
+            NODE_PAGE_BREAK,
+        ])
     })
 })

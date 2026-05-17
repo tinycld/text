@@ -10,7 +10,6 @@
         "./types": "./tinycld/text/types.ts",
         "./collections": "./tinycld/text/collections.ts",
         "./screens/*": "./tinycld/text/screens/*.tsx",
-        "./sidebar": "./tinycld/text/sidebar.tsx",
         "./provider": "./tinycld/text/provider.tsx",
         "./hooks/*": "./tinycld/text/hooks/*.ts",
         "./components/*": "./tinycld/text/components/*.tsx"

@@ -16,7 +16,6 @@ export interface MenuBarProps {
     fileActions: DocumentFileActions
     disabled: boolean
     onPrint: () => void
-    onOpenKeyboardShortcuts: () => void
     onRequestInsertLink: () => void
     onInsertImage: (url: string) => void
 }

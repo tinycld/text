@@ -255,13 +255,21 @@ test.describe('Text — Menubar', () => {
     })
 
     test.describe('Help menu', () => {
-        test('Documentation item is present', async ({ page }) => {
+        test('topic items and Browse all are present', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-help')
             await openMenubarMenu(page, 'Help')
-            // We don't follow the link (it leaves the app); presence +
-            // the menubar trigger working is enough.
+            // We don't follow the items (they open the help drawer or
+            // navigate to the help hub); presence is the contract this
+            // test pins so the Help menu can't quietly turn back into
+            // a website link.
             await expect(
-                page.getByRole('menuitem', { name: 'Documentation' })
+                page.getByRole('menuitem', { name: 'Slash menu' })
+            ).toBeVisible()
+            await expect(
+                page.getByRole('menuitem', { name: 'Keyboard shortcuts' })
+            ).toBeVisible()
+            await expect(
+                page.getByRole('menuitem', { name: 'Browse all topics…' })
             ).toBeVisible()
         })
     })

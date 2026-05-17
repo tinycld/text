@@ -1,7 +1,5 @@
-import { openHelp } from '@tinycld/core/lib/help/open-help'
-import { useOrgHref } from '@tinycld/core/lib/org-routes'
+import { openHelp, openHelpPackage } from '@tinycld/core/lib/help/open-help'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
-import { router } from 'expo-router'
 import { Platform } from 'react-native'
 import { useHelpSearchStore } from '../../lib/stores/help-search-store'
 import type { MenuBarProps } from './MenuBar'
@@ -12,7 +10,6 @@ import type { MenuBarProps } from './MenuBar'
 // entries live in the search palette now — listing them inline made
 // the menu a wall of text.
 export function HelpMenu(_props: MenuBarProps) {
-    const orgHref = useOrgHref()
     return (
         <MenuBarMenu menuId="help" label="Help">
             <Menu.Item onPress={() => useHelpSearchStore.getState().open()}>
@@ -23,8 +20,8 @@ export function HelpMenu(_props: MenuBarProps) {
                 <Menu.ItemTitle>Keyboard shortcuts</Menu.ItemTitle>
             </Menu.Item>
             <Separator />
-            <Menu.Item onPress={() => router.push(orgHref('help/text'))}>
-                <Menu.ItemTitle>Browse all topics →</Menu.ItemTitle>
+            <Menu.Item onPress={() => openHelpPackage('text')}>
+                <Menu.ItemTitle>Browse text help</Menu.ItemTitle>
             </Menu.Item>
         </MenuBarMenu>
     )

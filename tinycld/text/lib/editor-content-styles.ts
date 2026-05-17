@@ -202,6 +202,17 @@ export const EDITOR_CONTENT_STYLES = `
     margin: 0.25em 0 0.5em 1em;
     max-width: 50%;
 }
+/* Break mode (Word's "Top and Bottom"): the image takes its own line,
+   floats above are cleared, text below resumes on a fresh row. Centered
+   horizontally via auto margins so users who pick break mode get the
+   centered layout Word writers expect. */
+.ProseMirror [data-node-view-wrapper][data-wrap='break'] {
+    display: block;
+    float: none;
+    clear: both;
+    margin: 0.75em auto;
+    max-width: 100%;
+}
 /* Legacy selectors for the native WebView editor, which still renders
    images as bare <img>s with data-wrap on the element itself (no
    NodeView wrapping). Keep these in sync with the wrapper rules above
@@ -218,13 +229,25 @@ export const EDITOR_CONTENT_STYLES = `
     margin: 0.25em 0 0.5em 1em;
     max-width: 50%;
 }
+.ProseMirror img[data-wrap='break'] {
+    display: block;
+    float: none;
+    clear: both;
+    margin: 0.75em auto;
+    max-width: 100%;
+}
+/* Block-level / break-mode elements clear preceding floats. The break-mode
+   image is in this list because it should never sit beside a float — that's
+   the contract of Word's "Top and Bottom" mode. */
 .ProseMirror h1,
 .ProseMirror h2,
 .ProseMirror h3,
 .ProseMirror h4,
 .ProseMirror h5,
 .ProseMirror h6,
-.ProseMirror table {
+.ProseMirror table,
+.ProseMirror [data-node-view-wrapper][data-wrap='break'],
+.ProseMirror img[data-wrap='break'] {
     clear: both;
 }
 /* Inline code mark. A subtle monospace span with a muted background,

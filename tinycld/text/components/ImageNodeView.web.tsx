@@ -7,6 +7,8 @@ import {
     IMAGE_MIN_SIZE,
     type ResizeMode,
 } from '../lib/image-resize'
+import type { WrapMode } from '../lib/image-wrap-modes'
+import { ImageWrapToolbar, wrapToAttr } from './ImageWrapToolbar.web'
 
 // ImageNodeView replaces Tiptap's default Image DOM rendering so we can
 // overlay drag-to-resize handles on the selected image. When the node
@@ -44,6 +46,7 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
     const { node, updateAttributes, selected, editor } = props
     const primaryColor = useThemeColor('primary')
     const backgroundColor = useThemeColor('background')
+    const mutedColor = useThemeColor('muted-foreground')
 
     const imgRef = useRef<HTMLImageElement | null>(null)
     const dragRef = useRef<DragState | null>(null)
@@ -166,6 +169,15 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
 
     const showHandles = selected && isEditable
 
+    function onWrapChange(next: WrapMode) {
+        // Only send the wrap attr — never bundle width/height in here.
+        // The "modes are orthogonal" invariant in §8 of the plan is
+        // what makes a concurrent resize on another client benign:
+        // wrap and dimensions live on different keys of the same Y.Map
+        // and don't collide.
+        updateAttributes({ wrap: wrapToAttr(next) })
+    }
+
     return (
         <NodeViewWrapper as="span" style={wrapperStyle} data-wrap={wrap ?? undefined}>
             <img
@@ -179,13 +191,22 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
                 draggable={false}
             />
             {showHandles ? (
-                <ImageResizeHandles
-                    primaryColor={primaryColor}
-                    backgroundColor={backgroundColor}
-                    startDrag={startDrag}
-                    width={displayWidth}
-                    height={displayHeight}
-                />
+                <>
+                    <ImageWrapToolbar
+                        wrap={wrap}
+                        primaryColor={primaryColor}
+                        mutedColor={mutedColor}
+                        onChange={onWrapChange}
+                        anchorRight={wrap === 'right'}
+                    />
+                    <ImageResizeHandles
+                        primaryColor={primaryColor}
+                        backgroundColor={backgroundColor}
+                        startDrag={startDrag}
+                        width={displayWidth}
+                        height={displayHeight}
+                    />
+                </>
             ) : null}
         </NodeViewWrapper>
     )

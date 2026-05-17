@@ -78,5 +78,20 @@ test.describe('Text — Image resize', () => {
         const heightPx = Number.parseInt(heightAttr ?? '0', 10)
         expect(widthPx).toBeGreaterThanOrEqual(32)
         expect(heightPx).toBeGreaterThanOrEqual(32)
+
+        // Orthogonality regression: flipping the wrap mode must not
+        // clear the width/height attrs the drag just committed. The
+        // toolbar's onChange handler is wired to only send `{ wrap }`
+        // — the plan's §8 invariant. If a future refactor bundled
+        // dimensions back into that updateAttributes call, the
+        // concurrent-resize race would no longer be benign.
+        const toolbar = editorRoot(page).locator('[data-image-wrap-toolbar]').first()
+        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await toolbar.locator('[data-image-wrap-mode="left"]').click()
+
+        const widthAfter = Number.parseInt((await inserted.getAttribute('width')) ?? '0', 10)
+        const heightAfter = Number.parseInt((await inserted.getAttribute('height')) ?? '0', 10)
+        expect(widthAfter).toBe(widthPx)
+        expect(heightAfter).toBe(heightPx)
     })
 })

@@ -486,4 +486,149 @@ test.describe('Text — .docx fidelity', () => {
             ).toBeGreaterThan(layout.img.right - 1)
         }
     })
+
+    test('flipping the fixture image to wrap=right pushes text to its left', async ({
+        page,
+    }) => {
+        // The fixture ships with wrap=left images; we re-use one by
+        // flipping it via the wrap toolbar to verify the right-side
+        // float renders correctly without needing a new docx fixture.
+        // The fixture's `wrap` attr round-trips through Yjs the same
+        // way a user click would, so this also incidentally exercises
+        // the schema update path.
+        await openFixture(page)
+        const wrapper = page.locator(
+            '.ProseMirror [data-node-view-wrapper][data-wrap="left"]'
+        ).first()
+        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+
+        // Click the image inside the wrapper to surface the toolbar.
+        await wrapper.locator('img').click()
+        const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
+        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await toolbar.locator('[data-image-wrap-mode="right"]').click()
+        await expect(wrapper).toHaveAttribute('data-wrap', 'right', { timeout: 2_000 })
+
+        const layout = await page.evaluate(() => {
+            const w = document.querySelector<HTMLElement>(
+                '.ProseMirror [data-node-view-wrapper][data-wrap="right"]'
+            )
+            if (!w) return { found: false as const }
+            const img = w.querySelector<HTMLImageElement>('img')
+            if (!img) throw new Error('wrapper has no img')
+            const para = w.closest('p')
+            const iRect = img.getBoundingClientRect()
+            let firstTextRectLeft: number | null = null
+            if (para) {
+                const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT, null)
+                let node = walker.nextNode()
+                while (node) {
+                    const text = (node.nodeValue ?? '').trim()
+                    if (text.length > 0) {
+                        const range = document.createRange()
+                        range.selectNodeContents(node)
+                        const r = range.getClientRects()[0]
+                        if (r) {
+                            firstTextRectLeft = r.left
+                            break
+                        }
+                    }
+                    node = walker.nextNode()
+                }
+            }
+            return { found: true as const, img: { left: iRect.left }, firstTextRectLeft }
+        })
+
+        expect(layout.found, 'wrapper should have flipped to data-wrap=right').toBe(true)
+        if (!layout.found) return
+        expect(
+            layout.firstTextRectLeft,
+            'expected a text run in the image paragraph'
+        ).not.toBeNull()
+        if (layout.firstTextRectLeft !== null) {
+            // Under wrap=right the image sits at the paragraph's right
+            // edge and text starts at the left. A run from that
+            // paragraph should have its left rect at or near the
+            // paragraph's left margin — well to the LEFT of the image.
+            expect(
+                layout.firstTextRectLeft,
+                'text should flow to the left of the right-floated image'
+            ).toBeLessThan(layout.img.left + 1)
+        }
+    })
+
+    test('flipping the fixture image to wrap=break clears text to top + bottom', async ({
+        page,
+    }) => {
+        // Word's "Top and Bottom" wrap: text never sits beside the
+        // image — it only flows above and below. The wrapper renders
+        // display:block + clear:both, which means every other text run
+        // in the same paragraph (if any survives the layout) must be
+        // either fully above or fully below the image's bounding box.
+        await openFixture(page)
+        const wrapper = page.locator(
+            '.ProseMirror [data-node-view-wrapper][data-wrap="left"]'
+        ).first()
+        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await wrapper.locator('img').click()
+        const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
+        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await toolbar.locator('[data-image-wrap-mode="break"]').click()
+        await expect(wrapper).toHaveAttribute('data-wrap', 'break', { timeout: 2_000 })
+
+        const layout = await page.evaluate(() => {
+            const w = document.querySelector<HTMLElement>(
+                '.ProseMirror [data-node-view-wrapper][data-wrap="break"]'
+            )
+            if (!w) return { found: false as const }
+            const img = w.querySelector<HTMLImageElement>('img')
+            if (!img) throw new Error('wrapper has no img')
+            const iRect = img.getBoundingClientRect()
+            // Walk every text node in the document and collect its
+            // client rects. For each rect, classify it as "above"
+            // (bottom <= img.top) or "below" (top >= img.bottom). Any
+            // rect that overlaps the image's vertical band is a wrap
+            // violation — under break mode no text should ride beside
+            // the image.
+            const overlaps: { left: number; top: number; right: number; bottom: number }[] = []
+            const para = w.closest('p')
+            if (para) {
+                const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT, null)
+                let node = walker.nextNode()
+                while (node) {
+                    const text = (node.nodeValue ?? '').trim()
+                    if (text.length > 0) {
+                        const range = document.createRange()
+                        range.selectNodeContents(node)
+                        for (const r of Array.from(range.getClientRects())) {
+                            if (r.width === 0 || r.height === 0) continue
+                            const liesAbove = r.bottom <= iRect.top + 1
+                            const liesBelow = r.top >= iRect.bottom - 1
+                            if (!liesAbove && !liesBelow) {
+                                overlaps.push({
+                                    left: r.left,
+                                    top: r.top,
+                                    right: r.right,
+                                    bottom: r.bottom,
+                                })
+                            }
+                        }
+                    }
+                    node = walker.nextNode()
+                }
+            }
+            return {
+                found: true as const,
+                img: { top: iRect.top, bottom: iRect.bottom },
+                overlaps,
+            }
+        })
+
+        expect(layout.found, 'wrapper should have flipped to data-wrap=break').toBe(true)
+        if (!layout.found) return
+        expect(
+            layout.overlaps,
+            `expected no text rects beside the break-mode image (got ${layout.overlaps.length}: ${JSON.stringify(layout.overlaps)})`
+        ).toHaveLength(0)
+    })
 })

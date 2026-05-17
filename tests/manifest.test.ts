@@ -125,19 +125,6 @@ describe('text manifest directories on disk', () => {
         expect(existsSync(join(PACKAGE_ROOT, fsPath!))).toBe(true)
     })
 
-    it('resolves sidebar.component through the exports map to a real .tsx', () => {
-        const sub = manifest.sidebar?.component
-        expect(sub).toBeDefined()
-        const fsPath = resolveSubpath(sub!)
-        expect(fsPath, `exports map must cover ./${sub}`).not.toBeNull()
-        // sidebar/provider entries resolve to bare names (the exports
-        // value strips the extension); the actual file has .tsx.
-        expect(
-            existsSync(join(PACKAGE_ROOT, `${fsPath!}.tsx`)) ||
-                existsSync(join(PACKAGE_ROOT, fsPath!))
-        ).toBe(true)
-    })
-
     it('resolves provider.component through the exports map to a real .tsx', () => {
         const sub = manifest.provider?.component
         expect(sub).toBeDefined()

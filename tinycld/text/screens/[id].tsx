@@ -178,6 +178,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     }}
                     onRequestInsertLink={() => setContextLinkOpen(true)}
                     onInsertImage={url => commands.insertImage?.(url)}
+                    tiptapEditor={tiptapEditor}
                 />
                 <DocumentToolbar
                     commands={commands}

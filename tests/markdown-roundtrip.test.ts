@@ -62,6 +62,32 @@ describe('markdownToPM — paragraph with inline marks', () => {
     })
 })
 
+describe('markdownToPM — code-inline exclusivity', () => {
+    // The PM `code` mark in StarterKit is exclusive (`excludes: '_'`), so
+    // emitting a text node that carries both `link` and `code` makes
+    // insertContent reject the entire doc with "Invalid collection of
+    // marks for node text: link,code". The parser drops competing marks
+    // on code-inline text so the PM JSON it produces is always insertable.
+    it('drops surrounding link mark from code inside a link', () => {
+        const doc = markdownToPM('A [pre `code` post](https://example.com) tail.')
+        const para = doc.content?.[0]
+        const kids = para?.content ?? []
+        const codeNode = kids.find(n => n.marks?.some(m => m.type === MARK_CODE))
+        expect(codeNode?.text).toBe('code')
+        expect(codeNode?.marks).toHaveLength(1)
+        expect(codeNode?.marks?.[0]?.type).toBe(MARK_CODE)
+    })
+
+    it('drops surrounding bold/italic marks from code', () => {
+        const doc = markdownToPM('A **bold and `code` together** tail.')
+        const para = doc.content?.[0]
+        const kids = para?.content ?? []
+        const codeNode = kids.find(n => n.marks?.some(m => m.type === MARK_CODE))
+        expect(codeNode?.marks).toHaveLength(1)
+        expect(codeNode?.marks?.[0]?.type).toBe(MARK_CODE)
+    })
+})
+
 describe('markdownToPM — heading levels', () => {
     it('captures level 1, 2, 3 headings', () => {
         const doc = markdownToPM('# h1\n\n## h2\n\n### h3\n')

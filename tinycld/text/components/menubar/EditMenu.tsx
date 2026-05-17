@@ -1,4 +1,3 @@
-import { captureException } from '@tinycld/core/lib/errors'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { markdownToPM } from '../../lib/markdown/md-to-pm'
 import type { MenuBarProps } from './MenuBar'
@@ -7,6 +6,12 @@ export function EditMenu(props: MenuBarProps) {
     const { commands, toolbarState, disabled, tiptapEditor } = props
     const selectionEmpty = toolbarState.selectionEmpty ?? true
     const editDisabled = disabled || selectionEmpty
+    // biome-ignore lint/suspicious/noConsole: dev-only diagnostic
+    console.log('[EditMenu] render', {
+        disabled,
+        hasEditor: !!tiptapEditor,
+        pasteMdDisabled: disabled || !tiptapEditor,
+    })
 
     // Reads plain text from the system clipboard and inserts it as
     // structured PM content. Async because navigator.clipboard.readText
@@ -23,26 +28,63 @@ export function EditMenu(props: MenuBarProps) {
     // default <0, 0> at position 0, which is *outside* every block —
     // insertContent at that position silently rejects every block-level
     // node and the user sees nothing happen.
+    //
+    // Every step logs to the console so a still-broken paste in dev
+    // shows where it died without attaching a debugger. These are
+    // dev-only diagnostics — they don't route to Sentry (it's local
+    // dev noise) and stay in the source until the feature is stable.
     const pasteAsMarkdown = () => {
-        if (!tiptapEditor) return
-        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
+        // biome-ignore lint/suspicious/noConsole: diagnostic trail for a fire-and-forget menu handler
+        console.log('[pasteAsMarkdown] handler invoked', {
+            hasEditor: !!tiptapEditor,
+            hasNavigator: typeof navigator !== 'undefined',
+            hasClipboard: typeof navigator !== 'undefined' && !!navigator.clipboard,
+            hasReadText:
+                typeof navigator !== 'undefined' && !!navigator.clipboard?.readText,
+        })
+        if (!tiptapEditor) {
+            // biome-ignore lint/suspicious/noConsole: diagnostic
+            console.warn('[pasteAsMarkdown] aborted: no tiptapEditor (native path?)')
+            return
+        }
+        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+            // biome-ignore lint/suspicious/noConsole: diagnostic
+            console.warn('[pasteAsMarkdown] aborted: clipboard API unavailable')
+            return
+        }
         navigator.clipboard
             .readText()
             .then(text => {
+                // biome-ignore lint/suspicious/noConsole: diagnostic
+                console.log('[pasteAsMarkdown] readText resolved', {
+                    length: text?.length ?? 0,
+                    preview: text?.slice(0, 80),
+                })
                 if (!text) {
-                    captureException('text.pasteAsMarkdown', new Error('clipboard was empty'))
+                    // biome-ignore lint/suspicious/noConsole: diagnostic
+                    console.warn('[pasteAsMarkdown] aborted: clipboard empty')
                     return
                 }
                 const doc = markdownToPM(text)
                 const blocks = doc.content ?? []
+                // biome-ignore lint/suspicious/noConsole: diagnostic
+                console.log('[pasteAsMarkdown] markdownToPM parsed', {
+                    blockCount: blocks.length,
+                    blockTypes: blocks.map(b => b.type),
+                })
                 if (blocks.length === 0) {
-                    captureException(
-                        'text.pasteAsMarkdown',
-                        new Error(`markdownToPM produced no blocks (input length ${text.length})`)
-                    )
+                    // biome-ignore lint/suspicious/noConsole: diagnostic
+                    console.warn('[pasteAsMarkdown] aborted: parser produced 0 blocks')
                     return
                 }
                 const endPos = Math.max(0, tiptapEditor.state.doc.content.size)
+                // biome-ignore lint/suspicious/noConsole: diagnostic
+                console.log('[pasteAsMarkdown] inserting', {
+                    endPos,
+                    docSize: tiptapEditor.state.doc.content.size,
+                    isEditable: tiptapEditor.isEditable,
+                    isFocused: tiptapEditor.isFocused,
+                })
                 const ok = tiptapEditor
                     .chain()
                     .focus()
@@ -51,16 +93,16 @@ export function EditMenu(props: MenuBarProps) {
                         blocks as Parameters<typeof tiptapEditor.commands.insertContent>[0]
                     )
                     .run()
-                if (!ok) {
-                    captureException(
-                        'text.pasteAsMarkdown',
-                        new Error(
-                            `insertContent chain refused (${blocks.length} blocks at pos ${endPos})`
-                        )
-                    )
-                }
+                // biome-ignore lint/suspicious/noConsole: diagnostic
+                console.log('[pasteAsMarkdown] chain.run() returned', {
+                    ok,
+                    docSizeAfter: tiptapEditor.state.doc.content.size,
+                })
             })
-            .catch(err => captureException('text.pasteAsMarkdown', err))
+            .catch(err => {
+                // biome-ignore lint/suspicious/noConsole: diagnostic
+                console.error('[pasteAsMarkdown] promise rejected', err)
+            })
     }
 
     return (

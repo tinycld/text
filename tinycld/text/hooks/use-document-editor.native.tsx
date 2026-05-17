@@ -89,15 +89,23 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // store the bottom sheet subscribes to. Ignores every non-image-
     // selection 'ui' message — the union is currently a single type,
     // but the switch will fan out as future Milestone B+ events land.
+    //
+    // Payload-narrowing is done at runtime here (not via a single
+    // `as` cast) so that a future selection-kind we don't yet handle
+    // (e.g. 'popover', 'comment') falls through silently rather than
+    // being mis-coerced to an ImageSelection. The cast on the matched
+    // branch is the narrowest possible — just the .image field after
+    // we've verified kind === 'image'.
     const onUiMessage = useCallback((message: EditorMessage) => {
         if (message.type !== 'selection-changed') return
-        const payload = message.payload as
-            | { kind: 'image'; image: ImageSelection }
-            | { kind: 'none' }
-            | undefined
-        if (!payload) return
-        const next = payload.kind === 'image' ? payload.image : null
-        useImageSelectionStore.getState().set(next)
+        const payload = message.payload
+        if (payload === null || typeof payload !== 'object') return
+        if (!('kind' in payload)) return
+        if (payload.kind === 'image' && 'image' in payload) {
+            useImageSelectionStore.getState().setSelection(payload.image as ImageSelection)
+        } else if (payload.kind === 'none') {
+            useImageSelectionStore.getState().setSelection(null)
+        }
     }, [])
 
     // Clear the store on unmount so navigating away (or remounting the
@@ -105,7 +113,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // open on a stale selection.
     useEffect(
         () => () => {
-            useImageSelectionStore.getState().clear()
+            useImageSelectionStore.getState().clearSelection()
         },
         []
     )

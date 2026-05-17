@@ -47,7 +47,7 @@ function makeSelection(over: Partial<ImageSelection> = {}): ImageSelection {
 }
 
 beforeEach(() => {
-    useImageSelectionStore.getState().clear()
+    useImageSelectionStore.getState().clearSelection()
 })
 
 describe('resolvePresetSize', () => {
@@ -121,21 +121,21 @@ describe('useImageSelectionStore - bottom-sheet open/close lifecycle', () => {
         expect(useImageSelectionStore.getState().selection).toBeNull()
     })
 
-    it('set() with a selection opens the sheet; clear() closes it', () => {
+    it('setSelection() with a selection opens the sheet; clearSelection() closes it', () => {
         const sel = makeSelection({ wrap: 'left' })
-        useImageSelectionStore.getState().set(sel)
+        useImageSelectionStore.getState().setSelection(sel)
         expect(useImageSelectionStore.getState().selection).toEqual(sel)
 
-        useImageSelectionStore.getState().clear()
+        useImageSelectionStore.getState().clearSelection()
         expect(useImageSelectionStore.getState().selection).toBeNull()
     })
 
-    it('set(null) clears the selection (equivalent to clear())', () => {
+    it('setSelection(null) clears the selection (equivalent to clearSelection())', () => {
         // useDocumentEditor.native pushes payload.kind === "image" ?
-        // payload.image : null straight into set(). Verifying the null
-        // path keeps that callsite from drifting.
-        useImageSelectionStore.getState().set(makeSelection())
-        useImageSelectionStore.getState().set(null)
+        // payload.image : null straight into setSelection(). Verifying
+        // the null path keeps that callsite from drifting.
+        useImageSelectionStore.getState().setSelection(makeSelection())
+        useImageSelectionStore.getState().setSelection(null)
         expect(useImageSelectionStore.getState().selection).toBeNull()
     })
 })

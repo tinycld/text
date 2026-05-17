@@ -71,7 +71,7 @@ export function ImageAttrsBottomSheet({ editable, commands }: ImageAttrsBottomSh
 
 function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands }) {
     const selection = useImageSelectionStore(s => s.selection)
-    const clear = useImageSelectionStore(s => s.clear)
+    const clearSelection = useImageSelectionStore(s => s.clearSelection)
     const isOpen = selection !== null
 
     if (!isOpen || !selection) return null
@@ -91,14 +91,14 @@ function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands })
     }
 
     return (
-        <Actionsheet isOpen={isOpen} onClose={clear}>
+        <Actionsheet isOpen={isOpen} onClose={clearSelection}>
             <ActionsheetBackdrop />
             <ActionsheetContent>
                 <ActionsheetDragIndicatorWrapper>
                     <ActionsheetDragIndicator />
                 </ActionsheetDragIndicatorWrapper>
                 <View className="w-full gap-4 px-2 py-3">
-                    <Header onClose={clear} />
+                    <Header onClose={clearSelection} />
                     <Section label="Wrap">
                         <View className="flex-row flex-wrap gap-2">
                             {IMAGE_WRAP_MODES.map(mode => (
@@ -161,15 +161,16 @@ interface SectionProps {
 }
 
 function Section({ label, hint, children }: SectionProps) {
+    const hintNode = hint ? (
+        <Text className="text-xs text-muted-foreground">{hint}</Text>
+    ) : null
     return (
         <View className="gap-2">
             <View className="flex-row items-center justify-between">
                 <Text className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {label}
                 </Text>
-                {hint ? (
-                    <Text className="text-xs text-muted-foreground">{hint}</Text>
-                ) : null}
+                {hintNode}
             </View>
             {children}
         </View>

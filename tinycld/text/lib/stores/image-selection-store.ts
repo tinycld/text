@@ -15,12 +15,12 @@ import type { ImageSelection } from '../../webview-editor/source/editor-state'
 
 interface ImageSelectionState {
     selection: ImageSelection | null
-    set: (next: ImageSelection | null) => void
-    clear: () => void
+    setSelection: (next: ImageSelection | null) => void
+    clearSelection: () => void
 }
 
 export const useImageSelectionStore = create<ImageSelectionState>(set => ({
     selection: null,
-    set: next => set({ selection: next }),
-    clear: () => set({ selection: null }),
+    setSelection: next => set({ selection: next }),
+    clearSelection: () => set({ selection: null }),
 }))

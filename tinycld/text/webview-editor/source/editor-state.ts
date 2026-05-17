@@ -26,7 +26,26 @@ import { NodeSelection } from '@tiptap/pm/state'
 // dimensions off the rendered <img> via getBoundingClientRect and
 // naturalWidth/naturalHeight, so it expects to run inside the WebView
 // where document/HTMLImageElement exist. Tests pass `null` for the
-// view parameter to exercise the early-return path without a DOM.
+// view parameter to exercise the early-return path without a DOM,
+// or a duck-typed stub view to exercise the DOM branch.
+//
+// Rect coordinate contract: the `rect` field carries the <img>'s
+// viewport-coords as returned by getBoundingClientRect (i.e. top/left
+// relative to the WebView's currently-visible area), PLUS a snapshot
+// of window.scrollX/scrollY at capture time. We deliberately do NOT
+// pre-add the scroll values into top/left, because the popover/
+// overlay infra on the host needs both pieces of information:
+//   - viewport coords answer "where on the visible WebView is the
+//     image right now?" — what the host needs to anchor a native
+//     popover over a WebView element.
+//   - scroll snapshot answers "did the user scroll between when this
+//     rect was captured and when we're rendering the overlay?" — the
+//     host compares the snapshot to the WebView's current scroll
+//     and either re-anchors the overlay or dismisses it.
+// Pre-adding the scroll values bakes one fact into the rect and
+// destroys the other; keeping them separate preserves both. Hosts
+// that need document-coords can compute (top + scrollY, left + scrollX)
+// trivially from the broadcast payload.
 
 // EditorLike: the minimum surface the helpers need. Matches both
 // `Editor` from @tiptap/react and the return of `useEditor` (which is
@@ -152,7 +171,21 @@ export interface ImageSelection {
     height: number | null
     naturalWidth: number
     naturalHeight: number
-    rect: { top: number; left: number; width: number; height: number } | null
+    rect: {
+        // Viewport coords (raw getBoundingClientRect output — top/left
+        // relative to the WebView's visible area, not the document).
+        top: number
+        left: number
+        width: number
+        height: number
+        // Scroll snapshot of the WebView's document at the moment this
+        // rect was captured. The host can use these to derive
+        // document-coords (top+scrollY, left+scrollX) or, more usefully,
+        // detect that the user has scrolled since emit and decide
+        // whether to re-anchor the overlay or dismiss it.
+        scrollX: number
+        scrollY: number
+    } | null
 }
 
 // Narrow an unknown attribute value into the legal wrap-mode literals
@@ -176,9 +209,11 @@ function asPositiveInt(raw: unknown): number | null {
 
 // deriveImageSelection inspects the editor's current selection. If it
 // is a NodeSelection over an Image node, returns the node's attrs plus
-// the rendered <img>'s natural dimensions and document-coords rect.
-// Returns null otherwise (caret in text, regular range selection, or
-// no view available).
+// the rendered <img>'s natural dimensions and a rect describing the
+// element's viewport position alongside a snapshot of the WebView's
+// scroll offsets at capture time (see ImageSelection above for the
+// coordinate-contract rationale). Returns null otherwise (caret in
+// text, regular range selection, or no view available).
 //
 // The host's bottom sheet subscribes to the resulting payload via the
 // 'ui' namespace channel and renders wrap-mode chips + preset size
@@ -213,12 +248,20 @@ export function deriveImageSelection(
         // the resolved node not being an HTMLElement (jsdom edge case).
         const dom = view.nodeDOM(selection.from)
         if (dom instanceof HTMLElement) {
+            // Viewport coords from getBoundingClientRect + scroll snapshot
+            // from window.scrollX/scrollY. See the file header for the
+            // full rationale; tl;dr: do NOT add scroll to top/left here,
+            // because the host needs both pieces independently to decide
+            // whether to re-anchor or dismiss a popover after the user
+            // scrolls between capture and render.
             const box = dom.getBoundingClientRect()
             rect = {
-                top: box.top + (typeof window !== 'undefined' ? window.scrollY : 0),
-                left: box.left + (typeof window !== 'undefined' ? window.scrollX : 0),
+                top: box.top,
+                left: box.left,
                 width: box.width,
                 height: box.height,
+                scrollX: typeof window !== 'undefined' ? window.scrollX : 0,
+                scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
             }
             if (dom instanceof HTMLImageElement) {
                 naturalWidth = dom.naturalWidth || 0

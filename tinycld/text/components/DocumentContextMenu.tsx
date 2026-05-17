@@ -10,6 +10,7 @@ import {
     Copy,
     Link as LinkIcon,
     Merge,
+    MessageSquarePlus,
     Rows,
     Scissors,
     Split,
@@ -30,6 +31,8 @@ interface DocumentContextMenuProps {
     toolbarState: EditorToolbarState
     editable: boolean
     onRequestInsertLink: () => void
+    onRequestAddComment?: () => void
+    canAddComment?: boolean
     className?: string
 }
 
@@ -49,6 +52,8 @@ export function DocumentContextMenu({
     toolbarState,
     editable,
     onRequestInsertLink,
+    onRequestAddComment,
+    canAddComment = false,
     className,
 }: DocumentContextMenuProps) {
     return (
@@ -60,6 +65,8 @@ export function DocumentContextMenu({
                     toolbarState={toolbarState}
                     editable={editable}
                     onRequestInsertLink={onRequestInsertLink}
+                    onRequestAddComment={onRequestAddComment}
+                    canAddComment={canAddComment}
                 />
             )}
         >
@@ -73,15 +80,26 @@ interface MenuContentProps {
     toolbarState: EditorToolbarState
     editable: boolean
     onRequestInsertLink: () => void
+    onRequestAddComment?: () => void
+    canAddComment: boolean
 }
 
-function MenuContent({ commands, toolbarState, editable, onRequestInsertLink }: MenuContentProps) {
+function MenuContent({
+    commands,
+    toolbarState,
+    editable,
+    onRequestInsertLink,
+    onRequestAddComment,
+    canAddComment,
+}: MenuContentProps) {
     const mutedColor = useThemeColor('muted-foreground')
     const groups = buildDocumentContextMenu({
         commands,
         toolbarState,
         editable,
         onRequestInsertLink,
+        onRequestAddComment,
+        canAddComment,
     })
 
     return (
@@ -121,6 +139,7 @@ const ITEM_META: Record<ContextMenuItemId, IconMeta> = {
     delete: { icon: Trash2 },
     'select-all': { icon: TextSelect, shortcut: '$mod+a' },
     'insert-link': { icon: LinkIcon, shortcut: '$mod+k' },
+    'add-comment': { icon: MessageSquarePlus },
     'table-insert-row-above': { icon: Rows },
     'table-insert-row-below': { icon: Rows },
     'table-insert-column-left': { icon: Columns },

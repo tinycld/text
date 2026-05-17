@@ -10,6 +10,7 @@ export type ContextMenuItemId =
     | 'delete'
     | 'select-all'
     | 'insert-link'
+    | 'add-comment'
     | 'table-insert-row-above'
     | 'table-insert-row-below'
     | 'table-insert-column-left'
@@ -37,6 +38,12 @@ interface BuildArgs {
     toolbarState: EditorToolbarState
     editable: boolean
     onRequestInsertLink: () => void
+    // Optional: surfaces the "Add comment" row. Omit when the comment
+    // system isn't mounted (e.g. native v1). When provided, the row is
+    // rendered but only enabled when canAddComment is true (the screen
+    // computes this from editable + non-empty selection + bridge).
+    onRequestAddComment?: () => void
+    canAddComment?: boolean
 }
 
 // buildDocumentContextMenu returns the groups that should be rendered
@@ -48,6 +55,8 @@ export function buildDocumentContextMenu({
     toolbarState,
     editable,
     onRequestInsertLink,
+    onRequestAddComment,
+    canAddComment = false,
 }: BuildArgs): ContextMenuGroup[] {
     const hasSelection = !(toolbarState.selectionEmpty ?? true)
     const isInTable = toolbarState.isInTable ?? false
@@ -95,6 +104,19 @@ export function buildDocumentContextMenu({
     ]
 
     const groups: ContextMenuGroup[] = [{ rows: clipboard }, { rows: link }]
+
+    if (onRequestAddComment) {
+        groups.push({
+            rows: [
+                {
+                    id: 'add-comment',
+                    label: 'Add comment',
+                    isDisabled: !canAddComment,
+                    invoke: onRequestAddComment,
+                },
+            ],
+        })
+    }
 
     if (isInTable) {
         groups.push({

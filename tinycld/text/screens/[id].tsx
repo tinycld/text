@@ -7,7 +7,7 @@ import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import { NewCommentButton } from '../components/comments/NewCommentButton'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
@@ -29,6 +29,7 @@ import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import { useHelpSearchShortcut } from '../hooks/use-help-search-shortcut'
+import { useNewCommentFlow } from '../hooks/use-new-comment-flow'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
@@ -123,6 +124,28 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const [contextLinkOpen, setContextLinkOpen] = useState(false)
     const documentComments = useDocumentComments(driveItemId, commentBridge)
     useCommentsLifecycle(driveItemId)
+    useCommentTapHandler(driveItemId, commentBridge, documentComments)
+    const newCommentFlow = useNewCommentFlow({
+        driveItemId,
+        commentBridge,
+        selectionEmpty: toolbarState.selectionEmpty ?? true,
+        editable: !isReadOnly,
+    })
+
+    // Open (unresolved, non-orphaned) thread count drives the badge on
+    // the OpenCommentsDrawerButton. Recomputes when threads or the
+    // orphan set change.
+    const openThreadCount = useMemo(() => {
+        const { threadsByCommentId, orphanedCommentIds } = documentComments
+        let count = 0
+        for (const [commentId, threads] of threadsByCommentId) {
+            if (orphanedCommentIds.has(commentId)) continue
+            for (const t of threads) {
+                if (t.resolvedAt == null) count += 1
+            }
+        }
+        return count
+    }, [documentComments])
 
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
@@ -138,13 +161,10 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     <WordCountBadge editor={tiptapEditor} />
                     <ReconnectingIndicator isVisible={!room.isConnected} />
                     <View className="ml-auto flex-row items-center gap-1">
-                        <NewCommentButton
+                        <OpenCommentsDrawerButton
                             driveItemId={driveItemId}
-                            commentBridge={commentBridge}
-                            selectionEmpty={toolbarState.selectionEmpty ?? true}
-                            disabled={isReadOnly}
+                            openCount={openThreadCount}
                         />
-                        <OpenCommentsDrawerButton driveItemId={driveItemId} />
                     </View>
                 </View>
                 <ImportWarningBanner warnings={hello.importWarnings} />
@@ -162,12 +182,23 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     onRequestInsertLink={() => setContextLinkOpen(true)}
                     onInsertImage={url => commands.insertImage?.(url)}
                 />
-                <DocumentToolbar commands={commands} state={toolbarState} disabled={isReadOnly} />
+                <DocumentToolbar
+                    commands={commands}
+                    state={toolbarState}
+                    disabled={isReadOnly}
+                    newCommentFlow={{
+                        canStart: newCommentFlow.canStart,
+                        isOpen: newCommentFlow.isOpen,
+                        start: newCommentFlow.start,
+                    }}
+                />
                 <DocumentContextMenu
                     commands={commands}
                     toolbarState={toolbarState}
                     editable={!isReadOnly}
                     onRequestInsertLink={() => setContextLinkOpen(true)}
+                    onRequestAddComment={newCommentFlow.start}
+                    canAddComment={newCommentFlow.canStart}
                     className="flex-1"
                 >
                     <ScrollView className="flex-1">
@@ -206,6 +237,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     documentComments={documentComments}
                     commentBridge={commentBridge}
                 />
+                {newCommentFlow.modal}
                 <SlashMenu />
                 <HelpSearchPalette />
             </View>
@@ -229,6 +261,34 @@ function useCommentsLifecycle(driveItemId: string) {
         }
         return () => reset()
     }, [driveItemId, thread, reset, open])
+}
+
+// Bridges editor mark taps to the comments drawer. The bridge gives us
+// a commentId (the mark's group key); the store focuses on a thread
+// root id, so we resolve via the screen's already-built thread map.
+// Reading the map through a ref keeps the bridge subscription stable
+// across keystrokes — re-subscribing on every transaction would drop
+// taps that arrive between unsubscribe and resubscribe.
+function useCommentTapHandler(
+    driveItemId: string,
+    commentBridge: ReturnType<typeof useTextDocument>['commentBridge'],
+    documentComments: ReturnType<typeof useDocumentComments>
+) {
+    const open = useCommentsDrawerStore(s => s.open)
+    const threadsRef = useRef(documentComments.threadsByCommentId)
+    threadsRef.current = documentComments.threadsByCommentId
+
+    useEffect(() => {
+        if (!commentBridge) return
+        return commentBridge.onTap(commentId => {
+            const threadId = threadsRef.current.get(commentId)?.[0]?.root.id ?? null
+            open({
+                packageSlug: 'text',
+                driveItemId,
+                threadId: threadId ?? undefined,
+            })
+        })
+    }, [commentBridge, driveItemId, open])
 }
 
 interface CenteredMessageProps {

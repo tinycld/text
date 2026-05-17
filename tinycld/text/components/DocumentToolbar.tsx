@@ -30,6 +30,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
 import { BorderMenu } from './BorderMenu'
+import { NewCommentButton } from './comments/NewCommentButton'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
 import { HelpSearchButton } from './HelpSearchButton'
@@ -43,6 +44,13 @@ interface DocumentToolbarProps {
     commands: EditorCommands
     state: EditorToolbarState
     disabled?: boolean
+    // Handles for the inline new-comment trigger. Omit when the toolbar
+    // hosts a doc without the comment system mounted.
+    newCommentFlow?: {
+        canStart: boolean
+        isOpen: boolean
+        start: () => void
+    }
 }
 
 // DocumentToolbar lays out the editor's formatting actions in groups
@@ -51,7 +59,12 @@ interface DocumentToolbarProps {
 // read-only state in serverHello drives this, and remounting the
 // toolbar would cause the popovers (link, table) to drop their state
 // every time the room reconnects.
-export function DocumentToolbar({ commands, state, disabled = false }: DocumentToolbarProps) {
+export function DocumentToolbar({
+    commands,
+    state,
+    disabled = false,
+    newCommentFlow,
+}: DocumentToolbarProps) {
     const iconColor = useThemeColor('muted-foreground')
     const activeColor = useThemeColor('primary')
     const [linkOpen, setLinkOpen] = useState(false)
@@ -316,7 +329,17 @@ export function DocumentToolbar({ commands, state, disabled = false }: DocumentT
                         activeColor={activeColor}
                     />
 
-                    <View className="ml-auto">
+                    <View className="ml-auto flex-row items-center">
+                        {newCommentFlow ? (
+                            <>
+                                <Separator />
+                                <NewCommentButton
+                                    canStart={newCommentFlow.canStart}
+                                    isOpen={newCommentFlow.isOpen}
+                                    onPress={newCommentFlow.start}
+                                />
+                            </>
+                        ) : null}
                         <HelpSearchButton />
                     </View>
                 </View>

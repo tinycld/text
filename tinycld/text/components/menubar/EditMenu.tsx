@@ -1,21 +1,13 @@
+import { captureException } from '@tinycld/core/lib/errors'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { markdownToPMBlocks } from '../../lib/markdown/md-to-pm'
 import type { MenuBarProps } from './MenuBar'
-import {
-    insertBlocksSequentially,
-    insertPlaintext,
-} from './paste-as-markdown'
+import { insertBlocksSequentially, insertPlaintext } from './paste-as-markdown'
 
 export function EditMenu(props: MenuBarProps) {
     const { commands, toolbarState, disabled, tiptapEditor } = props
     const selectionEmpty = toolbarState.selectionEmpty ?? true
     const editDisabled = disabled || selectionEmpty
-    // biome-ignore lint/suspicious/noConsole: dev-only diagnostic
-    console.log('[EditMenu] render', {
-        disabled,
-        hasEditor: !!tiptapEditor,
-        pasteMdDisabled: disabled || !tiptapEditor,
-    })
 
     // Reads plain text from the system clipboard and inserts it as
     // structured PM content. Async because navigator.clipboard.readText
@@ -38,76 +30,27 @@ export function EditMenu(props: MenuBarProps) {
     // insertContent at that position silently rejects every block-level
     // node. After each insert we re-read docSize so the next block
     // lands after the one we just inserted, in order.
-    //
-    // Every step logs to the console so a still-broken paste in dev
-    // shows where it died without attaching a debugger. These are
-    // dev-only diagnostics — they don't route to Sentry (it's local
-    // dev noise) and stay in the source until the feature is stable.
     const pasteAsMarkdown = () => {
-        // biome-ignore lint/suspicious/noConsole: diagnostic
-        console.log('[pasteAsMarkdown] handler invoked', {
-            hasEditor: !!tiptapEditor,
-            hasReadText:
-                typeof navigator !== 'undefined' && !!navigator.clipboard?.readText,
-        })
-        if (!tiptapEditor) {
-            // biome-ignore lint/suspicious/noConsole: diagnostic
-            console.warn('[pasteAsMarkdown] aborted: no tiptapEditor (native path?)')
-            return
-        }
-        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
-            // biome-ignore lint/suspicious/noConsole: diagnostic
-            console.warn('[pasteAsMarkdown] aborted: clipboard API unavailable')
-            return
-        }
+        if (!tiptapEditor) return
+        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
         navigator.clipboard
             .readText()
             .then(text => {
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] readText resolved', {
-                    length: text?.length ?? 0,
-                })
-                if (!text) {
-                    // biome-ignore lint/suspicious/noConsole: diagnostic
-                    console.warn('[pasteAsMarkdown] aborted: clipboard empty')
-                    return
-                }
+                if (!text) return
                 const blocks = markdownToPMBlocks(text)
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] parsed', {
-                    blockCount: blocks.length,
-                    blockTypes: blocks.map(b => b.block.type),
-                })
                 if (blocks.length === 0) {
                     insertPlaintext(tiptapEditor, text)
-                    // biome-ignore lint/suspicious/noConsole: diagnostic
-                    console.warn('[pasteAsMarkdown] parser produced 0 blocks; fell back to plaintext')
                     return
                 }
-                const { succeeded, salvaged, failed } = insertBlocksSequentially(
-                    tiptapEditor,
-                    blocks
-                )
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] insertion result', {
-                    succeeded,
-                    salvaged,
-                    failed,
-                    blocks: blocks.length,
-                })
+                const { succeeded, salvaged } = insertBlocksSequentially(tiptapEditor, blocks)
                 if (succeeded === 0 && salvaged === 0) {
                     // Nothing landed at all — the editor refused both the
                     // parsed PM *and* a plain paragraph fallback. Last-ditch:
                     // drop the entire markdown source as a single paragraph.
                     insertPlaintext(tiptapEditor, text)
-                    // biome-ignore lint/suspicious/noConsole: diagnostic
-                    console.warn('[pasteAsMarkdown] every block refused; total plaintext fallback')
                 }
             })
-            .catch(err => {
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.error('[pasteAsMarkdown] readText rejected', err)
-            })
+            .catch(err => captureException('pasteAsMarkdown.readText', err))
     }
 
     return (

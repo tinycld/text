@@ -95,7 +95,14 @@ function walkInline(children: Token[]): PMNode[] {
                 popMark(markStack, MARK_ITALIC)
                 break
             case 'code_inline':
-                out.push(textNode(token.content, [...markStack, { type: MARK_CODE }]))
+                // The PM `code` mark is exclusive — StarterKit declares it
+                // with `excludes: '_'`, which forbids any other mark on the
+                // same text node. Markdown does allow `[a `b` c](url)` etc.,
+                // so we silently drop competing marks from the stack here
+                // rather than emit a (link, code) tuple that makes
+                // ProseMirror reject the whole insertContent with
+                // "Invalid collection of marks for node text: link,code".
+                out.push(textNode(token.content, [{ type: MARK_CODE }]))
                 break
             case 'link_open': {
                 const href = token.attrGet('href') ?? ''

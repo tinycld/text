@@ -260,8 +260,9 @@ test.describe('Text — Menubar', () => {
             await openMenubarMenu(page, 'Help')
             // The Help menu was trimmed to three launchers: the search
             // palette, the keyboard-shortcuts reference, and the
-            // breadcrumb to the full topic hub. Per-topic shortcuts
-            // moved into the search palette to keep the menu glanceable.
+            // package's own topic-index drawer. The cross-package hub
+            // moved off the menu — it's reachable from inside the
+            // drawer via the "Read all tinycld help" link.
             await expect(
                 page.getByRole('menuitem', { name: /Search help/ })
             ).toBeVisible()
@@ -269,7 +270,7 @@ test.describe('Text — Menubar', () => {
                 page.getByRole('menuitem', { name: 'Keyboard shortcuts' })
             ).toBeVisible()
             await expect(
-                page.getByRole('menuitem', { name: /Browse all topics/ })
+                page.getByRole('menuitem', { name: 'Browse text help' })
             ).toBeVisible()
         })
     })

@@ -648,19 +648,21 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // Mark storage is populated on editor onCreate (see
                 // comment-mark.ts) — `findComment` returns the first
                 // range carrying the id, or null if it's been removed
-                // from the doc.
+                // from the doc. The Promise wrapping keeps the
+                // interface uniform with native, which round-trips
+                // through the WebView message bus.
                 const storage = tiptapEditor.storage.tinycldComment as
                     | { findComment?: (id: string) => { from: number; to: number } | null }
                     | undefined
                 const range = storage?.findComment?.(commentId) ?? null
-                if (!range) return false
+                if (!range) return Promise.resolve(false)
                 tiptapEditor.chain().setTextSelection(range).scrollIntoView().focus().run()
-                return true
+                return Promise.resolve(true)
             },
             getSelection: () => {
                 const sel = tiptapEditor.state.selection
-                if (sel.empty) return null
-                return { from: sel.from, to: sel.to }
+                if (sel.empty) return Promise.resolve(null)
+                return Promise.resolve({ from: sel.from, to: sel.to })
             },
             onTap: handler => {
                 tapHandlersRef.current.add(handler)

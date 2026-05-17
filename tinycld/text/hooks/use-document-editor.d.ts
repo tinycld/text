@@ -20,26 +20,38 @@ export interface UseDocumentEditorOptions {
     onRequestInsertImage?: () => void
 }
 
-// Host-side surface for the comment system. The web variant binds
-// this to the in-page Tiptap editor (direct command + event API).
-// The native variant returns null in v1 — wiring the WebView's
-// message-bus comment channel into a host bridge is deferred until
-// text on native moves past the placeholder. Consumers must tolerate
-// null (e.g. by not mounting comment UI when this is null).
+// Host-side surface for the comment system. Both variants implement
+// the same interface, but the native one routes everything through
+// the WebView's message-bus 'comment' namespace. The web variant
+// binds directly to the in-page Tiptap editor.
+//
+// `focusComment` and `getSelection` return Promises because native's
+// implementation is a request/response round-trip; the web variant
+// resolves synchronously but returns a Promise to keep the interface
+// uniform across platforms. `addComment` and `removeComment` are
+// fire-and-forget — the mark application is a single WebView message
+// with no host-side response needed.
+//
+// Returns null when the editor handle isn't ready yet — web variant
+// returns null until the Tiptap editor mounts; native returns a real
+// bridge as soon as the hook runs (the bridge talks to the WebView,
+// not a host-side editor handle).
 export interface DocumentCommentBridge {
     // Apply the comment mark. When `range` is provided the selection is
     // restored to it before the mark is set — required when the call
     // site is a button/modal that has moved focus off the editor,
     // collapsing ProseMirror's selection. Without `range`, falls back
-    // to whatever selection the editor currently holds.
+    // to whatever selection the editor currently holds. Native sends
+    // `comment.add-with-range` (one round trip, race-free) instead of
+    // a setSelection + add pair so the user can't move the cursor
+    // between the two.
     addComment: (commentId: string, range?: { from: number; to: number }) => void
     removeComment: (commentId: string) => void
-    // Scroll the marked range into view and select it. No-op when the
-    // mark isn't present in the doc (e.g. the anchor is orphaned).
-    // Returns true on a successful jump so the caller can fall back to
-    // a drawer-only focus when this returns false.
-    focusComment: (commentId: string) => boolean
-    getSelection: () => { from: number; to: number } | null
+    // Scroll the marked range into view and select it. Resolves with
+    // false when the mark isn't present in the doc (e.g. the anchor is
+    // orphaned) so the caller can fall back to a drawer-only focus.
+    focusComment: (commentId: string) => Promise<boolean>
+    getSelection: () => Promise<{ from: number; to: number } | null>
     onTap: (handler: (commentId: string) => void) => () => void
     onRemoved: (handler: (commentIds: string[]) => void) => () => void
 }

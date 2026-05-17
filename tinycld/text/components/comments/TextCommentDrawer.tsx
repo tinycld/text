@@ -57,13 +57,15 @@ export function TextCommentDrawer({
                 focusThread(group.threads[0]?.root.id ?? null)
                 if (group.isOrphaned) return
                 // Ask the bridge to scroll the marked range into view
-                // and select it. `focusComment` returns false when the
-                // mark is missing from the doc — that shouldn't happen
-                // here because we already skipped orphaned groups, but
-                // race conditions (a peer removed the text between the
-                // last paint and the click) can land us here; the
-                // drawer's focusThread is still meaningful.
-                commentBridge?.focusComment(group.key)
+                // and select it. `focusComment` resolves with false
+                // when the mark is missing from the doc — that
+                // shouldn't happen here because we already skipped
+                // orphaned groups, but race conditions (a peer removed
+                // the text between the last paint and the click) can
+                // land us here; the drawer's focusThread is still
+                // meaningful. Native rounds through the WebView, so
+                // we fire-and-forget the Promise.
+                void commentBridge?.focusComment(group.key)
             }}
             isReplyPending={reply.isPending}
             replyError={reply.error ? String(reply.error.message ?? reply.error) : null}

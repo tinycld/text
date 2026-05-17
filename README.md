@@ -255,7 +255,7 @@ mutations go through `useMutation`. Mentions resolve through
 | Tables (insert, shading, borders)  | ✅  | ✅                      |
 | Inline images (insert)             | ✅  | ✅                      |
 | Inline images (wrap / resize)      | ✅  | ✅ [^image-mobile]      |
-| Comments                           | ✅  | not yet                |
+| Comments                           | ✅  | ✅                      |
 | Mentions                           | ✅  | not yet                |
 | Templates                          | ✅  | ✅                      |
 | Alignment + indent / outdent       | ✅  | ✅                      |

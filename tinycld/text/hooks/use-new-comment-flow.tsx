@@ -44,11 +44,16 @@ export function useNewCommentFlow({
 
     const canStart = editable && !selectionEmpty && commentBridge != null
 
+    // getSelection is async because the native variant round-trips
+    // through the WebView's message bus. The web variant resolves the
+    // Promise synchronously, but awaiting in a fire-and-forget context
+    // is cheap and keeps the call sites uniform across platforms.
     const start = () => {
         if (!canStart || !commentBridge) return
-        const range = commentBridge.getSelection()
-        if (!range) return
-        setPendingRange(range)
+        void commentBridge.getSelection().then(range => {
+            if (!range) return
+            setPendingRange(range)
+        })
     }
 
     const onCancel = () => {

@@ -17,7 +17,7 @@ import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
 import { pb } from '@tinycld/core/lib/pocketbase'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { colorForUser } from '../lib/color-for-user'
@@ -25,6 +25,11 @@ import { publishUiMessage } from '../lib/anchored-overlay/ui-message-bus'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 import type { ImageSelection } from '../webview-editor/source/editor-state'
 import { editorHtml } from '../webview-editor/build/editorHtml'
+import {
+    createNativeCommentBridge,
+    createNativeCommentBridgeState,
+    dispatchCommentMessage,
+} from './native-comment-bridge'
 import type { DocumentEditorResult } from './use-document-editor'
 
 export interface UseDocumentEditorOptions {
@@ -143,6 +148,22 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         []
     )
 
+    // Subscriber sets + pending-request maps backing the
+    // DocumentCommentBridge. Sets fan out tap/removed events to any
+    // number of host handlers; the Maps correlate request/response
+    // pairs across the WebView round-trip. Held in a ref because
+    // nothing renders off these — they're message-bus plumbing, and
+    // re-rendering on every subscribe/unsubscribe would tear down the
+    // WebView.
+    const commentStateRef = useRef(createNativeCommentBridgeState())
+
+    // Fan-out for 'comment' namespace messages from the WebView. The
+    // pure dispatcher in native-comment-bridge.ts handles the per-type
+    // routing — narrow + resolve or call handlers.
+    const onCommentMessage = useCallback((msg: EditorMessage) => {
+        dispatchCommentMessage(commentStateRef.current, msg)
+    }, [])
+
     const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
@@ -163,16 +184,36 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         editable: options.editable ?? true,
         onUiMessage,
         onScroll,
+        onCommentMessage,
     })
+
+    // postMessage isn't ref-stable (it depends on the bridge identity)
+    // but we want the commentBridge to be a stable identity across
+    // renders. Pin the latest poster behind a ref and read through it
+    // inside the bridge methods. Consumers (TextCommentDrawer, the
+    // new-comment flow) put the bridge in effect dep arrays — a fresh
+    // identity each render would re-subscribe their handlers needlessly.
+    const postMessageRef = useRef(result.postMessage)
+    postMessageRef.current = result.postMessage
+
+    const commentBridge = useMemo(
+        () =>
+            createNativeCommentBridge({
+                state: commentStateRef.current,
+                postMessage: () => postMessageRef.current,
+            }),
+        []
+    )
+
     // tiptapEditor + findReplaceEditor are web-only — native delegates
     // editing to the WebView's in-frame ProseMirror, which the host
-    // shell has no dispatch handle into. commentBridge is also web-only
-    // in v1; routing the WebView's namespace='comment' messages into a
-    // host bridge is deferred until text on native moves past v1.
+    // shell has no dispatch handle into. commentBridge IS available on
+    // native — it routes through the WebView's namespace='comment'
+    // message protocol.
     return {
         ...result,
         tiptapEditor: null,
         findReplaceEditor: null,
-        commentBridge: null,
+        commentBridge,
     }
 }

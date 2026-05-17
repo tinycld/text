@@ -14,6 +14,7 @@ const manifest = {
     provider: { component: 'provider' },
     migrations: { directory: 'pb-migrations' },
     collections: { register: 'collections', types: 'types' },
+    help: { directory: 'help' },
     server: { package: 'server', module: 'tinycld.org/packages/text' },
     dependencies: ['drive'],
 }

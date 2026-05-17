@@ -1072,7 +1072,19 @@ func parseDataURIHeader(src string) (string, bool) {
 
 // applyImageWrap reads the image's `wrap` attribute and configures
 // the WordZero ImageConfig to produce the matching anchor drawing.
-// Unknown values are treated as no-op (default inline).
+// Unknown values (including the legacy "inline" literal) are treated
+// as no-op (default inline drawing, <wp:inline>).
+//
+// Mode mapping:
+//   - "left"  -> floatLeft anchor + wrapSquare (text wraps on the right)
+//   - "right" -> floatRight anchor + wrapSquare (text wraps on the left)
+//   - "break" -> floatLeft anchor + wrapTopAndBottom (Word's "Top and
+//     Bottom"; the image takes its own line). WordZero v1.6.0 has no
+//     Float-Center constant — Float Left is acceptable here because
+//     <wp:wrapTopAndBottom> overrides horizontal flow regardless of
+//     positionH, so the visible result is correct in Word and on our
+//     editor (which centers via margin:auto on the data-wrap=break
+//     wrapper).
 func applyImageWrap(cfg *document.ImageConfig, attrs map[string]any) {
 	wrap, _ := attrs["wrap"].(string)
 	switch wrap {
@@ -1082,6 +1094,9 @@ func applyImageWrap(cfg *document.ImageConfig, attrs map[string]any) {
 	case "right":
 		cfg.Position = document.ImagePositionFloatRight
 		cfg.WrapText = document.ImageWrapSquare
+	case "break":
+		cfg.Position = document.ImagePositionFloatLeft
+		cfg.WrapText = document.ImageWrapTopAndBottom
 	}
 }
 

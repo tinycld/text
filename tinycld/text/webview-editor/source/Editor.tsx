@@ -26,7 +26,14 @@ const WrappedImage = Image.extend({
             ...this.parent?.(),
             wrap: {
                 default: null,
-                parseHTML: (el: HTMLElement) => el.getAttribute('data-wrap'),
+                // Whitelist legal values; mirror the web editor's
+                // schema exactly. See lib/image-wrap-modes.ts for the
+                // single source of truth on the legal value set.
+                parseHTML: (el: HTMLElement) => {
+                    const raw = el.getAttribute('data-wrap')
+                    if (raw === 'left' || raw === 'right' || raw === 'break') return raw
+                    return null
+                },
                 renderHTML: (attrs: { wrap?: string | null }) => {
                     if (!attrs.wrap) return {}
                     return { 'data-wrap': attrs.wrap }

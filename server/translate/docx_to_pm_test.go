@@ -73,25 +73,34 @@ func TestDocxToPMJSON_NotADocx(t *testing.T) {
 // can't silently flip floated images back to inline.
 func TestResolveWrap(t *testing.T) {
 	cases := []struct {
-		name      string
-		hasAnchor bool
-		hasWrap   bool
-		align     string
-		want      string
+		name            string
+		hasAnchor       bool
+		hasWrap         bool
+		hasTopAndBottom bool
+		align           string
+		want            string
 	}{
-		{"inline drawing, no anchor", false, false, "", ""},
-		{"anchor without wrap (wrapNone)", true, false, "left", ""},
-		{"anchor with wrap, align=left", true, true, "left", "left"},
-		{"anchor with wrap, align=right", true, true, "right", "right"},
-		{"anchor with wrap, align=center -> left", true, true, "center", "left"},
-		{"anchor with wrap, no align -> left", true, true, "", "left"},
+		{"inline drawing, no anchor", false, false, false, "", ""},
+		{"anchor without wrap (wrapNone)", true, false, false, "left", ""},
+		{"anchor with wrap, align=left", true, true, false, "left", "left"},
+		{"anchor with wrap, align=right", true, true, false, "right", "right"},
+		{"anchor with wrap, align=center -> left", true, true, false, "center", "left"},
+		{"anchor with wrap, no align -> left", true, true, false, "", "left"},
+		// Word's "Top and Bottom" wrap maps to break, regardless of
+		// whether a sibling wrap*Square/Tight/Through also appears.
+		{"anchor + topAndBottom -> break", true, false, true, "", "break"},
+		{"anchor + topAndBottom wins over square", true, true, true, "left", "break"},
+		{"anchor + topAndBottom wins over square (right)", true, true, true, "right", "break"},
+		// topAndBottom without an anchor is a malformed input — no
+		// floating happens, so we return "" rather than "break".
+		{"no anchor + topAndBottom -> empty", false, false, true, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := resolveWrap(c.hasAnchor, c.hasWrap, c.align)
+			got := resolveWrap(c.hasAnchor, c.hasWrap, c.hasTopAndBottom, c.align)
 			if got != c.want {
-				t.Errorf("resolveWrap(anchor=%v, wrap=%v, align=%q) = %q, want %q",
-					c.hasAnchor, c.hasWrap, c.align, got, c.want)
+				t.Errorf("resolveWrap(anchor=%v, wrap=%v, topAndBottom=%v, align=%q) = %q, want %q",
+					c.hasAnchor, c.hasWrap, c.hasTopAndBottom, c.align, got, c.want)
 			}
 		})
 	}

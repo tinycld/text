@@ -476,14 +476,17 @@ func liftInlineImages(node PMNode) []PMNode {
 }
 
 // isFloatedImage reports whether an image PM node has a wrap attr
-// of "left" or "right" — i.e., it should stay inline inside its
-// surrounding paragraph so text flows around it.
+// that anchors it inside its surrounding paragraph rather than lifting
+// it to its own block. "left"/"right" floats wrap surrounding text;
+// "break" (Word's "Top and Bottom") doesn't wrap, but its anchor still
+// lives inside a <w:p> in the DOCX export — lifting it would force the
+// emitter to invent a host paragraph and break the round-trip shape.
 func isFloatedImage(node PMNode) bool {
 	if node.Type != NodeTypeImage {
 		return false
 	}
 	wrap, _ := node.Attrs["wrap"].(string)
-	return wrap == "left" || wrap == "right"
+	return wrap == "left" || wrap == "right" || wrap == "break"
 }
 
 func cloneAttrs(in map[string]any) map[string]any {
@@ -1238,12 +1241,12 @@ func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, ru
 // been edited and re-serialized. Alt text comes from wp:docPr@descr.
 //
 // Anchor drawings (<wp:anchor>) carry text-wrapping info via
-// <wp:wrapSquare>/<wp:wrapTight>/<wp:wrapThrough> plus a
-// <wp:positionH><wp:align>{left|right|center}</...></...> sibling.
+// <wp:wrapSquare>/<wp:wrapTight>/<wp:wrapThrough>/<wp:wrapTopAndBottom>
+// plus a <wp:positionH><wp:align>{left|right|center}</...></...> sibling.
 // We collapse all "text flows around image" wrap modes to
-// wrap=left|right, and inline + wrapNone + wrapTopAndBottom to
-// wrap=none. Used by the emitter to round-trip and by the editor
-// CSS to apply float:left / float:right.
+// wrap=left|right, map <wp:wrapTopAndBottom> to wrap=break (Word's
+// "Top and Bottom"), and inline + wrapNone to wrap=none. Used by the
+// emitter to round-trip and by the editor CSS to apply float / break.
 //
 // If the rels lookup or zip read fails, the image is dropped silently
 // (no PM node emitted) — losing an unresolvable image is preferable
@@ -1262,6 +1265,7 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 	var blipRid, alt, title string
 	hasAnchor := false
 	hasWrap := false
+	hasTopAndBottom := false
 	posHAlign := ""
 	var extentCx, extentCy int
 	// Track depth inside <wp:positionH> so we only read the <wp:align>
@@ -1300,6 +1304,12 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 				}
 			case "wrapSquare", "wrapTight", "wrapThrough":
 				hasWrap = true
+			case "wrapTopAndBottom":
+				// Word's "Top and Bottom" wrap. Semantically distinct
+				// from text-flowing-around-image wrap modes: text never
+				// sits beside the image — only above and below. We map
+				// it to wrap="break" rather than reusing hasWrap.
+				hasTopAndBottom = true
 			case "positionH":
 				posHDepth++
 			case "align":
@@ -1341,7 +1351,7 @@ func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PM
 				if title != "" && title != wordZeroDefaultImageLabel {
 					img.Attrs["title"] = title
 				}
-				if wrap := resolveWrap(hasAnchor, hasWrap, posHAlign); wrap != "" {
+				if wrap := resolveWrap(hasAnchor, hasWrap, hasTopAndBottom, posHAlign); wrap != "" {
 					img.Attrs["wrap"] = wrap
 				}
 				if extentCx > 0 {
@@ -1394,15 +1404,24 @@ func emusToPixels(emus int) int {
 // Mapping rules:
 //   - Inline drawing (no <wp:anchor>) -> "" (no wrap attr; default
 //     "none" applies).
-//   - Anchor with no wrap*Square/Tight/Through child -> "" (treated
-//     as none — wrapNone and wrapTopAndBottom both fall here).
+//   - Anchor + <wp:wrapTopAndBottom> -> "break" (Word's "Top and
+//     Bottom" mode; takes precedence over square/tight/through if
+//     somehow both appeared in the same anchor).
+//   - Anchor with no wrap*Square/Tight/Through child (and no
+//     topAndBottom) -> "" (treated as none — wrapNone falls here).
 //   - Anchor with wrap* present -> "left" or "right" based on
 //     <wp:positionH><wp:align>. "center" falls back to "left" since
 //     CSS float has no first-class "center" mode and Word renders
 //     centered floats by treating them as floatLeft visually.
 //     Missing align defaults to "left" (Word's default for new floats).
-func resolveWrap(hasAnchor, hasWrap bool, posHAlign string) string {
-	if !hasAnchor || !hasWrap {
+func resolveWrap(hasAnchor, hasWrap, hasTopAndBottom bool, posHAlign string) string {
+	if !hasAnchor {
+		return ""
+	}
+	if hasTopAndBottom {
+		return "break"
+	}
+	if !hasWrap {
 		return ""
 	}
 	if posHAlign == "right" {

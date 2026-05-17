@@ -66,7 +66,15 @@ const WrappedImage = Image.extend({
             ...this.parent?.(),
             wrap: {
                 default: null,
-                parseHTML: el => el.getAttribute('data-wrap'),
+                // Whitelist legal values; absent / unknown / 'inline'
+                // all normalize to null, which renderHTML below serializes
+                // as absence-of-attribute. See lib/image-wrap-modes.ts
+                // for the single source of truth on the legal value set.
+                parseHTML: el => {
+                    const raw = el.getAttribute('data-wrap')
+                    if (raw === 'left' || raw === 'right' || raw === 'break') return raw
+                    return null
+                },
                 renderHTML: attrs => {
                     if (!attrs.wrap) return {}
                     return { 'data-wrap': attrs.wrap as string }

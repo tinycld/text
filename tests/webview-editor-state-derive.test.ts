@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+    deriveActiveHeadingLevel,
     deriveActiveIndent,
     deriveCurrentAlign,
     deriveCurrentFontFamily,
@@ -29,6 +30,21 @@ function fakeEditor(byType: Record<string, Record<string, unknown>>): EditorLike
         },
         isActive() {
             return false
+        },
+    }
+}
+
+// Build an editor stub whose isActive('heading', { level }) returns
+// true only for a specific level. Mirrors the toolbar's "which heading
+// am I in" lookup pattern.
+function fakeHeadingEditor(activeLevel: number | null): EditorLike {
+    return {
+        getAttributes() {
+            return {}
+        },
+        isActive(name, attrs) {
+            if (name !== 'heading' || activeLevel == null) return false
+            return attrs?.level === activeLevel
         },
     }
 }
@@ -161,5 +177,22 @@ describe('deriveActiveIndent', () => {
     it('returns 0 for non-number indent attrs', () => {
         const editor = fakeEditor({ paragraph: { indent: '3' }, heading: {} })
         expect(deriveActiveIndent(editor)).toBe(0)
+    })
+})
+
+describe('deriveActiveHeadingLevel', () => {
+    it('returns null when no editor is passed', () => {
+        expect(deriveActiveHeadingLevel(null)).toBeNull()
+        expect(deriveActiveHeadingLevel(undefined)).toBeNull()
+    })
+
+    it('returns null when no heading is active at the caret', () => {
+        expect(deriveActiveHeadingLevel(fakeHeadingEditor(null))).toBeNull()
+    })
+
+    it('returns the level for each of h1..h6 when active', () => {
+        for (const level of [1, 2, 3, 4, 5, 6]) {
+            expect(deriveActiveHeadingLevel(fakeHeadingEditor(level))).toBe(level)
+        }
     })
 })

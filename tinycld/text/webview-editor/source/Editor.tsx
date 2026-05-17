@@ -18,6 +18,7 @@ import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
 import {
     CodeShortcuts,
+    deriveActiveHeadingLevel,
     deriveActiveIndent,
     deriveCurrentAlign,
     deriveCurrentFontFamily,
@@ -239,12 +240,7 @@ function EditorMounted({ init }: EditorMountedProps) {
                 canSplitCell: editor.can().splitCell(),
                 isCodeActive: editor.isActive('code'),
                 isCodeBlockActive: editor.isActive('codeBlock'),
-                activeHeadingLevel: ((): number | null => {
-                    for (let level = 1; level <= 6; level++) {
-                        if (editor.isActive('heading', { level })) return level
-                    }
-                    return null
-                })(),
+                activeHeadingLevel: deriveActiveHeadingLevel(editor),
                 currentAlign: deriveCurrentAlign(editor),
                 canIndent: deriveActiveIndent(editor) < MAX_INDENT_LEVEL,
                 canOutdent: deriveActiveIndent(editor) > 0,
@@ -417,8 +413,15 @@ function EditorMounted({ init }: EditorMountedProps) {
                     editor.chain().focus().toggleCodeBlock().run()
                     break
                 case 'set-text-align': {
-                    const align = parsed.payload as 'left' | 'center' | 'right' | 'justify'
-                    editor.chain().focus().setTextAlign(align).run()
+                    const align = parsed.payload
+                    if (
+                        align === 'left' ||
+                        align === 'center' ||
+                        align === 'right' ||
+                        align === 'justify'
+                    ) {
+                        editor.chain().focus().setTextAlign(align).run()
+                    }
                     break
                 }
                 case 'unset-text-align':
@@ -431,16 +434,20 @@ function EditorMounted({ init }: EditorMountedProps) {
                     editor.chain().focus().outdentBlock().run()
                     break
                 case 'set-font-size': {
-                    const px = parsed.payload as number
-                    editor.chain().focus().setFontSize(`${px}px`).run()
+                    const px = parsed.payload
+                    if (typeof px === 'number' && Number.isFinite(px) && px > 0) {
+                        editor.chain().focus().setFontSize(`${px}px`).run()
+                    }
                     break
                 }
                 case 'unset-font-size':
                     editor.chain().focus().unsetFontSize().run()
                     break
                 case 'set-font-family': {
-                    const family = parsed.payload as string
-                    editor.chain().focus().setFontFamily(family).run()
+                    const family = parsed.payload
+                    if (typeof family === 'string' && family !== '') {
+                        editor.chain().focus().setFontFamily(family).run()
+                    }
                     break
                 }
                 case 'unset-font-family':

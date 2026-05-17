@@ -35,6 +35,13 @@ import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
+import {
+    CodeShortcuts,
+    deriveActiveIndent,
+    deriveCurrentAlign,
+    deriveCurrentFontFamily,
+    deriveCurrentFontSize,
+} from '../webview-editor/source/editor-state'
 import type { DocumentCommentBridge, DocumentEditorResult } from './use-document-editor'
 
 // WrappedImage extends TipTap's default Image with:
@@ -178,25 +185,6 @@ const FindReplaceExtension = Extension.create({
     },
 })
 
-// CodeShortcuts overrides the StarterKit-bundled keymaps for inline
-// `code` and `codeBlock` to the Markdown-style backtick shortcuts.
-//   - Mod-` toggles the inline code mark (StarterKit default: Mod-e).
-//   - Mod-Shift-` toggles the code block node (StarterKit default:
-//     Mod-Alt-c).
-// We register on a separate extension so the override is purely
-// additive — Tiptap merges multiple extensions' keymaps, so the
-// StarterKit defaults still work alongside our additions. The Mod-e
-// default is retained for users coming from other Tiptap apps.
-const CodeShortcuts = Extension.create({
-    name: 'tinycldCodeShortcuts',
-    addKeyboardShortcuts() {
-        return {
-            'Mod-`': () => this.editor.commands.toggleCode(),
-            'Mod-Shift-`': () => this.editor.commands.toggleCodeBlock(),
-        }
-    },
-})
-
 // Uploads a pasted/dropped image to drive and invokes onInserted with
 // the resulting PocketBase file URL. Fire-and-forget — the paste/drop
 // handler returns sync, so any error has to route through
@@ -225,73 +213,6 @@ function uploadAndInsertImage(
             onError: err => captureException('text.pasteImageUpload', err),
         }
     )
-}
-
-// deriveCurrentAlign reads the textAlign attr off whichever indentable
-// block the caret is in (paragraph or heading). Returns null when no
-// attr is set — the schema default is "left", which we deliberately
-// represent as the absence of an attr (matches the DOCX exporter,
-// which emits <w:jc> only for non-left values). The toolbar's "Left"
-// button uses null as the highlight condition so it appears active by
-// default and disengages whenever another alignment is set.
-type AlignValue = 'left' | 'center' | 'right' | 'justify' | null
-function deriveCurrentAlign(tiptapEditor: ReturnType<typeof useEditor>): AlignValue {
-    if (!tiptapEditor) return null
-    const fromPara = tiptapEditor.getAttributes('paragraph')?.textAlign
-    const fromHeading = tiptapEditor.getAttributes('heading')?.textAlign
-    const v = fromPara || fromHeading
-    if (v === 'center' || v === 'right' || v === 'justify') return v
-    if (v === 'left') return 'left'
-    return null
-}
-
-// deriveCurrentFontSize reads the textStyle.fontSize attr at the caret
-// and returns the integer px value, or null when no fontSize is set
-// (document default). The Tiptap FontSize extension stores the
-// attribute as a CSS length string ("16px"); we parse the integer
-// out for the toolbar dropdown. Bare numbers and trailing-unit
-// variants ("14") are tolerated for robustness when pasting from
-// other sources.
-function deriveCurrentFontSize(tiptapEditor: ReturnType<typeof useEditor>): number | null {
-    if (!tiptapEditor) return null
-    const raw = tiptapEditor.getAttributes('textStyle')?.fontSize
-    if (typeof raw !== 'string' || raw === '') return null
-    const trimmed = raw.trim().toLowerCase()
-    const numeric = trimmed.endsWith('px') ? trimmed.slice(0, -2).trim() : trimmed
-    const n = Number.parseFloat(numeric)
-    if (!Number.isFinite(n) || n <= 0) return null
-    return Math.round(n)
-}
-
-// deriveCurrentFontFamily returns the textStyle.fontFamily attr at the
-// caret (already a string in the schema), or null when no family is
-// set. Empty strings collapse to null so the toolbar shows "Default"
-// rather than a blank selected state.
-function deriveCurrentFontFamily(
-    tiptapEditor: ReturnType<typeof useEditor>
-): string | null {
-    if (!tiptapEditor) return null
-    const raw = tiptapEditor.getAttributes('textStyle')?.fontFamily
-    if (typeof raw !== 'string' || raw === '') return null
-    return raw
-}
-
-// deriveActiveIndent returns the integer indent attr of the active
-// paragraph/heading, clamped non-negative. Returns 0 when the caret
-// is not in an indentable block, which keeps canOutdent=false there
-// (the buttons should appear disabled, not crash).
-function deriveActiveIndent(tiptapEditor: ReturnType<typeof useEditor>): number {
-    if (!tiptapEditor) return 0
-    const paraAttrs = tiptapEditor.getAttributes('paragraph')
-    const headingAttrs = tiptapEditor.getAttributes('heading')
-    const raw =
-        typeof paraAttrs?.indent === 'number'
-            ? paraAttrs.indent
-            : typeof headingAttrs?.indent === 'number'
-              ? headingAttrs.indent
-              : 0
-    if (!Number.isFinite(raw) || raw < 0) return 0
-    return raw
 }
 
 // useDocumentEditor returns a Tiptap editor configured for collaborative

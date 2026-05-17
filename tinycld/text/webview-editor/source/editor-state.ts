@@ -88,6 +88,22 @@ export function deriveActiveIndent(editor: EditorLike | null | undefined): numbe
     return raw
 }
 
+// deriveActiveHeadingLevel scans h1..h6 and returns the level of the
+// active heading at the caret, or null when none is active. The
+// toolbar's heading dropdown uses this to highlight the right level
+// (or "Paragraph" when null). Kept as a named helper so it's reusable
+// across the WebView Editor and the web variant, and trivially unit-
+// testable against an EditorLike stub.
+export function deriveActiveHeadingLevel(
+    editor: EditorLike | null | undefined
+): number | null {
+    if (!editor) return null
+    for (let level = 1; level <= 6; level++) {
+        if (editor.isActive('heading', { level })) return level
+    }
+    return null
+}
+
 // CodeShortcuts overrides the StarterKit-bundled keymaps for inline
 // `code` and `codeBlock` to the Markdown-style backtick shortcuts.
 //   - Mod-` toggles the inline code mark (StarterKit default: Mod-e).

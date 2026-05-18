@@ -6,7 +6,6 @@ import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/men
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { router } from 'expo-router'
 import { useState } from 'react'
-import { pmToMarkdown } from '../../lib/markdown/pm-to-md'
 import type { PMNode } from '../../lib/markdown/types'
 import type { MenuBarProps } from './MenuBar'
 import { SaveVersionDialog } from './SaveVersionDialog'
@@ -47,11 +46,19 @@ export function FileMenu(props: MenuBarProps) {
     // footnotes, color/font/size, alignment, image dims/wrap, cell
     // shading) degrade silently. Users wanting full fidelity should
     // use Download (.docx). Help topic: text:markdown.
-    const downloadMarkdown = () => {
+    //
+    // Dynamic-imported because pmToMarkdown lives in a module that
+    // transitively pulls markdown-it; markdown-it ships ESM .mjs files
+    // that crash on Hermes when evaluated at module init. The download
+    // path is web-only anyway (it builds a Blob + clicks an <a>), so
+    // moving the markdown imports into the handler keeps them off the
+    // native module-init path.
+    const downloadMarkdown = async () => {
         if (typeof window === 'undefined') return
         const editor = props.tiptapEditor
         if (!editor) return
         try {
+            const { pmToMarkdown } = await import('../../lib/markdown/pm-to-md')
             const md = pmToMarkdown(editor.getJSON() as unknown as PMNode)
             const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
             const url = URL.createObjectURL(blob)

@@ -33,7 +33,9 @@ Editing features:
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
   state can be restored later
-- Find and replace (`FindReplaceBar`)
+- Find and replace (`FindReplaceBar`) — open via ⌘F on web or via
+  **Edit → Find…** on iOS / Android (the bar is wired on every platform;
+  the ⌘F shortcut binding is web-only)
 - Undo / redo via Y.UndoManager
 - Print (browser print on web, iOS print sheet on iPad)
 - Live presence — peer cursors and selections through Yjs awareness
@@ -252,12 +254,19 @@ mutations go through `useMutation`. Mentions resolve through
 | Open / view documents              | ✅  | ✅ (WebView host)      |
 | Edit                               | ✅  | ✅                      |
 | Realtime collaboration             | ✅  | ✅                      |
-| Find / replace                     | ✅  | ✅                      |
 | Tables (insert, shading, borders)  | ✅  | ✅                      |
-| Inline images                      | ✅  | ✅                      |
+| Inline images (insert)             | ✅  | ✅                      |
+| Inline images (wrap / resize)      | ✅  | ✅ [^image-mobile]      |
 | Comments                           | ✅  | ✅                      |
-| Mentions                           | ✅  | ✅                      |
+| Mentions                           | ✅  | not yet                |
 | Templates                          | ✅  | ✅                      |
+| Alignment + indent / outdent       | ✅  | ✅                      |
+| Font family / font size            | ✅  | ✅                      |
+| Inline code + code block           | ✅  | ✅                      |
+| Cell shading                       | ✅  | ✅                      |
+| Slash menu                         | ✅  | ✅                      |
+| Find / replace                     | ✅  | ✅                      |
+| Word count                         | ✅  | ✅                      |
 | Print                              | browser print | iOS print sheet |
 | Soft-keyboard accessory toolbar    | n/a | ✅ (iOS)               |
 
@@ -265,6 +274,11 @@ The native editor runs inside a WebView hosting the same ProseMirror
 build under `webview-editor/`. The Yjs document and WebSocket live in
 the native (RN) layer; bridge messages keep the editor view and the
 doc in sync.
+
+[^image-mobile]: Native uses a bottom-sheet anchored to the selected
+    image (wrap mode chips + S / M / L / Original size presets) rather
+    than the desktop's drag handles. See the `text:image-on-mobile`
+    help topic.
 
 ## Package layout
 

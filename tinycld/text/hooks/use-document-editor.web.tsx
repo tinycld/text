@@ -34,8 +34,18 @@ import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
+import { makeWebFindReplaceController } from '../lib/find-replace-controller-web'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
-import type { DocumentCommentBridge, DocumentEditorResult } from './use-document-editor'
+import { countWords } from '../lib/word-count'
+import {
+    CodeShortcuts,
+    deriveActiveIndent,
+    deriveCurrentAlign,
+    deriveCurrentFontFamily,
+    deriveCurrentFontSize,
+} from '../webview-editor/source/editor-state'
+import type { DocumentEditorResult } from './use-document-editor'
+import { createWebCommentBridge } from './web-comment-bridge'
 
 // WrappedImage extends TipTap's default Image with:
 //   - inline=true so the node can live inside a paragraph (required
@@ -178,25 +188,6 @@ const FindReplaceExtension = Extension.create({
     },
 })
 
-// CodeShortcuts overrides the StarterKit-bundled keymaps for inline
-// `code` and `codeBlock` to the Markdown-style backtick shortcuts.
-//   - Mod-` toggles the inline code mark (StarterKit default: Mod-e).
-//   - Mod-Shift-` toggles the code block node (StarterKit default:
-//     Mod-Alt-c).
-// We register on a separate extension so the override is purely
-// additive — Tiptap merges multiple extensions' keymaps, so the
-// StarterKit defaults still work alongside our additions. The Mod-e
-// default is retained for users coming from other Tiptap apps.
-const CodeShortcuts = Extension.create({
-    name: 'tinycldCodeShortcuts',
-    addKeyboardShortcuts() {
-        return {
-            'Mod-`': () => this.editor.commands.toggleCode(),
-            'Mod-Shift-`': () => this.editor.commands.toggleCodeBlock(),
-        }
-    },
-})
-
 // Uploads a pasted/dropped image to drive and invokes onInserted with
 // the resulting PocketBase file URL. Fire-and-forget — the paste/drop
 // handler returns sync, so any error has to route through
@@ -225,73 +216,6 @@ function uploadAndInsertImage(
             onError: err => captureException('text.pasteImageUpload', err),
         }
     )
-}
-
-// deriveCurrentAlign reads the textAlign attr off whichever indentable
-// block the caret is in (paragraph or heading). Returns null when no
-// attr is set — the schema default is "left", which we deliberately
-// represent as the absence of an attr (matches the DOCX exporter,
-// which emits <w:jc> only for non-left values). The toolbar's "Left"
-// button uses null as the highlight condition so it appears active by
-// default and disengages whenever another alignment is set.
-type AlignValue = 'left' | 'center' | 'right' | 'justify' | null
-function deriveCurrentAlign(tiptapEditor: ReturnType<typeof useEditor>): AlignValue {
-    if (!tiptapEditor) return null
-    const fromPara = tiptapEditor.getAttributes('paragraph')?.textAlign
-    const fromHeading = tiptapEditor.getAttributes('heading')?.textAlign
-    const v = fromPara || fromHeading
-    if (v === 'center' || v === 'right' || v === 'justify') return v
-    if (v === 'left') return 'left'
-    return null
-}
-
-// deriveCurrentFontSize reads the textStyle.fontSize attr at the caret
-// and returns the integer px value, or null when no fontSize is set
-// (document default). The Tiptap FontSize extension stores the
-// attribute as a CSS length string ("16px"); we parse the integer
-// out for the toolbar dropdown. Bare numbers and trailing-unit
-// variants ("14") are tolerated for robustness when pasting from
-// other sources.
-function deriveCurrentFontSize(tiptapEditor: ReturnType<typeof useEditor>): number | null {
-    if (!tiptapEditor) return null
-    const raw = tiptapEditor.getAttributes('textStyle')?.fontSize
-    if (typeof raw !== 'string' || raw === '') return null
-    const trimmed = raw.trim().toLowerCase()
-    const numeric = trimmed.endsWith('px') ? trimmed.slice(0, -2).trim() : trimmed
-    const n = Number.parseFloat(numeric)
-    if (!Number.isFinite(n) || n <= 0) return null
-    return Math.round(n)
-}
-
-// deriveCurrentFontFamily returns the textStyle.fontFamily attr at the
-// caret (already a string in the schema), or null when no family is
-// set. Empty strings collapse to null so the toolbar shows "Default"
-// rather than a blank selected state.
-function deriveCurrentFontFamily(
-    tiptapEditor: ReturnType<typeof useEditor>
-): string | null {
-    if (!tiptapEditor) return null
-    const raw = tiptapEditor.getAttributes('textStyle')?.fontFamily
-    if (typeof raw !== 'string' || raw === '') return null
-    return raw
-}
-
-// deriveActiveIndent returns the integer indent attr of the active
-// paragraph/heading, clamped non-negative. Returns 0 when the caret
-// is not in an indentable block, which keeps canOutdent=false there
-// (the buttons should appear disabled, not crash).
-function deriveActiveIndent(tiptapEditor: ReturnType<typeof useEditor>): number {
-    if (!tiptapEditor) return 0
-    const paraAttrs = tiptapEditor.getAttributes('paragraph')
-    const headingAttrs = tiptapEditor.getAttributes('heading')
-    const raw =
-        typeof paraAttrs?.indent === 'number'
-            ? paraAttrs.indent
-            : typeof headingAttrs?.indent === 'number'
-              ? headingAttrs.indent
-              : 0
-    if (!Number.isFinite(raw) || raw < 0) return 0
-    return raw
 }
 
 // useDocumentEditor returns a Tiptap editor configured for collaborative
@@ -576,6 +500,15 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             setFontFamily: (family: string) =>
                 tiptapEditor?.chain().focus().setFontFamily(family).run(),
             unsetFontFamily: () => tiptapEditor?.chain().focus().unsetFontFamily().run(),
+            // Imperative entry point that mirrors what ImageNodeView.web.tsx
+            // does on direct user input — exists so the surface matches
+            // the WebView/native variant, where the bottom sheet routes
+            // user actions through commands.updateImageAttrs?.(...).
+            // ImageNodeView's own NodeView chrome continues to call
+            // updateAttributes directly; this method is not invoked by
+            // existing web UI.
+            updateImageAttrs: payload =>
+                tiptapEditor?.chain().updateAttributes('image', payload).run(),
         }),
         [tiptapEditor]
     )
@@ -616,23 +549,36 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         canOutdent: deriveActiveIndent(tiptapEditor) > 0,
         currentFontSize: deriveCurrentFontSize(tiptapEditor),
         currentFontFamily: deriveCurrentFontFamily(tiptapEditor),
+        // Word count rides through toolbarState so the WordCountBadge
+        // can read it the same way on web and native. Recomputes once
+        // per transaction (the editor already rerenders on every tx
+        // for the other derived fields — currentFontSize etc. — so the
+        // O(N) textContent walk piggybacks on that pass without adding
+        // a new rerender path). Undefined when the editor hasn't
+        // mounted yet, matching the WebView variant's pre-stateUpdate
+        // shape; the badge renders nothing in that case.
+        wordCount: tiptapEditor
+            ? countWords(tiptapEditor.state.doc.textContent)
+            : undefined,
     }
 
-    // findReplaceEditor exposes the minimum surface the FindReplaceBar
-    // needs (state + dispatch) so the screen-level bar can drive the
-    // plugin through the shared context. We expose it as an object
-    // with a getter for `state` so the bar always sees the latest
-    // EditorState — but the wrapper object's identity stays stable
-    // across re-renders, which is what keeps EditorComponent's useMemo
-    // from re-creating the editor tree on every transaction.
+    // findReplaceEditor is the platform-agnostic FindReplaceController
+    // the bar reads through. The web variant wraps the in-process
+    // Tiptap editor's state + dispatch via a small adapter object
+    // (with a getter for `state` so the controller always sees the
+    // latest EditorState while keeping its own identity stable across
+    // re-renders). The screen mounts this on
+    // FindReplaceEditorContext.Provider so the bar resolves it without
+    // a prop-drill.
     const findReplaceEditor = useMemo(() => {
         if (!tiptapEditor) return null
-        return {
+        const editor = {
             get state() {
                 return tiptapEditor.state
             },
             dispatch: tiptapEditor.view.dispatch.bind(tiptapEditor.view),
         }
+        return makeWebFindReplaceController(editor)
     }, [tiptapEditor])
 
     // Host-side comment surface. Tap and removed events are emitted
@@ -682,57 +628,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         }
     }, [tiptapEditor])
 
-    const commentBridge: DocumentCommentBridge | null = useMemo(() => {
+    const commentBridge = useMemo(() => {
         if (!tiptapEditor) return null
-        return {
-            addComment: (commentId: string, range?: { from: number; to: number }) => {
-                // When a range is provided we restore the selection
-                // before applying the mark — the NewCommentButton flow
-                // captures the user's selection *before* the modal
-                // opens, because opening the modal steals focus and
-                // collapses ProseMirror's selection to a single point.
-                // Without `setTextSelection` the mark would land on a
-                // zero-width range (or whatever the editor's last
-                // surviving range was), making the anchor effectively
-                // useless.
-                const chain = tiptapEditor.chain()
-                if (range) chain.setTextSelection(range)
-                chain.addComment(commentId).run()
-            },
-            removeComment: (commentId: string) => {
-                tiptapEditor.chain().removeComment(commentId).run()
-            },
-            focusComment: (commentId: string) => {
-                // Mark storage is populated on editor onCreate (see
-                // comment-mark.ts) — `findComment` returns the first
-                // range carrying the id, or null if it's been removed
-                // from the doc.
-                const storage = tiptapEditor.storage.tinycldComment as
-                    | { findComment?: (id: string) => { from: number; to: number } | null }
-                    | undefined
-                const range = storage?.findComment?.(commentId) ?? null
-                if (!range) return false
-                tiptapEditor.chain().setTextSelection(range).scrollIntoView().focus().run()
-                return true
-            },
-            getSelection: () => {
-                const sel = tiptapEditor.state.selection
-                if (sel.empty) return null
-                return { from: sel.from, to: sel.to }
-            },
-            onTap: handler => {
-                tapHandlersRef.current.add(handler)
-                return () => {
-                    tapHandlersRef.current.delete(handler)
-                }
-            },
-            onRemoved: handler => {
-                removedHandlersRef.current.add(handler)
-                return () => {
-                    removedHandlersRef.current.delete(handler)
-                }
-            },
-        }
+        return createWebCommentBridge({
+            tiptapEditor,
+            tapHandlers: tapHandlersRef.current,
+            removedHandlers: removedHandlersRef.current,
+        })
     }, [tiptapEditor])
 
     const EditorComponent = useMemo(
@@ -779,6 +681,18 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         EditorComponent,
         commands,
         toolbarState,
+        // Web's editor has no underlying RN WebView; anchored-popover
+        // code paths on web bypass the controller entirely (they render
+        // through `SlashMenu.web.tsx` portals instead). Explicit null
+        // here makes the difference visible at every type site that
+        // pulls `webViewRef` off the result, rather than relying on
+        // implicit `undefined`.
+        webViewRef: null,
+        // Web's editor handle is ready as soon as Tiptap has finished
+        // mounting (the editor object is non-null). Native consumers
+        // gate the comment bridge on this flag — keeping the contract
+        // symmetric means no platform-specific branching at the call site.
+        isReady: tiptapEditor != null,
         tiptapEditor: tiptapEditor ?? null,
         findReplaceEditor,
         commentBridge,

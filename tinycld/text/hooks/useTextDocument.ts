@@ -42,8 +42,11 @@ export function useTextDocument(
         ...editorResult,
         saveStatus: slot.saveStatus,
         // `tiptapEditor` is the raw Tiptap Editor (web) or null (native).
-        // Forwarded so WordCountBadge can subscribe to transactions
-        // directly without rerendering the toolbar each keystroke.
+        // Forwarded so the FileMenu's markdown export, EditMenu's
+        // paste-as-markdown, and similar web-only consumers can walk the
+        // ProseMirror doc directly without a bridge round-trip. (Word
+        // count moved off this surface in Milestone D.1 — it now rides
+        // toolbarState.wordCount on both platforms.)
         tiptapEditor: editorResult.tiptapEditor,
     }
 }

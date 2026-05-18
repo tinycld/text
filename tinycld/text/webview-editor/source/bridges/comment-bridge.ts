@@ -6,20 +6,29 @@ import { snapshotCommentIds } from '../../../lib/editor/comment-mark'
 // @tinycld/core/lib/editor/message-bus/types.ts:
 //
 //   host → WebView
-//     comment.add               { commentId } — apply mark to current selection
-//     comment.remove            { commentId } — strip all ranges with this id
-//     comment.selection-request { requestId } — reply with current selection
+//     comment.add                  { commentId }                       — apply mark to current selection
+//     comment.add-with-range       { commentId, range }                — set selection then mark, atomic
+//     comment.remove               { commentId }                       — strip all ranges with this id
+//     comment.selection-request    { requestId }                       — reply with current selection
+//     comment.focus-request        { requestId, commentId }            — find mark, select+scroll, reply found:boolean
 //
 //   WebView → host
-//     comment.tap                { commentId }                         — user clicked a marked range
-//     comment.removed            { commentIds: string[] }              — marks disappeared via edits
-//     comment.selection-response { requestId, range | null }           — reply to selection-request
+//     comment.tap                  { commentId }                       — user clicked a marked range
+//     comment.removed              { commentIds: string[] }            — marks disappeared via edits
+//     comment.selection-response   { requestId, range | null }         — reply to selection-request
+//     comment.focus-response       { requestId, found: boolean }       — reply to focus-request
 //
 // onTransaction diffs the commentId set before/after each transaction
 // and emits `comment.removed` when a mark vanishes (the user deleted
 // the underlying text, or an undo wiped the mark). The host treats
 // "removed" as the orphan signal — the PB row stays, the drawer just
 // shows "anchor removed".
+//
+// `add-with-range` is a single message rather than a setSelection +
+// add pair because the host (native) captures the selection *before*
+// opening the NewCommentModal — the user can interact with the modal
+// between the capture and the apply, but they must not be able to
+// move the editor's selection between two separate WebView messages.
 
 interface BridgeMessage<P = unknown> {
     namespace: 'comment'
@@ -93,6 +102,25 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
                 editor.chain().focus().addComment(commentId).run()
                 return
             }
+            case 'add-with-range': {
+                const { commentId, range } = (parsed.payload ?? {}) as {
+                    commentId?: string
+                    range?: { from?: number; to?: number }
+                }
+                if (!commentId || !range) return
+                const from = typeof range.from === 'number' ? range.from : null
+                const to = typeof range.to === 'number' ? range.to : null
+                if (from === null || to === null) return
+                // Deliberately no `.focus()` here, unlike the bare 'add'
+                // case. add-with-range is the modal-stolen-focus path:
+                // the host opened a dialog to capture the new-comment
+                // body, then submitted. Focusing the editor would steal
+                // focus back from the dismissing modal and cause a
+                // flicker. The mark applies cleanly without editor
+                // focus.
+                editor.chain().setTextSelection({ from, to }).addComment(commentId).run()
+                return
+            }
             case 'remove': {
                 const { commentId } = (parsed.payload ?? {}) as { commentId?: string }
                 if (!commentId) return
@@ -105,6 +133,22 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
                 const sel = editor.state.selection
                 const range = sel.empty ? null : { from: sel.from, to: sel.to }
                 send('selection-response', { range }, requestId)
+                return
+            }
+            case 'focus-request': {
+                const { requestId } = parsed
+                const { commentId } = (parsed.payload ?? {}) as { commentId?: string }
+                if (!requestId || !commentId) return
+                const storage = editor.storage.tinycldComment as
+                    | { findComment?: (id: string) => { from: number; to: number } | null }
+                    | undefined
+                const range = storage?.findComment?.(commentId) ?? null
+                if (range) {
+                    editor.chain().setTextSelection(range).scrollIntoView().focus().run()
+                    send('focus-response', { found: true }, requestId)
+                } else {
+                    send('focus-response', { found: false }, requestId)
+                }
                 return
             }
         }

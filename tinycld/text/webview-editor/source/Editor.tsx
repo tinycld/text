@@ -1,3 +1,4 @@
+import { Extension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
@@ -5,13 +6,38 @@ import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
-import { applyCellBorders } from '../../lib/apply-cell-borders'
-import { applyCellShading } from '../../lib/apply-cell-shading'
-import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
-import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
+import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
+import { FontFamily } from '@tiptap/extension-text-style/font-family'
+import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import { useEffect, useState } from 'react'
+import { Awareness } from 'y-protocols/awareness'
+import * as Y from 'yjs'
+import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
+import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
+import { CommentMark } from '../../lib/editor/comment-mark'
+import { SlashMenu } from '../../lib/editor/slash-menu'
+import { findReplacePlugin } from '../../lib/find-replace-plugin'
+import { countWords } from '../../lib/word-count'
+import { installCommentBridge } from './bridges/comment-bridge'
+import { installFindReplaceBridge } from './bridges/find-replace-bridge'
+import { installFormatBridge } from './bridges/format-bridge'
+import {
+    CodeShortcuts,
+    deriveActiveHeadingLevel,
+    deriveActiveIndent,
+    deriveCurrentAlign,
+    deriveCurrentFontFamily,
+    deriveCurrentFontSize,
+    deriveImageSelection,
+} from './editor-state'
+import { RealtimeClient } from './realtime-client'
+
+// Local extensions declared in this module — kept together so the
+// import block stays uninterrupted and the in-line `Extension.create`
+// definitions don't sit in the middle of unrelated runtime code.
 
 // Inline image variant carrying a `wrap` attr (left|right|none) on
 // the rendered <img> as data-wrap, so editor-content-styles can
@@ -42,12 +68,19 @@ const WrappedImage = Image.extend({
         }
     },
 })
-import { useEffect, useState } from 'react'
-import { Awareness } from 'y-protocols/awareness'
-import * as Y from 'yjs'
-import { CommentMark } from '../../lib/editor/comment-mark'
-import { installCommentBridge } from './bridges/comment-bridge'
-import { RealtimeClient } from './realtime-client'
+
+// FindReplaceExtension wraps the find/replace plugin in a Tiptap
+// Extension wrapper so it can sit alongside the other extensions
+// declared in useEditor(). The plugin itself lives in
+// lib/find-replace-plugin.ts and is shared with the web editor mount.
+// The native FindReplaceBar drives it through the host -> WebView
+// 'find-replace' namespace bridge (see bridges/find-replace-bridge.ts).
+const FindReplaceExtension = Extension.create({
+    name: 'tinycldFindReplace',
+    addProseMirrorPlugins() {
+        return [findReplacePlugin()]
+    },
+})
 
 interface InitPayload {
     baseURL: string
@@ -154,9 +187,22 @@ function EditorMounted({ init }: EditorMountedProps) {
             }),
             // See use-document-editor.web.tsx for the rationale — both
             // editor mounts must share the same schema so a doc seeded
-            // by one is readable by the other.
+            // by one is readable by the other. TextStyle/Color/FontSize/
+            // FontFamily share a single textStyle mark on the schema;
+            // TextAlign and BlockIndent contribute attrs on paragraph +
+            // heading. Without these extensions the WebView's schema
+            // diverges from the web schema and attrs written by a web
+            // peer would be silently dropped on a native edit.
             TextStyle,
             Color,
+            FontSize,
+            FontFamily,
+            TextAlign.configure({
+                types: ['paragraph', 'heading'],
+                alignments: ['left', 'center', 'right', 'justify'],
+                defaultAlignment: null,
+            }),
+            BlockIndent.configure({ types: ['paragraph', 'heading'] }),
             Placeholder.configure({
                 placeholder: init.placeholder ?? 'Start writing…',
             }),
@@ -166,6 +212,19 @@ function EditorMounted({ init }: EditorMountedProps) {
             BorderedTableCell,
             WrappedImage,
             CommentMark,
+            CodeShortcuts,
+            FindReplaceExtension,
+            // SlashMenu — the `bridge` strategy posts ui.show-popover /
+            // popover-update / popover-exited messages out of the
+            // WebView so the host's AnchoredOverlayController renders
+            // the popover as a Modal positioned over the WebView. The
+            // host-side `openImageInsert` action isn't reachable from
+            // inside the WebView (the file picker lives at the screen
+            // level on native), so we don't wire that option through —
+            // the slash-menu Image entry deletes the trigger and
+            // inserts nothing on native, matching the web variant's
+            // behavior when openImageInsert isn't supplied.
+            SlashMenu.configure({ renderStrategy: 'bridge' }),
             Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
             CollaborationCaret.configure({
                 provider: { awareness },
@@ -189,6 +248,11 @@ function EditorMounted({ init }: EditorMountedProps) {
         if (!editor) return
         let scheduled = false
         let lastSerialized = ''
+        // Shadow string for the ui.selection-changed channel. Kept
+        // separate from lastSerialized so a typing burst inside text
+        // (which churns stateUpdate every frame) doesn't re-broadcast
+        // a stable "no image selected" payload on every transaction.
+        let lastImageSerialized = ''
         function sendState() {
             if (!editor) return
             const payload = {
@@ -212,11 +276,46 @@ function EditorMounted({ init }: EditorMountedProps) {
                 selectionEmpty: editor.state.selection.empty,
                 canMergeCells: editor.can().mergeCells(),
                 canSplitCell: editor.can().splitCell(),
+                isCodeActive: editor.isActive('code'),
+                isCodeBlockActive: editor.isActive('codeBlock'),
+                activeHeadingLevel: deriveActiveHeadingLevel(editor),
+                currentAlign: deriveCurrentAlign(editor),
+                canIndent: deriveActiveIndent(editor) < MAX_INDENT_LEVEL,
+                canOutdent: deriveActiveIndent(editor) > 0,
+                currentFontSize: deriveCurrentFontSize(editor),
+                currentFontFamily: deriveCurrentFontFamily(editor),
+                // Broadcast the live word count alongside every other
+                // toolbar state field. The rAF-coalesce + identity-skip
+                // already throttle this; doc.textContent is O(N) over
+                // doc text which matches the web variant's per-update
+                // cost. Native consumer surfaces this as
+                // toolbarState.wordCount via useWebViewEditor's loose-
+                // state read.
+                wordCount: countWords(editor.state.doc.textContent),
             }
             const serialized = JSON.stringify({ type: 'stateUpdate', payload })
-            if (serialized === lastSerialized) return
-            lastSerialized = serialized
-            window.ReactNativeWebView?.postMessage(serialized)
+            if (serialized !== lastSerialized) {
+                lastSerialized = serialized
+                window.ReactNativeWebView?.postMessage(serialized)
+            }
+
+            // Broadcast image selection on the 'ui' namespace. The
+            // host's native-side bottom sheet subscribes to this and
+            // opens whenever payload.kind === 'image'. Kept outside the
+            // stateUpdate payload so image-related UI concerns don't
+            // contaminate the toolbar's bridge state shape.
+            const imageSel = deriveImageSelection(editor, editor.view)
+            const imageMsg = JSON.stringify({
+                namespace: 'ui',
+                type: 'selection-changed',
+                payload: imageSel
+                    ? { kind: 'image', image: imageSel }
+                    : { kind: 'none' },
+            })
+            if (imageMsg !== lastImageSerialized) {
+                lastImageSerialized = imageMsg
+                window.ReactNativeWebView?.postMessage(imageMsg)
+            }
         }
         function schedule() {
             if (scheduled) return
@@ -237,182 +336,16 @@ function EditorMounted({ init }: EditorMountedProps) {
         }
     }, [editor])
 
-    // Listen for command messages from native. TenTap's per-bridge
-    // format commands flow as { type: 'toggle-bold', payload: ... }
-    // without an explicit namespace. Our own command messages use
-    // namespace 'format'. Accept both shapes so we can toggle bold/
-    // italic/etc. from either path.
+    // Format command messages: TenTap's per-bridge commands (toggle-bold,
+    // toggle-heading, etc.) emit { type, payload } without an explicit
+    // namespace; our own command messages use namespace 'format' (insert-
+    // table, set-cell-shading, update-image-attrs, ...). Both shapes flow
+    // through installFormatBridge — mirrors the install pattern of the
+    // comment and find-replace bridges.
     useEffect(() => {
         if (!editor) return
-        function onMessage(evt: MessageEvent) {
-            if (typeof evt.data !== 'string') return
-            let parsed: IncomingMessage
-            try {
-                parsed = JSON.parse(evt.data) as IncomingMessage
-            } catch {
-                return
-            }
-            // Init messages handled by parent <Editor />. Comment-bus
-            // messages have their own listener installed by
-            // installCommentBridge below.
-            if (parsed.namespace === 'app') return
-            if (parsed.namespace === 'comment') return
-            const t = parsed.type
-            if (!t) return
-            switch (t) {
-                case 'toggle-bold':
-                    editor.chain().focus().toggleBold().run()
-                    break
-                case 'toggle-italic':
-                    editor.chain().focus().toggleItalic().run()
-                    break
-                case 'toggle-underline':
-                    editor.chain().focus().toggleUnderline().run()
-                    break
-                // TenTap's BulletListBridge and OrderedListBridge emit
-                // camelCase action strings ('toggle-bulletList' /
-                // 'toggle-orderedList'), not kebab-case. We must match
-                // the exact emitted literal or the message is dropped.
-                case 'toggle-bulletList':
-                    editor.chain().focus().toggleBulletList().run()
-                    break
-                case 'toggle-orderedList':
-                    editor.chain().focus().toggleOrderedList().run()
-                    break
-                case 'toggle-blockquote':
-                    editor.chain().focus().toggleBlockquote().run()
-                    break
-                case 'toggle-heading': {
-                    // TenTap's HeadingBridge sends the level number
-                    // directly as payload, not wrapped in { level }.
-                    const level = (parsed.payload as number | undefined) ?? 1
-                    editor
-                        .chain()
-                        .focus()
-                        .toggleHeading({ level: level as 1 | 2 | 3 })
-                        .run()
-                    break
-                }
-                case 'set-link': {
-                    // TenTap's LinkBridge sends { type:'set-link', payload: <string|null> }
-                    const url = parsed.payload as string | null
-                    if (url == null) break
-                    if (url === '') {
-                        editor.chain().focus().extendMarkRange('link').unsetLink().run()
-                    } else {
-                        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-                    }
-                    break
-                }
-                case 'remove-link':
-                    editor.chain().focus().unsetLink().run()
-                    break
-                case 'undo':
-                    editor.chain().focus().undo().run()
-                    break
-                case 'redo':
-                    editor.chain().focus().redo().run()
-                    break
-                case 'set-editable': {
-                    const next = parsed.payload as boolean
-                    editor.setEditable(next)
-                    break
-                }
-                case 'insert-table': {
-                    const { rows, cols } = parsed.payload as { rows: number; cols: number }
-                    editor
-                        .chain()
-                        .focus()
-                        .insertTable({ rows, cols, withHeaderRow: true })
-                        .run()
-                    break
-                }
-                case 'add-row-before':
-                    editor.chain().focus().addRowBefore().run()
-                    break
-                case 'add-row-after':
-                    editor.chain().focus().addRowAfter().run()
-                    break
-                case 'add-column-before':
-                    editor.chain().focus().addColumnBefore().run()
-                    break
-                case 'add-column-after':
-                    editor.chain().focus().addColumnAfter().run()
-                    break
-                case 'delete-row':
-                    editor.chain().focus().deleteRow().run()
-                    break
-                case 'delete-column':
-                    editor.chain().focus().deleteColumn().run()
-                    break
-                case 'delete-table':
-                    editor.chain().focus().deleteTable().run()
-                    break
-                case 'merge-cells':
-                    editor.chain().focus().mergeCells().run()
-                    break
-                case 'split-cell':
-                    editor.chain().focus().splitCell().run()
-                    break
-                case 'merge-or-split':
-                    editor.chain().focus().mergeOrSplit().run()
-                    break
-                case 'set-cell-borders': {
-                    const payload = parsed.payload as {
-                        preset: CellBorderPreset
-                        border?: Partial<CellBorder>
-                    }
-                    editor.commands.focus()
-                    applyCellBorders(editor, { preset: payload.preset, border: payload.border })
-                    break
-                }
-                case 'set-cell-shading': {
-                    const payload = parsed.payload as { color: string | null }
-                    editor.commands.focus()
-                    applyCellShading(editor, payload.color)
-                    break
-                }
-                case 'insert-image': {
-                    const { src, alt } = parsed.payload as { src: string; alt?: string }
-                    editor.chain().focus().setImage({ src, alt }).run()
-                    break
-                }
-                case 'cut':
-                    editor.commands.focus()
-                    document.execCommand('cut')
-                    break
-                case 'copy':
-                    editor.commands.focus()
-                    document.execCommand('copy')
-                    break
-                case 'paste':
-                    // execCommand('paste') is blocked in WebView contexts
-                    // unless the host grants special permission. Fall
-                    // back to the async clipboard API and insert via
-                    // Tiptap so the change rides through one collab tx.
-                    editor.commands.focus()
-                    navigator.clipboard
-                        ?.readText()
-                        .then(text => {
-                            if (!text) return
-                            editor.chain().focus().insertContent(text).run()
-                        })
-                        .catch(() => undefined)
-                    break
-                case 'delete-selection':
-                    editor.chain().focus().deleteSelection().run()
-                    break
-                case 'select-all':
-                    editor.chain().focus().selectAll().run()
-                    break
-            }
-        }
-        window.addEventListener('message', onMessage)
-        document.addEventListener('message', onMessage as EventListener)
-        return () => {
-            window.removeEventListener('message', onMessage)
-            document.removeEventListener('message', onMessage as EventListener)
-        }
+        const bridge = installFormatBridge(editor, postToNative)
+        return () => bridge.destroy()
     }, [editor])
 
     useEffect(() => {
@@ -420,6 +353,47 @@ function EditorMounted({ init }: EditorMountedProps) {
         const bridge = installCommentBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
+
+    useEffect(() => {
+        if (!editor) return
+        const bridge = installFindReplaceBridge(editor, postToNative)
+        return () => bridge.destroy()
+    }, [editor])
+
+    // Forward in-document scroll events out to the host. The host's
+    // useWebViewEditor receives this on its 'ui' namespace channel and
+    // fires its onScroll callback, which the native variant uses to
+    // dismiss any open anchored popover (slash menu, future popovers).
+    //
+    // iOS RN-WebView's own `onScroll` doesn't fire for in-document
+    // scrolling when scrollEnabled=false (which TenTap sets), so the
+    // signal has to come from the WebView's document. Coalesced via
+    // rAF so a smooth scroll doesn't flood the message bus.
+    useEffect(() => {
+        let scheduled = false
+        function onScroll() {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                scheduled = false
+                postToNative({
+                    namespace: 'ui',
+                    type: 'document-scroll',
+                    payload: null,
+                })
+            })
+        }
+        window.addEventListener('scroll', onScroll, { passive: true })
+        // Some Tiptap scroll containers nest the scrolling viewport
+        // inside .ProseMirror rather than at window level. Capture
+        // scroll events from any element so the dismiss policy fires
+        // regardless of which container actually scrolls.
+        document.addEventListener('scroll', onScroll, { passive: true, capture: true })
+        return () => {
+            window.removeEventListener('scroll', onScroll)
+            document.removeEventListener('scroll', onScroll, true)
+        }
+    }, [])
 
     return <EditorContent editor={editor} />
 }

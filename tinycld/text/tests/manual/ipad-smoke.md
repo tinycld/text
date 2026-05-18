@@ -8,13 +8,12 @@ Run this on the booted iPad simulator before merging any text PR that touches th
    ```bash
    xcrun simctl boot 'iPad Pro 13-inch (M4)'
    ```
-2. Launch the dev app (`pnpm run dev` from `~/code/tinycld/tinycld/`).
-3. Build the WebView editor bundle if it isn't already on disk:
+2. Launch the dev app (`npm run dev` from `~/code/tinycld/tinycld/`). The dev script runs `packages:generate`, which builds the WebView editor bundle as part of its one-shot package-build pass — no manual step needed. If you ever need to rebuild it by hand (e.g. after editing `webview-editor/source/` while dev is already running):
    ```bash
-   pnpm exec tsx ~/code/tinycld/text/tinycld/text/webview-editor/build.ts
+   npx tsx ~/code/tinycld/text/tinycld/text/webview-editor/build.ts
    ```
-   Expected output: `[text webview-editor] bundled ~1,260,000 bytes → build/editorHtml.ts`. The build is gitignored — produce it locally.
-4. Sign in on iPad. Navigate to the Text app via the rail.
+   Expected output: `[text webview-editor] bundled ~800,000 bytes → build/editorHtml.ts`. The build is gitignored — it lands on disk locally each time dev (or CI) starts.
+3. Sign in on iPad. Navigate to the Text app via the rail.
 
 ## Open / view a doc
 

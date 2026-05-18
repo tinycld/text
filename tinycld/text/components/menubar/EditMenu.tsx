@@ -1,108 +1,70 @@
+import { captureException } from '@tinycld/core/lib/errors'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
-import { markdownToPM } from '../../lib/markdown/md-to-pm'
+import { useFindReplaceStore } from '../../lib/stores/find-replace-store'
 import type { MenuBarProps } from './MenuBar'
+
+// Stable reference — Zustand selectors don't subscribe when consumers
+// only read getState(), and the menu item's onPress fires imperatively.
+const openFindReplace = () => useFindReplaceStore.getState().open()
 
 export function EditMenu(props: MenuBarProps) {
     const { commands, toolbarState, disabled, tiptapEditor } = props
     const selectionEmpty = toolbarState.selectionEmpty ?? true
     const editDisabled = disabled || selectionEmpty
-    // biome-ignore lint/suspicious/noConsole: dev-only diagnostic
-    console.log('[EditMenu] render', {
-        disabled,
-        hasEditor: !!tiptapEditor,
-        pasteMdDisabled: disabled || !tiptapEditor,
-    })
 
     // Reads plain text from the system clipboard and inserts it as
     // structured PM content. Async because navigator.clipboard.readText
     // returns a Promise; the menu handler is fire-and-forget.
     //
-    // We pass the parsed doc's `content` array (not the full doc wrapper)
-    // to insertContent — Tiptap inserts each top-level block at the
-    // caret. The change rides one collaborative transaction so peers
-    // see it as a single edit.
+    // Salvage strategy: each top-level markdown block is inserted in
+    // its own chain.run(). If a block's parsed PM tree fails the
+    // schema (mark exclusivity, disallowed content, ...) we fall back
+    // to inserting the *original markdown source* for that block as a
+    // plain paragraph — the rest of the paste survives, and the user
+    // sees the failing chunk verbatim so they can hand-fix it. If
+    // every per-block insert fails (catastrophe, e.g. an editor that
+    // doesn't accept paragraphs either), we drop the entire markdown
+    // source as a single paragraph so the user still gets something.
     //
-    // The chain explicitly seeks the cursor to end-of-doc before
-    // inserting. On a brand-new collaborative doc the user has often
+    // The chain explicitly seeks the cursor to end-of-doc before each
+    // insert. On a brand-new collaborative doc the user has often
     // never clicked into the editor, so the selection is still the
     // default <0, 0> at position 0, which is *outside* every block —
     // insertContent at that position silently rejects every block-level
-    // node and the user sees nothing happen.
-    //
-    // Every step logs to the console so a still-broken paste in dev
-    // shows where it died without attaching a debugger. These are
-    // dev-only diagnostics — they don't route to Sentry (it's local
-    // dev noise) and stay in the source until the feature is stable.
+    // node. After each insert we re-read docSize so the next block
+    // lands after the one we just inserted, in order.
+    // Paste-as-Markdown is web-only (it leans on navigator.clipboard +
+    // markdown-it). Dynamic-importing the markdown modules inside the
+    // handler keeps them off the native bundle's module-init path —
+    // markdown-it ships ESM .mjs files that crash on Hermes when
+    // evaluated at startup. The handler is also a no-op on native
+    // because there's no editor handle there.
     const pasteAsMarkdown = () => {
-        // biome-ignore lint/suspicious/noConsole: diagnostic trail for a fire-and-forget menu handler
-        console.log('[pasteAsMarkdown] handler invoked', {
-            hasEditor: !!tiptapEditor,
-            hasNavigator: typeof navigator !== 'undefined',
-            hasClipboard: typeof navigator !== 'undefined' && !!navigator.clipboard,
-            hasReadText:
-                typeof navigator !== 'undefined' && !!navigator.clipboard?.readText,
-        })
-        if (!tiptapEditor) {
-            // biome-ignore lint/suspicious/noConsole: diagnostic
-            console.warn('[pasteAsMarkdown] aborted: no tiptapEditor (native path?)')
-            return
-        }
-        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
-            // biome-ignore lint/suspicious/noConsole: diagnostic
-            console.warn('[pasteAsMarkdown] aborted: clipboard API unavailable')
-            return
-        }
+        if (!tiptapEditor) return
+        if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
         navigator.clipboard
             .readText()
-            .then(text => {
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] readText resolved', {
-                    length: text?.length ?? 0,
-                    preview: text?.slice(0, 80),
-                })
-                if (!text) {
-                    // biome-ignore lint/suspicious/noConsole: diagnostic
-                    console.warn('[pasteAsMarkdown] aborted: clipboard empty')
-                    return
-                }
-                const doc = markdownToPM(text)
-                const blocks = doc.content ?? []
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] markdownToPM parsed', {
-                    blockCount: blocks.length,
-                    blockTypes: blocks.map(b => b.type),
-                })
+            .then(async text => {
+                if (!text) return
+                const [{ markdownToPMBlocks }, { insertBlocksSequentially, insertPlaintext }] =
+                    await Promise.all([
+                        import('../../lib/markdown/md-to-pm'),
+                        import('./paste-as-markdown'),
+                    ])
+                const blocks = markdownToPMBlocks(text)
                 if (blocks.length === 0) {
-                    // biome-ignore lint/suspicious/noConsole: diagnostic
-                    console.warn('[pasteAsMarkdown] aborted: parser produced 0 blocks')
+                    insertPlaintext(tiptapEditor, text)
                     return
                 }
-                const endPos = Math.max(0, tiptapEditor.state.doc.content.size)
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] inserting', {
-                    endPos,
-                    docSize: tiptapEditor.state.doc.content.size,
-                    isEditable: tiptapEditor.isEditable,
-                    isFocused: tiptapEditor.isFocused,
-                })
-                const ok = tiptapEditor
-                    .chain()
-                    .focus()
-                    .setTextSelection(endPos)
-                    .insertContent(
-                        blocks as Parameters<typeof tiptapEditor.commands.insertContent>[0]
-                    )
-                    .run()
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.log('[pasteAsMarkdown] chain.run() returned', {
-                    ok,
-                    docSizeAfter: tiptapEditor.state.doc.content.size,
-                })
+                const { succeeded, salvaged } = insertBlocksSequentially(tiptapEditor, blocks)
+                if (succeeded === 0 && salvaged === 0) {
+                    // Nothing landed at all — the editor refused both the
+                    // parsed PM *and* a plain paragraph fallback. Last-ditch:
+                    // drop the entire markdown source as a single paragraph.
+                    insertPlaintext(tiptapEditor, text)
+                }
             })
-            .catch(err => {
-                // biome-ignore lint/suspicious/noConsole: diagnostic
-                console.error('[pasteAsMarkdown] promise rejected', err)
-            })
+            .catch(err => captureException('pasteAsMarkdown.readText', err))
     }
 
     return (
@@ -130,6 +92,11 @@ export function EditMenu(props: MenuBarProps) {
             </Menu.Item>
             <Menu.Item onPress={pasteAsMarkdown} isDisabled={disabled || !tiptapEditor}>
                 <Menu.ItemTitle>Paste as Markdown</Menu.ItemTitle>
+            </Menu.Item>
+            <Separator />
+            <Menu.Item onPress={openFindReplace} isDisabled={disabled}>
+                <Menu.ItemTitle>Find…</Menu.ItemTitle>
+                <MenuShortcut keys="⌘F" />
             </Menu.Item>
             <Separator />
             <Menu.Item onPress={() => commands.selectAll?.()} isDisabled={disabled}>

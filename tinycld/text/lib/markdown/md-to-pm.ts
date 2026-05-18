@@ -141,8 +141,104 @@ function popMark(stack: PMMark[], type: string): void {
 
 export function markdownToPM(markdown: string): PMNode {
     if (markdown.length === 0) return { type: NODE_DOC, content: [] }
-
     const tokens = md.parse(markdown, {})
+    return walkBlocks(tokens)
+}
+
+// A top-level block paired with the markdown source that produced it.
+// Returned by markdownToPMBlocks so callers (notably Edit → Paste as
+// Markdown) can insert blocks individually and, on schema-rejection,
+// fall back to inserting the original source as a plain paragraph
+// without throwing away the rest of the paste.
+export interface MarkdownBlock {
+    block: PMNode
+    source: string
+}
+
+// Variant of markdownToPM that returns each top-level block paired
+// with the slice of the original markdown that produced it. Source
+// slicing uses markdown-it's `token.map` line range — present on every
+// top-level block token (paragraph, heading, list, blockquote, table,
+// fence, code_block, hr). If a block somehow lacks `.map` we fall
+// back to an empty source string; the caller treats an empty source as
+// "no plaintext fallback available" and skips it.
+//
+// Nested blocks (a paragraph inside a list item) are still walked as
+// children of their parent block — only the outermost block has a
+// source slice attached. That keeps the salvage granularity at the
+// level a reader of the markdown source would call a "block."
+export function markdownToPMBlocks(markdown: string): MarkdownBlock[] {
+    if (markdown.length === 0) return []
+    const tokens = md.parse(markdown, {})
+    const lines = markdown.split('\n')
+    const out: MarkdownBlock[] = []
+
+    // Sub-walk one top-level block: a slice of `tokens` from a top-level
+    // open token through its matching close token. We don't want to
+    // re-implement the full nested walker — instead, build a single-block
+    // doc from this slice using the same walkBlocks() helper, then
+    // unwrap the one block out of the resulting doc.
+    let i = 0
+    while (i < tokens.length) {
+        const token = tokens[i]
+        // Skip passthrough opens at the top level (thead/tbody only
+        // appear inside table, never as outermost block).
+        if (PASSTHROUGH_OPEN.has(token.type)) {
+            i++
+            continue
+        }
+        // Top-level block tokens always have nesting >= 0 and a map.
+        // Anything else (closes, inline children, …) shouldn't appear
+        // at the outer iteration of the original walker, but we guard
+        // against malformed token streams by skipping unrecognized
+        // non-block tokens.
+        if (token.nesting < 0) {
+            i++
+            continue
+        }
+        const startTokenIndex = i
+        const endTokenIndex = findBlockEnd(tokens, i)
+        const slice = tokens.slice(startTokenIndex, endTokenIndex + 1)
+        const subDoc = walkBlocks(slice)
+        const subBlocks = subDoc.content ?? []
+        const map = token.map ?? null
+        const source =
+            map !== null && map.length === 2
+                ? lines.slice(map[0], map[1]).join('\n')
+                : ''
+        for (const block of subBlocks) out.push({ block, source })
+        i = endTokenIndex + 1
+    }
+
+    return out
+}
+
+// Find the matching close token for an opening container token at
+// `start`. For self-contained tokens (`fence`, `code_block`, `hr`,
+// `inline`) the start *is* the end. For nested containers we track
+// depth on the same tag name.
+function findBlockEnd(tokens: Token[], start: number): number {
+    const open = tokens[start]
+    if (open.nesting === 0) return start
+    const closeType = `${open.type.slice(0, -'_open'.length)}_close`
+    let depth = 1
+    for (let j = start + 1; j < tokens.length; j++) {
+        if (tokens[j].type === open.type) depth++
+        else if (tokens[j].type === closeType) {
+            depth--
+            if (depth === 0) return j
+        }
+    }
+    // Unbalanced — defensive: treat the rest of the stream as belonging
+    // to this block rather than raising. markdown-it is supposed to
+    // always emit balanced opens/closes; if that contract ever breaks,
+    // we'd rather salvage than throw.
+    return tokens.length - 1
+}
+
+// Core walker shared by markdownToPM and markdownToPMBlocks. Consumes
+// a markdown-it token stream and produces a single PM doc node.
+function walkBlocks(tokens: Token[]): PMNode {
     const root: PMNode = { type: NODE_DOC, content: [] }
     // Container stack: the current open node is always stack[stack.length-1].
     const stack: PMNode[] = [root]

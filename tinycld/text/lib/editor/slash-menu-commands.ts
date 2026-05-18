@@ -1,17 +1,30 @@
 import type { Editor, Range } from '@tiptap/core'
-import {
-    Code2,
-    Heading1,
-    Heading2,
-    Heading3,
-    Image as ImageIcon,
-    List,
-    ListOrdered,
-    type LucideIcon,
-    Minus,
-    Quote,
-    Table as TableIcon,
-} from 'lucide-react-native'
+import type { SlashMenuIconName } from './slash-menu-icon-lookup'
+// Side-effect type imports: load the module augmentations these
+// extensions ship in their .d.ts so editor.chain().toggleHeading /
+// toggleBulletList / toggleOrderedList / toggleBlockquote /
+// toggleCodeBlock / insertTable / setHorizontalRule resolve on the
+// ChainedCommands surface used in the run() handlers below. The
+// runtime extensions are registered through StarterKit + Table in
+// Editor.tsx and use-document-editor.web.tsx; these imports exist
+// only to make TypeScript see the `declare module '@tiptap/core'`
+// augmentations.
+import '@tiptap/extension-heading'
+import '@tiptap/extension-bullet-list'
+import '@tiptap/extension-ordered-list'
+import '@tiptap/extension-blockquote'
+import '@tiptap/extension-code-block'
+import '@tiptap/extension-table'
+import '@tiptap/extension-horizontal-rule'
+
+// NOTE: do NOT import lucide-react-native at the top of this file.
+// SLASH_MENU_COMMANDS is consumed by the WebView's editor bundle
+// (Editor.tsx → SlashMenu extension → SLASH_MENU_COMMANDS) and a
+// lucide-react-native import would drag react-native into the
+// WebView bundle (the build script's esbuild can't transform RN
+// Flow syntax). Icon resolution happens at the host: web's
+// SlashMenu.web.tsx and the native SlashMenuPopover both look the
+// iconName up via slash-menu-icon-lookup.ts.
 
 // Argument signature for image-insert handlers. The flow is delegated
 // to the screen — the slash menu only fires `openImageInsert()`, which
@@ -32,7 +45,16 @@ export interface SlashMenuCommand {
     // both `label` and `keywords` so users can type "h1" → Heading 1
     // without the label needing to advertise the shorthand.
     keywords: string[]
-    icon: LucideIcon
+    // String identifier mapped to a LucideIcon component at the host
+    // layer (web's SlashMenu.web.tsx and the native SlashMenuPopover
+    // both call resolveSlashMenuIcon(iconName)). Storing only the
+    // string here keeps this module — and the WebView bundle that
+    // consumes SLASH_MENU_COMMANDS — free of lucide-react-native,
+    // which transitively pulls in react-native and breaks esbuild.
+    //
+    // Typed as `keyof typeof SLASH_MENU_ICONS` (the lookup table in
+    // slash-menu-icon-lookup.ts) so a typo here fails typecheck.
+    iconName: SlashMenuIconName
     run: (ctx: SlashMenuCommandContext) => void
 }
 
@@ -45,7 +67,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'heading-1',
         label: 'Heading 1',
         keywords: ['h1', 'title', 'header'],
-        icon: Heading1,
+        iconName: 'Heading1',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run()
         },
@@ -54,7 +76,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'heading-2',
         label: 'Heading 2',
         keywords: ['h2', 'subtitle', 'header'],
-        icon: Heading2,
+        iconName: 'Heading2',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run()
         },
@@ -63,7 +85,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'heading-3',
         label: 'Heading 3',
         keywords: ['h3', 'subheader', 'header'],
-        icon: Heading3,
+        iconName: 'Heading3',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleHeading({ level: 3 }).run()
         },
@@ -72,7 +94,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'bullet-list',
         label: 'Bullet list',
         keywords: ['ul', 'unordered', 'list'],
-        icon: List,
+        iconName: 'List',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleBulletList().run()
         },
@@ -81,7 +103,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'numbered-list',
         label: 'Numbered list',
         keywords: ['ol', 'ordered', 'numbered', 'list'],
-        icon: ListOrdered,
+        iconName: 'ListOrdered',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleOrderedList().run()
         },
@@ -90,7 +112,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'quote',
         label: 'Quote',
         keywords: ['blockquote', 'citation'],
-        icon: Quote,
+        iconName: 'Quote',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleBlockquote().run()
         },
@@ -99,7 +121,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'code-block',
         label: 'Code block',
         keywords: ['code', 'codeblock', 'snippet', 'pre'],
-        icon: Code2,
+        iconName: 'Code2',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
         },
@@ -108,7 +130,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'table',
         label: 'Table',
         keywords: ['grid', 'rows', 'columns'],
-        icon: TableIcon,
+        iconName: 'Table',
         run: ({ editor, range }) => {
             editor
                 .chain()
@@ -122,7 +144,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'image',
         label: 'Image',
         keywords: ['picture', 'photo', 'img'],
-        icon: ImageIcon,
+        iconName: 'Image',
         // Image picking happens outside the editor (file picker, URL
         // prompt, drive upload). We delete the slash trigger here and
         // delegate to the host-supplied `openImageInsert` callback so
@@ -136,7 +158,7 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         id: 'horizontal-rule',
         label: 'Horizontal rule',
         keywords: ['hr', 'divider', 'separator', 'line'],
-        icon: Minus,
+        iconName: 'Minus',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).setHorizontalRule().run()
         },

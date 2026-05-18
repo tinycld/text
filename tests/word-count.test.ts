@@ -114,14 +114,34 @@ describe('formatCharacterCount', () => {
 })
 
 describe('integration contract', () => {
-    // Document how WordCountBadge composes the helpers. The badge
-    // reads `editor.state.doc.textContent`, runs countWords +
-    // countCharacters, and renders the two formatted strings.
+    // Document how WordCountBadge composes the helpers. The badge now
+    // receives `wordCount` as a prop (sourced from toolbarState — web
+    // computes via tiptapEditor.state.doc.textContent, native receives
+    // it in the WebView's stateUpdate payload). It calls
+    // formatWordCount(wordCount) and renders the resulting label, or
+    // renders null when wordCount is null/undefined.
     it('a typical paragraph reports the expected word and character counts', () => {
         const text = 'The quick brown fox jumps over the lazy dog.'
         expect(countWords(text)).toBe(9)
         expect(countCharacters(text)).toBe(44)
         expect(formatWordCount(countWords(text))).toBe('9 words')
         expect(formatCharacterCount(countCharacters(text))).toBe('44 characters')
+    })
+
+    // WordCountBadge contract — locked here because the component
+    // itself is React Native (View / Text) and can't be mounted under
+    // vitest's node environment. Playwright covers the visible render
+    // path; these assertions cover the helper composition the badge
+    // performs.
+    it('matches the badge label for an empty document (toolbarState.wordCount=0)', () => {
+        expect(formatWordCount(0)).toBe('0 words')
+    })
+
+    it('matches the badge label for a one-word document', () => {
+        expect(formatWordCount(1)).toBe('1 word')
+    })
+
+    it('matches the badge label for a large document with thousands separator', () => {
+        expect(formatWordCount(1234)).toBe('1,234 words')
     })
 })

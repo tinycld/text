@@ -8,10 +8,12 @@ on:
 
 env:
   APP_REPO: tinycld/tinycld
-  # Pin to a known-good app-shell revision. Bump manually after verifying
-  # compat. The previous `main` floated and silently broke builds on
-  # upstream changes; tracked in docs/TODO.md under "CI / build".
-  APP_REF: 7bf89673ba958cbb6ba354662ee5c81a32128677
+  APP_REF: main
+  # @tinycld/text imports from @tinycld/drive (document storage as drive
+  # items, image upload, copy-to-folder dialog, etc). Drive must be linked
+  # in the app shell or typecheck and Playwright both fail.
+  DRIVE_REPO: tinycld/drive
+  DRIVE_REF: main
 
 jobs:
   checks:
@@ -26,38 +28,44 @@ jobs:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: tinycld
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
         with:
-          version: 11.1.1
+          repository: ${{ env.DRIVE_REPO }}
+          ref: ${{ env.DRIVE_REF }}
+          path: drive
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: tinycld/.node-version
+          cache: npm
+          cache-dependency-path: tinycld/package-lock.json
 
-      # The app shell bundles @tinycld/core at packages/@tinycld/core/. This
-      # package's tsconfig path "@tinycld/core/*":
-      # ["../tinycld/packages/@tinycld/core/*"] and its server go.mod replace
-      # directive both point directly there.
-      - name: Install app shell deps
+      - name: Install tinycld deps (biome lives here)
         working-directory: tinycld
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+
+      - name: Link drive into tinycld app shell
+        working-directory: tinycld
+        run: npm run packages:link ../drive
 
       - name: Link text into tinycld app shell
         working-directory: tinycld
-        run: pnpm run packages:link ../text
+        run: npm run packages:link ../text
 
-      - name: Lint (biome lives in tinycld and lints linked text via app rules)
+      - name: Lint (biome runs from tinycld; scans linked text via app rules)
         working-directory: tinycld
-        run: pnpm run lint
+        run: npm run lint
 
       # Typecheck runs from inside tinycld so module resolution sees the
-      # full app-shell tree (uniwind augments, expo types, etc) — running
-      # tsc standalone in the package directory misses those.
+      # full app-shell tree (uniwind augments, expo types, etc).
       - name: Typecheck (full app shell, package included via link)
         working-directory: tinycld
         env:
           NODE_OPTIONS: --preserve-symlinks
-        run: pnpm run typecheck
+        run: npm run typecheck
 
-      - name: Run unit tests
-        working-directory: text
-        run: pnpm exec vitest run
+      - name: Run unit tests (vitest picks up text via packages glob)
+        working-directory: tinycld
+        run: npx vitest run packages/@tinycld/text
 
   go-tests:
     name: Go server tests
@@ -71,27 +79,27 @@ jobs:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: tinycld
-      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
         with:
-          version: 11.1.1
-      - uses: actions/setup-go@v5
+          node-version-file: tinycld/.node-version
+          cache: npm
+          cache-dependency-path: tinycld/package-lock.json
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version-file: tinycld/server/go.mod
+          cache-dependency-path: tinycld/server/go.sum
 
       # text/server/go.mod has `replace tinycld.org/core =>
-      # ../../tinycld/packages/@tinycld/core/server`, so the core Go source
-      # must exist at that path before `go test` can resolve imports. The
-      # `packages:link` step is not strictly required for the replace to
-      # resolve (core is bundled in the app shell, not behind the symlink
-      # tree), but we run it to mirror the layout the other jobs use and
-      # to surface any link-time errors in CI.
-      - name: Install app shell deps
+      # ../../tinycld/packages/@tinycld/core/server`, so core source must
+      # exist at that path before `go test` can resolve imports. We run the
+      # link step to mirror the layout the other jobs use.
+      - name: Install tinycld deps
         working-directory: tinycld
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Link text into tinycld app shell
         working-directory: tinycld
-        run: pnpm run packages:link ../text
+        run: npm run packages:link ../text
 
       - name: Run Go server tests
         working-directory: text/server
@@ -110,52 +118,76 @@ jobs:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: tinycld
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
         with:
-          version: 11.1.1
+          repository: ${{ env.DRIVE_REPO }}
+          ref: ${{ env.DRIVE_REF }}
+          path: drive
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: tinycld/.node-version
+          cache: npm
+          cache-dependency-path: tinycld/package-lock.json
       # Playwright owns its own dev-server lifecycle via playwright.config.ts
       # `webServer` (which chains reset-dev-db.ts + dev.ts and spawns
       # PocketBase). The dev script invokes the bundled Go binaries, so we
       # need Go available even though Playwright itself is JS.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version-file: tinycld/server/go.mod
+          cache-dependency-path: tinycld/server/go.sum
 
-      - name: Install app shell deps
+      - name: Install tinycld deps
         working-directory: tinycld
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+
+      - name: Link drive into tinycld app shell
+        working-directory: tinycld
+        run: npm run packages:link ../drive
 
       # Expects tinycld/packages/@tinycld/text to be a symlink to ../text
       # after this step, matching the layout that
       # playwright.config.ts::siblingProjects() walks.
       - name: Link text into tinycld app shell
         working-directory: tinycld
-        run: pnpm run packages:link ../text
+        run: npm run packages:link ../text
 
-      # Cache the browser binaries — `playwright install` downloads ~150 MB
-      # of Chromium otherwise. Key by Playwright version (from the app
-      # shell's lockfile) so a Playwright bump invalidates automatically.
+      - name: Build PocketBase binary
+        working-directory: tinycld/server
+        run: go build -o tinycld .
+
+      - name: Reset test DB
+        working-directory: tinycld
+        run: npx tsx scripts/reset-dev-db.ts --url http://127.0.0.1:7091 --data-dir server/pb_test_data
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('tinycld/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tinycld/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright browsers
         working-directory: tinycld
-        run: pnpm exec playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+      - name: Install Playwright system deps
+        working-directory: tinycld
+        run: npx playwright install-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
 
       - name: Run Playwright (text project only)
         working-directory: tinycld
-        run: pnpm run test:e2e -- --project=@tinycld/text
+        env:
+          CI: true
+          NODE_OPTIONS: --preserve-symlinks
+        run: npx playwright test --project "@tinycld/text" --timeout=90000
 
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
+        if: ${{ !cancelled() }}
         with:
           name: playwright-report
-          path: tinycld/playwright-report
-          retention-days: 7
+          path: tinycld/playwright-report/
+          retention-days: 14

@@ -54,11 +54,25 @@ describe('SLASH_MENU_COMMANDS', () => {
             expect(cmd.run).toBeTypeOf('function')
         }
     })
-    // We deliberately don't assert on cmd.icon: lucide-react-native
-    // transitively pulls in react-native, which doesn't parse under
-    // vitest's node environment, so the icon refs come back undefined
-    // here. The slash menu is web-only and the icons are exercised by
-    // the Playwright spec.
+
+    it('exposes a string iconName for every entry (wire-shape for native)', () => {
+        // The bridge render strategy serializes commands across the
+        // WebView JSON bus and substitutes the Lucide ref with this
+        // iconName, which the host resolves back via
+        // slash-menu-icon-lookup. A null/missing iconName here would
+        // render the popover with a blank icon slot on native.
+        for (const cmd of SLASH_MENU_COMMANDS) {
+            expect(cmd.iconName, `command=${cmd.id}`).toBeTypeOf('string')
+            expect(cmd.iconName.length, `command=${cmd.id}`).toBeGreaterThan(0)
+        }
+    })
+
+    // The cmd.icon LucideIcon ref was removed in favor of cmd.iconName
+    // (a string the host-side popover maps to a LucideIcon via
+    // slash-menu-icon-lookup). Keeping SLASH_MENU_COMMANDS lucide-free
+    // is what lets it be consumed inside the WebView bundle without
+    // dragging react-native into esbuild. Icon-rendering coverage
+    // lives in the Playwright spec.
 })
 
 describe('filterSlashMenuCommands', () => {

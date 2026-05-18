@@ -16,6 +16,7 @@ import { DocumentContextMenu } from '../components/DocumentContextMenu'
 import { DocumentTitle } from '../components/DocumentTitle'
 import { DocumentToolbar } from '../components/DocumentToolbar'
 import { FindReplaceBar, useFindReplaceShortcuts } from '../components/FindReplaceBar'
+import { ImageAttrsBottomSheet } from '../components/ImageAttrsBottomSheet'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
@@ -104,6 +105,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         tiptapEditor,
         findReplaceEditor,
         commentBridge,
+        webViewRef,
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
     })
@@ -155,7 +157,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     />
                     <PresenceAvatars awareness={room.awareness} />
                     <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
-                    <WordCountBadge editor={tiptapEditor} />
+                    <WordCountBadge wordCount={toolbarState.wordCount} />
                     <ReconnectingIndicator isVisible={!room.isConnected} />
                     <View className="ml-auto flex-row items-center gap-1">
                         <OpenCommentsDrawerButton
@@ -199,12 +201,19 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     canAddComment={newCommentFlow.canStart}
                     className="flex-1"
                 >
-                    <ScrollView className="flex-1">
-                        <View className="p-6 max-w-[800px] w-full self-center">
+                    {Platform.OS === 'web' ? (
+                        <ScrollView className="flex-1">
+                            <View className="p-6 max-w-[800px] w-full self-center">
+                                <EditorComponent />
+                                <FindReplaceShell />
+                            </View>
+                        </ScrollView>
+                    ) : (
+                        <View className="flex-1">
                             <EditorComponent />
                             <FindReplaceShell />
                         </View>
-                    </ScrollView>
+                    )}
                 </DocumentContextMenu>
                 <LinkPopover
                     isOpen={contextLinkOpen}
@@ -224,6 +233,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     toolbarState={toolbarState}
                     editable={!isReadOnly}
                 />
+                <ImageAttrsBottomSheet editable={!isReadOnly} commands={commands} />
                 <CopyToFolderDialog
                     itemId={driveItemId}
                     onCopied={newItemId =>
@@ -236,7 +246,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     commentBridge={commentBridge}
                 />
                 {newCommentFlow.modal}
-                <SlashMenu />
+                <SlashMenu webViewRef={webViewRef ?? null} />
             </View>
         </FindReplaceEditorContext.Provider>
     )

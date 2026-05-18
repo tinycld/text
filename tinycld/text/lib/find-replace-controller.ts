@@ -1,39 +1,34 @@
-import {
-    type FindReplaceEditor,
-    clearFind,
-    findNext,
-    findPrev,
-    findReplacePluginKey,
-    replaceAll,
-    replaceCurrent,
-    setFindQuery,
-} from './find-replace-plugin'
-
 // FindReplaceController abstracts the bar's editor dependency. The bar
 // no longer talks to ProseMirror's state + dispatch directly — instead
 // it reads observable state through getState() and posts commands
 // through the controller's methods. Two implementations exist:
 //
-//   - makeWebFindReplaceController wraps the in-process Tiptap editor.
-//     getState() reads the plugin state synchronously; commands
-//     dispatch transactions inline. The bar re-renders per transaction
-//     via Tiptap's shouldRerenderOnTransaction, so the bar always sees
-//     the latest getState().
+//   - makeWebFindReplaceController (in find-replace-controller-web.ts)
+//     wraps the in-process Tiptap editor. getState() reads the plugin
+//     state synchronously; commands dispatch transactions inline. The
+//     bar re-renders per transaction via Tiptap's
+//     shouldRerenderOnTransaction, so the bar always sees the latest
+//     getState().
 //
-//   - makeNativeFindReplaceController posts messages to the WebView
-//     through useWebViewEditor.postMessage. getState() reads from a
-//     Zustand store that mirrors the WebView's broadcasted
-//     state-update messages. The bar subscribes to the store so it
-//     re-renders when the WebView's plugin state changes.
+//   - makeNativeFindReplaceController (in native-find-replace-
+//     controller.ts) posts messages to the WebView through
+//     useWebViewEditor.postMessage. getState() reads from a Zustand
+//     store that mirrors the WebView's broadcasted state-update
+//     messages. The bar subscribes to the store so it re-renders when
+//     the WebView's plugin state changes.
 //
 // The bar consumes this through useFindReplaceControllerState
 // (declared in this module's companion hook file — see use-find-
 // replace-controller-state.ts) which papers over the platform
 // difference.
 //
-// This file is platform-neutral on purpose: it must be importable from
-// a vitest context where `react-native` would otherwise fail to
-// transform. The platform-aware bar-side hook lives separately.
+// This file holds ONLY the interface + pure helpers + the empty-state
+// constant. It deliberately has zero runtime imports so the bar and
+// hook (which import from here on every platform) never transitively
+// pull in the ProseMirror plugin module — `@tiptap/pm/view`'s
+// `Decoration` and `DecorationSet` touch DOM types at evaluation that
+// crash on native at module load. The web factory and its plugin
+// imports live in `find-replace-controller-web.ts`.
 
 export interface FindReplaceControllerState {
     matchCount: number
@@ -89,24 +84,4 @@ export interface FindReplaceController {
     prev(): void
     replaceCurrent(replacement: string): void
     replaceAll(replacement: string): void
-}
-
-// Web controller — wraps the existing FindReplaceEditor (state +
-// dispatch) handle returned by the web variant of useDocumentEditor.
-export function makeWebFindReplaceController(
-    editor: FindReplaceEditor
-): FindReplaceController {
-    return {
-        getState: () => {
-            const s = findReplacePluginKey.getState(editor.state)
-            if (!s) return FIND_REPLACE_EMPTY_STATE
-            return { matchCount: s.matches.length, currentIndex: s.currentIndex, query: s.query }
-        },
-        setQuery: q => setFindQuery(editor, q),
-        clear: () => clearFind(editor),
-        next: () => findNext(editor),
-        prev: () => findPrev(editor),
-        replaceCurrent: r => replaceCurrent(editor, r),
-        replaceAll: r => replaceAll(editor, r),
-    }
 }

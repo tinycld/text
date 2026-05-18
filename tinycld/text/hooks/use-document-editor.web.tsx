@@ -34,7 +34,7 @@ import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
 import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
-import { makeWebFindReplaceController } from '../lib/find-replace-controller'
+import { makeWebFindReplaceController } from '../lib/find-replace-controller-web'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
 import { countWords } from '../lib/word-count'
 import {

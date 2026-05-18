@@ -3,7 +3,7 @@
 // surface the FindReplaceBar consumes.
 
 import { describe, expect, it, vi } from 'vitest'
-import { makeWebFindReplaceController } from '../tinycld/text/lib/find-replace-controller'
+import { makeWebFindReplaceController } from '../tinycld/text/lib/find-replace-controller-web'
 import {
     type FindReplaceEditor,
     findReplacePluginKey,

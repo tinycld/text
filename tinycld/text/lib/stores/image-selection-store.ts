@@ -1,5 +1,5 @@
 import { create } from '@tinycld/core/lib/store'
-import type { ImageSelection } from '../../webview-editor/source/editor-state'
+import type { ImageSelection } from '../../webview-editor/source/editor-state-types'
 
 // Image-selection store: the bottom sheet's open/closed state is
 // driven entirely by whether the WebView's editor reports an image

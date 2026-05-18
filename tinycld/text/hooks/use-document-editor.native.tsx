@@ -28,7 +28,7 @@ import {
 } from '../lib/native-find-replace-controller'
 import { useFindReplaceStateStore } from '../lib/stores/find-replace-state-store'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
-import type { ImageSelection } from '../webview-editor/source/editor-state'
+import type { ImageSelection } from '../webview-editor/source/editor-state-types'
 import { editorHtml } from '../webview-editor/build/editorHtml'
 import {
     createNativeCommentBridge,

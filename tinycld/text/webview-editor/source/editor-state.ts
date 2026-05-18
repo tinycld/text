@@ -163,30 +163,12 @@ export interface EditorWithState {
     state: EditorStateLike
 }
 
-export interface ImageSelection {
-    src: string
-    alt: string | null
-    wrap: 'left' | 'right' | 'break' | null
-    width: number | null
-    height: number | null
-    naturalWidth: number
-    naturalHeight: number
-    rect: {
-        // Viewport coords (raw getBoundingClientRect output — top/left
-        // relative to the WebView's visible area, not the document).
-        top: number
-        left: number
-        width: number
-        height: number
-        // Scroll snapshot of the WebView's document at the moment this
-        // rect was captured. The host can use these to derive
-        // document-coords (top+scrollY, left+scrollX) or, more usefully,
-        // detect that the user has scrolled since emit and decide
-        // whether to re-anchor the overlay or dismiss it.
-        scrollX: number
-        scrollY: number
-    } | null
-}
+// Re-export ImageSelection from a runtime-free sibling. Native consumers
+// (use-document-editor.native.tsx, image-selection-store.ts) import it
+// directly from editor-state-types so they don't transitively load the
+// `@tiptap/*` modules at the top of this file — those crash at module
+// evaluation on native.
+export type { ImageSelection } from './editor-state-types'
 
 // Narrow an unknown attribute value into the legal wrap-mode literals
 // the WrappedImage schema accepts. Mirrors WrappedImage's parseHTML

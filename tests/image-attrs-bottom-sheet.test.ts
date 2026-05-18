@@ -30,7 +30,7 @@ import { IMAGE_MAX_WIDTH, IMAGE_MIN_SIZE } from '../tinycld/text/lib/image-resiz
 import { resolvePresetSize } from '../tinycld/text/lib/image-size-presets'
 import { wrapToAttr } from '../tinycld/text/lib/image-wrap-modes'
 import { useImageSelectionStore } from '../tinycld/text/lib/stores/image-selection-store'
-import type { ImageSelection } from '../tinycld/text/webview-editor/source/editor-state'
+import type { ImageSelection } from '../tinycld/text/webview-editor/source/editor-state-types'
 
 function makeSelection(over: Partial<ImageSelection> = {}): ImageSelection {
     return {

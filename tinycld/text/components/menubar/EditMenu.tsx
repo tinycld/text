@@ -1,9 +1,7 @@
 import { captureException } from '@tinycld/core/lib/errors'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
-import { markdownToPMBlocks } from '../../lib/markdown/md-to-pm'
 import { useFindReplaceStore } from '../../lib/stores/find-replace-store'
 import type { MenuBarProps } from './MenuBar'
-import { insertBlocksSequentially, insertPlaintext } from './paste-as-markdown'
 
 // Stable reference — Zustand selectors don't subscribe when consumers
 // only read getState(), and the menu item's onPress fires imperatively.
@@ -35,13 +33,24 @@ export function EditMenu(props: MenuBarProps) {
     // insertContent at that position silently rejects every block-level
     // node. After each insert we re-read docSize so the next block
     // lands after the one we just inserted, in order.
+    // Paste-as-Markdown is web-only (it leans on navigator.clipboard +
+    // markdown-it). Dynamic-importing the markdown modules inside the
+    // handler keeps them off the native bundle's module-init path —
+    // markdown-it ships ESM .mjs files that crash on Hermes when
+    // evaluated at startup. The handler is also a no-op on native
+    // because there's no editor handle there.
     const pasteAsMarkdown = () => {
         if (!tiptapEditor) return
         if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
         navigator.clipboard
             .readText()
-            .then(text => {
+            .then(async text => {
                 if (!text) return
+                const [{ markdownToPMBlocks }, { insertBlocksSequentially, insertPlaintext }] =
+                    await Promise.all([
+                        import('../../lib/markdown/md-to-pm'),
+                        import('./paste-as-markdown'),
+                    ])
                 const blocks = markdownToPMBlocks(text)
                 if (blocks.length === 0) {
                     insertPlaintext(tiptapEditor, text)

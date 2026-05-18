@@ -9,6 +9,11 @@ on:
 env:
   APP_REPO: tinycld/tinycld
   APP_REF: main
+  # @tinycld/text imports from @tinycld/drive (document storage as drive
+  # items, image upload, copy-to-folder dialog, etc). Drive must be linked
+  # in the app shell or typecheck and Playwright both fail.
+  DRIVE_REPO: tinycld/drive
+  DRIVE_REF: main
 
 jobs:
   checks:
@@ -23,6 +28,11 @@ jobs:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: tinycld
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.DRIVE_REPO }}
+          ref: ${{ env.DRIVE_REF }}
+          path: drive
       - uses: actions/setup-node@v5
         with:
           node-version-file: tinycld/.node-version
@@ -32,6 +42,10 @@ jobs:
       - name: Install tinycld deps (biome lives here)
         working-directory: tinycld
         run: npm ci
+
+      - name: Link drive into tinycld app shell
+        working-directory: tinycld
+        run: npm run packages:link ../drive
 
       - name: Link text into tinycld app shell
         working-directory: tinycld
@@ -104,6 +118,11 @@ jobs:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: tinycld
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.DRIVE_REPO }}
+          ref: ${{ env.DRIVE_REF }}
+          path: drive
       - uses: actions/setup-node@v5
         with:
           node-version-file: tinycld/.node-version
@@ -122,12 +141,24 @@ jobs:
         working-directory: tinycld
         run: npm ci
 
+      - name: Link drive into tinycld app shell
+        working-directory: tinycld
+        run: npm run packages:link ../drive
+
       # Expects tinycld/packages/@tinycld/text to be a symlink to ../text
       # after this step, matching the layout that
       # playwright.config.ts::siblingProjects() walks.
       - name: Link text into tinycld app shell
         working-directory: tinycld
         run: npm run packages:link ../text
+
+      - name: Build PocketBase binary
+        working-directory: tinycld/server
+        run: go build -o tinycld .
+
+      - name: Reset test DB
+        working-directory: tinycld
+        run: npx tsx scripts/reset-dev-db.ts --url http://127.0.0.1:7091 --data-dir server/pb_test_data
 
       - name: Cache Playwright browsers
         id: playwright-cache

@@ -135,6 +135,11 @@ export const EDITOR_CONTENT_STYLES = `
 }
 .ProseMirror th,
 .ProseMirror td {
+    /* Anchors the absolutely-positioned .column-resize-handle (rendered
+       by Tiptap's columnResizing plugin) to the cell's trailing edge.
+       Without this, the handle escapes to the nearest positioned
+       ancestor and the teal indicator appears at the page border. */
+    position: relative;
     border: 1px solid var(--editor-border, #ddd);
     padding: 6px 8px;
     text-align: left;

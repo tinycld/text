@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { Platform } from 'react-native'
 import {
+    computeNextFindReplaceSnapshot,
     FIND_REPLACE_EMPTY_STATE,
     type FindReplaceController,
     type FindReplaceControllerState,
@@ -20,18 +21,38 @@ import { useFindReplaceStateStore } from './stores/find-replace-state-store'
 // uniformly on both platforms; the web subscribe is a no-op returning
 // a no-op unsubscribe.
 //
+// Snapshot identity is cached through `computeNextFindReplaceSnapshot`
+// — useSyncExternalStore reads the snapshot on every render and
+// requires it to be stable when nothing has changed (otherwise React
+// dev mode logs "The result of getSnapshot should be cached to avoid
+// an infinite loop" and production runs excess re-renders). Both the
+// web (controller.getState()) and the native (mirror-store) branches
+// produce fresh objects per call, so both go through the cache.
+//
 // Lives in its own file (not alongside the controller factories) so
 // the controller module stays free of react-native imports — that
 // lets unit tests for the web controller load it without transforming
 // react-native's Flow-syntax entry point.
+
 export function useFindReplaceControllerState(
     controller: FindReplaceController | null
 ): FindReplaceControllerState | null {
     const isNative = Platform.OS !== 'web'
-    const subscribe = isNative ? useFindReplaceStateStore.subscribe : noopSubscribe
-    const getSnapshot = isNative
-        ? getNativeStoreSnapshot
-        : () => (controller ? controller.getState() : FIND_REPLACE_EMPTY_STATE)
+    const cachedRef = useRef<FindReplaceControllerState>(FIND_REPLACE_EMPTY_STATE)
+
+    const getSnapshot = useCallback(() => {
+        const raw = isNative
+            ? readNativeStoreSnapshot()
+            : controller
+              ? controller.getState()
+              : FIND_REPLACE_EMPTY_STATE
+        const next = computeNextFindReplaceSnapshot(cachedRef.current, raw)
+        cachedRef.current = next
+        return next
+    }, [controller, isNative])
+
+    const subscribe = isNative ? subscribeNativeStore : noopSubscribe
+
     const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
     if (!controller) return null
     return state
@@ -41,7 +62,11 @@ function noopSubscribe(): () => void {
     return () => undefined
 }
 
-function getNativeStoreSnapshot(): FindReplaceControllerState {
+function subscribeNativeStore(cb: () => void): () => void {
+    return useFindReplaceStateStore.subscribe(cb)
+}
+
+function readNativeStoreSnapshot(): FindReplaceControllerState {
     const s = useFindReplaceStateStore.getState()
     return { matchCount: s.matchCount, currentIndex: s.currentIndex, query: s.query }
 }

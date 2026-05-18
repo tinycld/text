@@ -41,10 +41,39 @@ export interface FindReplaceControllerState {
     query: string
 }
 
-export const FIND_REPLACE_EMPTY_STATE: FindReplaceControllerState = {
+// Frozen so the module-level constant can never accidentally drift —
+// every code path that reads "no controller / no matches" sees the
+// same canonical zero state and a stable reference. Mirrors the
+// EMPTY_SNAPSHOT pattern in use-y-undo-manager.ts.
+export const FIND_REPLACE_EMPTY_STATE: FindReplaceControllerState = Object.freeze({
     matchCount: 0,
     currentIndex: 0,
     query: '',
+})
+
+// Pure helper used by useFindReplaceControllerState's getSnapshot. The
+// useSyncExternalStore contract requires getSnapshot to return the
+// same reference when nothing has changed — otherwise React loops on
+// dev mode warnings or runs excess re-renders in production. Both
+// branches of the hook (web reads `controller.getState()`, native
+// reads the mirror Zustand store) produce fresh objects per call, so
+// both go through this cache.
+//
+// Pulled out here (not in the hook file) so unit tests can load it
+// without dragging in `react-native`'s Flow-syntax entry point. Mirrors
+// computeNextSnapshot in use-y-undo-manager.ts.
+export function computeNextFindReplaceSnapshot(
+    cached: FindReplaceControllerState,
+    next: FindReplaceControllerState
+): FindReplaceControllerState {
+    if (
+        cached.matchCount === next.matchCount &&
+        cached.currentIndex === next.currentIndex &&
+        cached.query === next.query
+    ) {
+        return cached
+    }
+    return next
 }
 
 export interface FindReplaceController {

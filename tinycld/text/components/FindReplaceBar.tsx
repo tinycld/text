@@ -52,6 +52,16 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
     // highlights (the plugin's state was reset on close). Skipping the
     // initial "bar was already closed" run avoids a redundant clear
     // transaction during the screen's first paint.
+    //
+    // Race: if the bar opens before the WebView's bridge installs its
+    // message listener, this setQuery message is dropped silently
+    // (postMessage returns false on native; web's controller dispatches
+    // synchronously and can never miss). No manual retry needed —
+    // the next user keystroke retriggers this effect, and the bridge's
+    // initial state broadcast catches the host store up as soon as the
+    // listener attaches. Commands are idempotent on the WebView side
+    // (setQuery is a plugin meta; next/prev no-op without matches), so
+    // a dropped first send isn't observable.
     const wasVisibleRef = useRef(false)
     useEffect(() => {
         if (!controller) return

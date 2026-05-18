@@ -1,8 +1,13 @@
 import { captureException } from '@tinycld/core/lib/errors'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { markdownToPMBlocks } from '../../lib/markdown/md-to-pm'
+import { useFindReplaceStore } from '../../lib/stores/find-replace-store'
 import type { MenuBarProps } from './MenuBar'
 import { insertBlocksSequentially, insertPlaintext } from './paste-as-markdown'
+
+// Stable reference — Zustand selectors don't subscribe when consumers
+// only read getState(), and the menu item's onPress fires imperatively.
+const openFindReplace = () => useFindReplaceStore.getState().open()
 
 export function EditMenu(props: MenuBarProps) {
     const { commands, toolbarState, disabled, tiptapEditor } = props
@@ -78,6 +83,11 @@ export function EditMenu(props: MenuBarProps) {
             </Menu.Item>
             <Menu.Item onPress={pasteAsMarkdown} isDisabled={disabled || !tiptapEditor}>
                 <Menu.ItemTitle>Paste as Markdown</Menu.ItemTitle>
+            </Menu.Item>
+            <Separator />
+            <Menu.Item onPress={openFindReplace} isDisabled={disabled}>
+                <Menu.ItemTitle>Find…</Menu.ItemTitle>
+                <MenuShortcut keys="⌘F" />
             </Menu.Item>
             <Separator />
             <Menu.Item onPress={() => commands.selectAll?.()} isDisabled={disabled}>

@@ -46,7 +46,13 @@ export function makeNativeFindReplaceController(
 // Dispatch a single WebView -> host find-replace message into the
 // state-mirror store. The native hook's onFindReplaceMessage closure
 // is a thin wrapper around this; extracted for direct testing.
+//
+// The single host caller (use-document-editor.native.tsx) already
+// pre-filters by namespace, but the function is exported and
+// unit-tested standalone so it does its own check in case a future
+// caller forgets — defense in depth, costs one string compare.
 export function dispatchFindReplaceMessage(message: EditorMessage): void {
+    if (message.namespace !== 'find-replace') return
     if (message.type !== 'state-update') return
     const payload = message.payload
     if (payload === null || typeof payload !== 'object') return

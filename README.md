@@ -33,7 +33,9 @@ Editing features:
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
   state can be restored later
-- Find and replace (`FindReplaceBar`)
+- Find and replace (`FindReplaceBar`) — open via ⌘F on web or via
+  **Edit → Find…** on iOS / Android (the bar is wired on every platform;
+  the ⌘F shortcut binding is web-only)
 - Undo / redo via Y.UndoManager
 - Print (browser print on web, iOS print sheet on iPad)
 - Live presence — peer cursors and selections through Yjs awareness

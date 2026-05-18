@@ -12,13 +12,20 @@ import { FontFamily } from '@tiptap/extension-text-style/font-family'
 import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import { useEffect, useState } from 'react'
+import { Awareness } from 'y-protocols/awareness'
+import * as Y from 'yjs'
 import { applyCellBorders } from '../../lib/apply-cell-borders'
 import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
+import { CommentMark } from '../../lib/editor/comment-mark'
+import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { countWords } from '../../lib/word-count'
+import { installCommentBridge } from './bridges/comment-bridge'
+import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -28,6 +35,11 @@ import {
     deriveCurrentFontSize,
     deriveImageSelection,
 } from './editor-state'
+import { RealtimeClient } from './realtime-client'
+
+// Local extensions declared in this module — kept together so the
+// import block stays uninterrupted and the in-line `Extension.create`
+// definitions don't sit in the middle of unrelated runtime code.
 
 // Inline image variant carrying a `wrap` attr (left|right|none) on
 // the rendered <img> as data-wrap, so editor-content-styles can
@@ -71,14 +83,6 @@ const FindReplaceExtension = Extension.create({
         return [findReplacePlugin()]
     },
 })
-import { useEffect, useState } from 'react'
-import { Awareness } from 'y-protocols/awareness'
-import * as Y from 'yjs'
-import { CommentMark } from '../../lib/editor/comment-mark'
-import { SlashMenu } from '../../lib/editor/slash-menu'
-import { installCommentBridge } from './bridges/comment-bridge'
-import { installFindReplaceBridge } from './bridges/find-replace-bridge'
-import { RealtimeClient } from './realtime-client'
 
 interface InitPayload {
     baseURL: string

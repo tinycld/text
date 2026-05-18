@@ -162,4 +162,25 @@ describe('dispatchFindReplaceMessage', () => {
         expect(s.currentIndex).toBe(0)
         expect(s.query).toBe('x')
     })
+
+    it('ignores messages from other namespaces (defensive)', () => {
+        // The single host caller already pre-filters by namespace, but
+        // the function is exported and unit-tested standalone — it
+        // defends against a future caller that forgets the filter.
+        useFindReplaceStateStore.setState({ matchCount: 9, currentIndex: 0, query: 'x' })
+        dispatchFindReplaceMessage({
+            namespace: 'comment',
+            type: 'state-update',
+            payload: { matchCount: 4, currentIndex: 1, query: 'wrong' },
+        })
+        dispatchFindReplaceMessage({
+            namespace: 'ui',
+            type: 'state-update',
+            payload: { matchCount: 4, currentIndex: 1, query: 'wrong' },
+        })
+        const s = useFindReplaceStateStore.getState()
+        expect(s.matchCount).toBe(9)
+        expect(s.currentIndex).toBe(0)
+        expect(s.query).toBe('x')
+    })
 })

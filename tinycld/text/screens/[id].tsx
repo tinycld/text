@@ -201,12 +201,19 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     canAddComment={newCommentFlow.canStart}
                     className="flex-1"
                 >
-                    <ScrollView className="flex-1">
-                        <View className="p-6 max-w-[800px] w-full self-center">
+                    {Platform.OS === 'web' ? (
+                        <ScrollView className="flex-1">
+                            <View className="p-6 max-w-[800px] w-full self-center">
+                                <EditorComponent />
+                                <FindReplaceShell />
+                            </View>
+                        </ScrollView>
+                    ) : (
+                        <View className="flex-1">
                             <EditorComponent />
                             <FindReplaceShell />
                         </View>
-                    </ScrollView>
+                    )}
                 </DocumentContextMenu>
                 <LinkPopover
                     isOpen={contextLinkOpen}

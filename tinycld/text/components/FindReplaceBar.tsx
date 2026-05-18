@@ -1,7 +1,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, Replace, ReplaceAll, X } from 'lucide-react-native'
 import { useEffect, useRef } from 'react'
-import { Platform, Pressable, Text, TextInput, View } from 'react-native'
+import { Platform, Pressable, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { useFindReplaceEditor } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 import { useFindReplaceControllerState } from '../lib/use-find-replace-controller-state'
@@ -37,6 +37,14 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
     const controllerState = useFindReplaceControllerState(controller)
     const inputRef = useRef<TextInput>(null)
     const mutedFg = useThemeColor('muted-foreground')
+    // At narrow widths (iPhone-mini-class 375pt logical) the original
+    // bar's two min-w-[180px] inputs + 5 button row + Replace/Replace-all
+    // text labels overflow off-screen. Below the breakpoint we stretch
+    // the inputs (flex-1), span the bar across the screen with side
+    // margins (right-2 left-2), and switch the Replace buttons from
+    // text labels to icons so the row fits.
+    const { width } = useWindowDimensions()
+    const isCompact = width < 480
 
     // Refocus the find input every time the bar opens so the user can
     // start typing immediately. Without this the focus stays on the
@@ -86,11 +94,28 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
         else controller.next()
     }
 
+    const containerClass = isCompact
+        ? 'absolute top-2 right-2 left-2 z-50 bg-background border border-border rounded-md p-2 shadow-md'
+        : 'absolute top-2 right-2 z-50 bg-background border border-border rounded-md p-2 shadow-md'
+
+    const inputClass = isCompact
+        ? 'flex-1 border border-border rounded px-2 py-1 text-sm text-foreground'
+        : 'border border-border rounded px-2 py-1 text-sm text-foreground min-w-[180px]'
+
+    const onFindKeyPress =
+        Platform.OS === 'web'
+            ? (e: { nativeEvent: { key: string; shiftKey?: boolean } }) => {
+                  const native = e.nativeEvent
+                  if (native.key === 'Enter') {
+                      onFindEnter(Boolean(native.shiftKey))
+                  } else if (native.key === 'Escape') {
+                      close()
+                  }
+              }
+            : undefined
+
     return (
-        <View
-            className="absolute top-2 right-2 z-50 flex-row items-center gap-2 bg-background border border-border rounded-md p-2 shadow-md"
-            accessibilityLabel="Find and replace"
-        >
+        <View className={containerClass} accessibilityLabel="Find and replace">
             <View className="gap-2">
                 <View className="flex-row items-center gap-2">
                     <TextInput
@@ -99,20 +124,9 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
                         onChangeText={setFindQ}
                         placeholder="Find"
                         placeholderTextColor={mutedFg}
-                        className="border border-border rounded px-2 py-1 text-sm text-foreground min-w-[180px]"
+                        className={inputClass}
                         accessibilityLabel="Find"
-                        onKeyPress={
-                            Platform.OS === 'web'
-                                ? (e: { nativeEvent: { key: string; shiftKey?: boolean } }) => {
-                                      const native = e.nativeEvent
-                                      if (native.key === 'Enter') {
-                                          onFindEnter(Boolean(native.shiftKey))
-                                      } else if (native.key === 'Escape') {
-                                          close()
-                                      }
-                                  }
-                                : undefined
-                        }
+                        onKeyPress={onFindKeyPress}
                     />
                     <Text className="text-xs text-muted-foreground min-w-[36px]">{matchLabel}</Text>
                     <Pressable
@@ -148,7 +162,7 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
                         onChangeText={setReplaceQ}
                         placeholder="Replace"
                         placeholderTextColor={mutedFg}
-                        className="border border-border rounded px-2 py-1 text-sm text-foreground min-w-[180px]"
+                        className={inputClass}
                         accessibilityLabel="Replace"
                     />
                     <Pressable
@@ -156,18 +170,34 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
                         accessibilityLabel="Replace"
                         onPress={() => controller?.replaceCurrent(replaceQuery)}
                         disabled={!controller || matchCount === 0}
-                        className="px-2 py-1 rounded border border-border hover:bg-surface-secondary"
+                        className={
+                            isCompact
+                                ? 'p-1 rounded border border-border hover:bg-surface-secondary'
+                                : 'px-2 py-1 rounded border border-border hover:bg-surface-secondary'
+                        }
                     >
-                        <Text className="text-xs text-foreground">Replace</Text>
+                        {isCompact ? (
+                            <Replace size={16} color={mutedFg} />
+                        ) : (
+                            <Text className="text-xs text-foreground">Replace</Text>
+                        )}
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Replace all"
                         onPress={() => controller?.replaceAll(replaceQuery)}
                         disabled={!controller || matchCount === 0}
-                        className="px-2 py-1 rounded border border-border hover:bg-surface-secondary"
+                        className={
+                            isCompact
+                                ? 'p-1 rounded border border-border hover:bg-surface-secondary'
+                                : 'px-2 py-1 rounded border border-border hover:bg-surface-secondary'
+                        }
                     >
-                        <Text className="text-xs text-foreground">Replace all</Text>
+                        {isCompact ? (
+                            <ReplaceAll size={16} color={mutedFg} />
+                        ) : (
+                            <Text className="text-xs text-foreground">Replace all</Text>
+                        )}
                     </Pressable>
                 </View>
             </View>

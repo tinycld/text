@@ -15,10 +15,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useState } from 'react'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
-import { applyCellBorders } from '../../lib/apply-cell-borders'
-import { applyCellShading } from '../../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
-import type { CellBorder, CellBorderPreset } from '../../lib/cell-borders'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
 import { CommentMark } from '../../lib/editor/comment-mark'
 import { SlashMenu } from '../../lib/editor/slash-menu'
@@ -26,6 +23,7 @@ import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { countWords } from '../../lib/word-count'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
+import { installFormatBridge } from './bridges/format-bridge'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -338,256 +336,16 @@ function EditorMounted({ init }: EditorMountedProps) {
         }
     }, [editor])
 
-    // Listen for command messages from native. TenTap's per-bridge
-    // format commands flow as { type: 'toggle-bold', payload: ... }
-    // without an explicit namespace. Our own command messages use
-    // namespace 'format'. Accept both shapes so we can toggle bold/
-    // italic/etc. from either path.
+    // Format command messages: TenTap's per-bridge commands (toggle-bold,
+    // toggle-heading, etc.) emit { type, payload } without an explicit
+    // namespace; our own command messages use namespace 'format' (insert-
+    // table, set-cell-shading, update-image-attrs, ...). Both shapes flow
+    // through installFormatBridge — mirrors the install pattern of the
+    // comment and find-replace bridges.
     useEffect(() => {
         if (!editor) return
-        function onMessage(evt: MessageEvent) {
-            if (typeof evt.data !== 'string') return
-            let parsed: IncomingMessage
-            try {
-                parsed = JSON.parse(evt.data) as IncomingMessage
-            } catch {
-                return
-            }
-            // Init messages handled by parent <Editor />. Comment-bus
-            // and find-replace messages have their own listeners
-            // installed by installCommentBridge / installFindReplaceBridge
-            // below.
-            if (parsed.namespace === 'app') return
-            if (parsed.namespace === 'comment') return
-            if (parsed.namespace === 'find-replace') return
-            const t = parsed.type
-            if (!t) return
-            switch (t) {
-                case 'toggle-bold':
-                    editor.chain().focus().toggleBold().run()
-                    break
-                case 'toggle-italic':
-                    editor.chain().focus().toggleItalic().run()
-                    break
-                case 'toggle-underline':
-                    editor.chain().focus().toggleUnderline().run()
-                    break
-                // TenTap's BulletListBridge and OrderedListBridge emit
-                // camelCase action strings ('toggle-bulletList' /
-                // 'toggle-orderedList'), not kebab-case. We must match
-                // the exact emitted literal or the message is dropped.
-                case 'toggle-bulletList':
-                    editor.chain().focus().toggleBulletList().run()
-                    break
-                case 'toggle-orderedList':
-                    editor.chain().focus().toggleOrderedList().run()
-                    break
-                case 'toggle-blockquote':
-                    editor.chain().focus().toggleBlockquote().run()
-                    break
-                case 'toggle-heading': {
-                    // TenTap's HeadingBridge sends the level number
-                    // directly as payload, not wrapped in { level }.
-                    const level = (parsed.payload as number | undefined) ?? 1
-                    editor
-                        .chain()
-                        .focus()
-                        .toggleHeading({ level: level as 1 | 2 | 3 })
-                        .run()
-                    break
-                }
-                case 'set-link': {
-                    // TenTap's LinkBridge sends { type:'set-link', payload: <string|null> }
-                    const url = parsed.payload as string | null
-                    if (url == null) break
-                    if (url === '') {
-                        editor.chain().focus().extendMarkRange('link').unsetLink().run()
-                    } else {
-                        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-                    }
-                    break
-                }
-                case 'remove-link':
-                    editor.chain().focus().unsetLink().run()
-                    break
-                case 'undo':
-                    editor.chain().focus().undo().run()
-                    break
-                case 'redo':
-                    editor.chain().focus().redo().run()
-                    break
-                case 'set-editable': {
-                    const next = parsed.payload as boolean
-                    editor.setEditable(next)
-                    break
-                }
-                case 'insert-table': {
-                    const { rows, cols } = parsed.payload as { rows: number; cols: number }
-                    editor
-                        .chain()
-                        .focus()
-                        .insertTable({ rows, cols, withHeaderRow: true })
-                        .run()
-                    break
-                }
-                case 'add-row-before':
-                    editor.chain().focus().addRowBefore().run()
-                    break
-                case 'add-row-after':
-                    editor.chain().focus().addRowAfter().run()
-                    break
-                case 'add-column-before':
-                    editor.chain().focus().addColumnBefore().run()
-                    break
-                case 'add-column-after':
-                    editor.chain().focus().addColumnAfter().run()
-                    break
-                case 'delete-row':
-                    editor.chain().focus().deleteRow().run()
-                    break
-                case 'delete-column':
-                    editor.chain().focus().deleteColumn().run()
-                    break
-                case 'delete-table':
-                    editor.chain().focus().deleteTable().run()
-                    break
-                case 'merge-cells':
-                    editor.chain().focus().mergeCells().run()
-                    break
-                case 'split-cell':
-                    editor.chain().focus().splitCell().run()
-                    break
-                case 'merge-or-split':
-                    editor.chain().focus().mergeOrSplit().run()
-                    break
-                case 'set-cell-borders': {
-                    const payload = parsed.payload as {
-                        preset: CellBorderPreset
-                        border?: Partial<CellBorder>
-                    }
-                    editor.commands.focus()
-                    applyCellBorders(editor, { preset: payload.preset, border: payload.border })
-                    break
-                }
-                case 'set-cell-shading': {
-                    const payload = parsed.payload as { color: string | null }
-                    editor.commands.focus()
-                    applyCellShading(editor, payload.color)
-                    break
-                }
-                case 'toggle-code':
-                    editor.chain().focus().toggleCode().run()
-                    break
-                case 'toggle-code-block':
-                    editor.chain().focus().toggleCodeBlock().run()
-                    break
-                case 'set-text-align': {
-                    const align = parsed.payload
-                    if (
-                        align === 'left' ||
-                        align === 'center' ||
-                        align === 'right' ||
-                        align === 'justify'
-                    ) {
-                        editor.chain().focus().setTextAlign(align).run()
-                    }
-                    break
-                }
-                case 'unset-text-align':
-                    editor.chain().focus().unsetTextAlign().run()
-                    break
-                case 'indent-block':
-                    editor.chain().focus().indentBlock().run()
-                    break
-                case 'outdent-block':
-                    editor.chain().focus().outdentBlock().run()
-                    break
-                case 'set-font-size': {
-                    const px = parsed.payload
-                    if (typeof px === 'number' && Number.isFinite(px) && px > 0) {
-                        editor.chain().focus().setFontSize(`${px}px`).run()
-                    }
-                    break
-                }
-                case 'unset-font-size':
-                    editor.chain().focus().unsetFontSize().run()
-                    break
-                case 'set-font-family': {
-                    const family = parsed.payload
-                    if (typeof family === 'string' && family !== '') {
-                        editor.chain().focus().setFontFamily(family).run()
-                    }
-                    break
-                }
-                case 'unset-font-family':
-                    editor.chain().focus().unsetFontFamily().run()
-                    break
-                case 'insert-image': {
-                    const { src, alt } = parsed.payload as { src: string; alt?: string }
-                    editor.chain().focus().setImage({ src, alt }).run()
-                    break
-                }
-                case 'update-image-attrs': {
-                    const payload = parsed.payload
-                    if (payload === null || typeof payload !== 'object') break
-                    const next: Record<string, unknown> = {}
-                    const wrap = (payload as { wrap?: unknown }).wrap
-                    if (
-                        wrap === 'left' ||
-                        wrap === 'right' ||
-                        wrap === 'break' ||
-                        wrap === null
-                    ) {
-                        next.wrap = wrap
-                    }
-                    const width = (payload as { width?: unknown }).width
-                    if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
-                        next.width = Math.round(width)
-                    }
-                    const height = (payload as { height?: unknown }).height
-                    if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
-                        next.height = Math.round(height)
-                    }
-                    if (Object.keys(next).length === 0) break
-                    editor.chain().focus().updateAttributes('image', next).run()
-                    break
-                }
-                case 'cut':
-                    editor.commands.focus()
-                    document.execCommand('cut')
-                    break
-                case 'copy':
-                    editor.commands.focus()
-                    document.execCommand('copy')
-                    break
-                case 'paste':
-                    // execCommand('paste') is blocked in WebView contexts
-                    // unless the host grants special permission. Fall
-                    // back to the async clipboard API and insert via
-                    // Tiptap so the change rides through one collab tx.
-                    editor.commands.focus()
-                    navigator.clipboard
-                        ?.readText()
-                        .then(text => {
-                            if (!text) return
-                            editor.chain().focus().insertContent(text).run()
-                        })
-                        .catch(() => undefined)
-                    break
-                case 'delete-selection':
-                    editor.chain().focus().deleteSelection().run()
-                    break
-                case 'select-all':
-                    editor.chain().focus().selectAll().run()
-                    break
-            }
-        }
-        window.addEventListener('message', onMessage)
-        document.addEventListener('message', onMessage as EventListener)
-        return () => {
-            window.removeEventListener('message', onMessage)
-            document.removeEventListener('message', onMessage as EventListener)
-        }
+        const bridge = installFormatBridge(editor, postToNative)
+        return () => bridge.destroy()
     }, [editor])
 
     useEffect(() => {

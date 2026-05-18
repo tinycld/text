@@ -26,6 +26,7 @@ import {
     dispatchFindReplaceMessage,
     makeNativeFindReplaceController,
 } from '../lib/native-find-replace-controller'
+import { useFindReplaceStateStore } from '../lib/stores/find-replace-state-store'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 import type { ImageSelection } from '../webview-editor/source/editor-state'
 import { editorHtml } from '../webview-editor/build/editorHtml'
@@ -152,6 +153,18 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         []
     )
 
+    // Clear the find/replace mirror store on unmount for the same
+    // reason as image-selection above: switching from doc A (where the
+    // user had a query producing "23 matches") to doc B without this
+    // cleanup briefly shows doc A's count over doc B's content until
+    // the new WebView's initial state-update broadcast lands.
+    useEffect(
+        () => () => {
+            useFindReplaceStateStore.setState({ matchCount: 0, currentIndex: 0, query: '' })
+        },
+        []
+    )
+
     // Subscriber sets + pending-request maps backing the
     // DocumentCommentBridge. Sets fan out tap/removed events to any
     // number of host handlers; the Maps correlate request/response
@@ -209,13 +222,23 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const postMessageRef = useRef(result.postMessage)
     postMessageRef.current = result.postMessage
 
+    // Gate the comment bridge on the WebView's TenTap-ready signal.
+    // Before isReady flips true the WebView's postMessage either no-ops
+    // (no .current ref yet) or its on-message listener inside the
+    // WebView hasn't installed — either way, a tap on "+comment" in
+    // that window would silently drop the request. Returning null here
+    // lets call sites (TextCommentDrawer, the new-comment flow) check
+    // `commentBridge != null` and skip / disable the action instead of
+    // awaiting a Promise that never resolves.
     const commentBridge = useMemo(
-        () =>
-            createNativeCommentBridge({
+        () => {
+            if (!result.isReady) return null
+            return createNativeCommentBridge({
                 state: commentStateRef.current,
                 postMessage: () => postMessageRef.current,
-            }),
-        []
+            })
+        },
+        [result.isReady]
     )
 
     // Native FindReplaceController. Reads observable state from the

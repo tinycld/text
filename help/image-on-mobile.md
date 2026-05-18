@@ -32,3 +32,7 @@ The size buttons stay dim until the image has finished loading inside the editor
 ## Differences from desktop
 
 The desktop editor has both a wrap toolbar that appears next to a selected image and drag handles for fine-grained resize. On mobile you get four wrap modes and four size presets — no free-form drag, but the same underlying attributes round-trip through `.docx`, so a document edited on a phone keeps its layout when reopened on the desktop.
+
+## Related mobile capabilities
+
+The live **word count** displays in the document footer on mobile, the same as on the web. **Comments** work end-to-end on mobile — see [Comments on mobile](help://text:comments-on-mobile). **Find and replace** is reachable from the document menu — see [Find and replace](help://text:find-and-replace).

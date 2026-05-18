@@ -62,6 +62,9 @@ function noopSubscribe(): () => void {
     return () => undefined
 }
 
+// subscribeNativeStore calls useFindReplaceStateStore.subscribe(cb), the
+// vanilla Zustand subscribe API (returns an unsubscribe). It is NOT a
+// React hook — the `use*` prefix on the store is just Zustand's idiom.
 function subscribeNativeStore(cb: () => void): () => void {
     return useFindReplaceStateStore.subscribe(cb)
 }

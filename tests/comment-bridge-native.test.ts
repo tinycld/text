@@ -12,12 +12,13 @@
 // comment side. The hook wires them to the WebView's onMessage and
 // to useWebViewEditor's postMessage; everything else is just refs.
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import {
     createNativeCommentBridge,
     createNativeCommentBridgeState,
     dispatchCommentMessage,
+    getPendingCounts,
 } from '../tinycld/text/hooks/native-comment-bridge'
 
 // --- helpers ----------------------------------------------------------
@@ -438,5 +439,149 @@ describe('dispatchCommentMessage — ignored types', () => {
                 payload: { range: null },
             })
         ).not.toThrow()
+    })
+})
+
+// --- pending-request timeouts ----------------------------------------
+
+describe('createNativeCommentBridge — pending-request timeouts', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('resolves focusComment with false after 5s if the WebView never replies', async () => {
+        const poster = makePoster()
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        const pending = bridge.focusComment('c1')
+        // Entry is in the map immediately, before the timer fires.
+        expect(state.focusPending.size).toBe(1)
+        vi.advanceTimersByTime(5000)
+        const result = await pending
+        expect(result).toBe(false)
+        // Map is cleaned up — no leak after the timer fires.
+        expect(state.focusPending.size).toBe(0)
+    })
+
+    it('resolves getSelection with null after 5s if the WebView never replies', async () => {
+        const poster = makePoster()
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        const pending = bridge.getSelection()
+        expect(state.selectionPending.size).toBe(1)
+        vi.advanceTimersByTime(5000)
+        expect(await pending).toBeNull()
+        expect(state.selectionPending.size).toBe(0)
+    })
+
+    it('cancels the timeout when focus-response arrives in time (no double-fire)', async () => {
+        // The response handler clears the timeout before resolving. If
+        // the timeout still fires after the response, calling delete()
+        // on an already-removed key is a no-op (Map.delete returns
+        // false), and clearTimeout() on a fired-and-cleaned-up timer
+        // is also a no-op — so the assertion is just "no extra
+        // resolutions, no exceptions thrown".
+        const poster = makePoster()
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        const pending = bridge.focusComment('c1')
+        // Response arrives in 1s — well before the 5s timeout.
+        vi.advanceTimersByTime(1000)
+        dispatchCommentMessage(state, {
+            namespace: 'comment',
+            type: 'focus-response',
+            requestId: 'req-1',
+            payload: { found: true },
+        })
+        expect(await pending).toBe(true)
+        // Push past the 5s mark — the cancelled timer must NOT
+        // re-resolve or throw.
+        vi.advanceTimersByTime(10_000)
+        expect(state.focusPending.size).toBe(0)
+    })
+
+    it('cancels the timeout when selection-response arrives in time', async () => {
+        const poster = makePoster()
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        const pending = bridge.getSelection()
+        vi.advanceTimersByTime(2000)
+        dispatchCommentMessage(state, {
+            namespace: 'comment',
+            type: 'selection-response',
+            requestId: 'req-1',
+            payload: { range: { from: 3, to: 7 } },
+        })
+        expect(await pending).toEqual({ from: 3, to: 7 })
+        vi.advanceTimersByTime(10_000)
+        expect(state.selectionPending.size).toBe(0)
+    })
+
+    it('cancels the timeout when WebView reports postMessage failed (fail-closed path)', async () => {
+        // postMessage returns false (no WebView) — bridge resolves
+        // false immediately AND clears the timer so a fake-timer
+        // advance later doesn't leak through.
+        const poster = makePoster(false)
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        const result = await bridge.focusComment('c1')
+        expect(result).toBe(false)
+        // No pending entry left over, and advancing time mustn't crash.
+        expect(state.focusPending.size).toBe(0)
+        vi.advanceTimersByTime(10_000)
+        expect(state.focusPending.size).toBe(0)
+    })
+})
+
+// --- getPendingCounts diagnostic --------------------------------------
+
+describe('getPendingCounts', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('reports zero counts on a fresh state', () => {
+        const state = createNativeCommentBridgeState()
+        expect(getPendingCounts(state)).toEqual({ selectionPending: 0, focusPending: 0 })
+    })
+
+    it('reports the live size of each pending map', () => {
+        const poster = makePoster()
+        const state = createNativeCommentBridgeState()
+        const bridge = createNativeCommentBridge({
+            state,
+            postMessage: poster.get,
+            generateRequestId: idGenerator(),
+        })
+        void bridge.focusComment('c1')
+        void bridge.focusComment('c2')
+        void bridge.getSelection()
+        expect(getPendingCounts(state)).toEqual({ selectionPending: 1, focusPending: 2 })
     })
 })

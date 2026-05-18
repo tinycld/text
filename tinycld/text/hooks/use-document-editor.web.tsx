@@ -44,7 +44,8 @@ import {
     deriveCurrentFontFamily,
     deriveCurrentFontSize,
 } from '../webview-editor/source/editor-state'
-import type { DocumentCommentBridge, DocumentEditorResult } from './use-document-editor'
+import type { DocumentEditorResult } from './use-document-editor'
+import { createWebCommentBridge } from './web-comment-bridge'
 
 // WrappedImage extends TipTap's default Image with:
 //   - inline=true so the node can live inside a paragraph (required
@@ -627,59 +628,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         }
     }, [tiptapEditor])
 
-    const commentBridge: DocumentCommentBridge | null = useMemo(() => {
+    const commentBridge = useMemo(() => {
         if (!tiptapEditor) return null
-        return {
-            addComment: (commentId: string, range?: { from: number; to: number }) => {
-                // When a range is provided we restore the selection
-                // before applying the mark — the NewCommentButton flow
-                // captures the user's selection *before* the modal
-                // opens, because opening the modal steals focus and
-                // collapses ProseMirror's selection to a single point.
-                // Without `setTextSelection` the mark would land on a
-                // zero-width range (or whatever the editor's last
-                // surviving range was), making the anchor effectively
-                // useless.
-                const chain = tiptapEditor.chain()
-                if (range) chain.setTextSelection(range)
-                chain.addComment(commentId).run()
-            },
-            removeComment: (commentId: string) => {
-                tiptapEditor.chain().removeComment(commentId).run()
-            },
-            focusComment: (commentId: string) => {
-                // Mark storage is populated on editor onCreate (see
-                // comment-mark.ts) — `findComment` returns the first
-                // range carrying the id, or null if it's been removed
-                // from the doc. The Promise wrapping keeps the
-                // interface uniform with native, which round-trips
-                // through the WebView message bus.
-                const storage = tiptapEditor.storage.tinycldComment as
-                    | { findComment?: (id: string) => { from: number; to: number } | null }
-                    | undefined
-                const range = storage?.findComment?.(commentId) ?? null
-                if (!range) return Promise.resolve(false)
-                tiptapEditor.chain().setTextSelection(range).scrollIntoView().focus().run()
-                return Promise.resolve(true)
-            },
-            getSelection: () => {
-                const sel = tiptapEditor.state.selection
-                if (sel.empty) return Promise.resolve(null)
-                return Promise.resolve({ from: sel.from, to: sel.to })
-            },
-            onTap: handler => {
-                tapHandlersRef.current.add(handler)
-                return () => {
-                    tapHandlersRef.current.delete(handler)
-                }
-            },
-            onRemoved: handler => {
-                removedHandlersRef.current.add(handler)
-                return () => {
-                    removedHandlersRef.current.delete(handler)
-                }
-            },
-        }
+        return createWebCommentBridge({
+            tiptapEditor,
+            tapHandlers: tapHandlersRef.current,
+            removedHandlers: removedHandlersRef.current,
+        })
     }, [tiptapEditor])
 
     const EditorComponent = useMemo(
@@ -733,6 +688,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         // pulls `webViewRef` off the result, rather than relying on
         // implicit `undefined`.
         webViewRef: null,
+        // Web's editor handle is ready as soon as Tiptap has finished
+        // mounting (the editor object is non-null). Native consumers
+        // gate the comment bridge on this flag — keeping the contract
+        // symmetric means no platform-specific branching at the call site.
+        isReady: tiptapEditor != null,
         tiptapEditor: tiptapEditor ?? null,
         findReplaceEditor,
         commentBridge,

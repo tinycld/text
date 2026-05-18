@@ -40,10 +40,13 @@ export interface UseDocumentEditorOptions {
 // The leaked resolver is cheap (one Map entry) and doesn't block
 // teardown.
 //
-// Returns null when the editor handle isn't ready yet — web variant
-// returns null until the Tiptap editor mounts; native returns a real
-// bridge as soon as the hook runs (the bridge talks to the WebView,
-// not a host-side editor handle).
+// Returns null until the underlying editor (Tiptap on web, WebView on
+// native) is ready. Consumers should check `commentBridge != null`
+// before invoking methods — web waits for Tiptap to mount; native
+// waits for the WebView's TenTap-ready signal (the `isReady` flag on
+// the EditorResult) so a tap that lands in the brief window before
+// the WebView's message listener installs doesn't silently drop the
+// request.
 export interface DocumentCommentBridge {
     // Apply the comment mark. When `range` is provided the selection is
     // restored to it before the mark is set — required when the call

@@ -7,7 +7,7 @@ import { buildTextPrintCssWeb } from './print-css-web'
 // code is responsible for `images=embed` so the fragment carries
 // data: URIs rather than `<img src=https://…>`.
 //
-// For now we share the web rule set verbatim: the `tinycld-doc*`
+// For now we share the web rule set verbatim: the `tinycld-text*`
 // class vocabulary is identical and the rules don't rely on any
 // web-only features. If a divergence becomes necessary (iOS Safari's
 // @page support is narrower than desktop Chrome's), this is the

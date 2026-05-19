@@ -27,46 +27,51 @@ import (
 // Hard error if: the bytes don't form a ZIP, or word/document.xml
 // is missing or malformed. Everything else degrades to a Warning.
 func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
-	zr, err := zip.NewReader(bytes.NewReader(docx), int64(len(docx)))
-	if err != nil {
-		return nil, nil, fmt.Errorf("translate: open docx as zip: %w", err)
-	}
-
-	parts, err := readZipParts(zr)
+	root, warnings, err := parseDocxToPMNode(docx)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	docXML, ok := parts["word/document.xml"]
-	if !ok {
-		return nil, nil, fmt.Errorf("translate: docx missing word/document.xml")
-	}
-
-	rels := parseRelationships(parts["word/_rels/document.xml.rels"])
-	numbering := parseNumberingFormats(parts["word/numbering.xml"])
-	comments := parseComments(parts["word/comments.xml"])
-	footnotes := parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote")
-	endnotes := parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote")
-
-	parser := docxParser{
-		zip:       zr,
-		rels:      rels,
-		numbering: numbering,
-		comments:  comments,
-		footnotes: footnotes,
-		endnotes:  endnotes,
-	}
-
-	root, err := parser.parseDocument(docXML)
-	if err != nil {
-		return nil, nil, fmt.Errorf("translate: parse document.xml: %w", err)
-	}
-
 	out, err := json.Marshal(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("translate: marshal root: %w", err)
 	}
-	return out, parser.warnings, nil
+	return out, warnings, nil
+}
+
+// parseDocxToPMNode parses .docx bytes into an in-memory PMNode tree
+// plus warnings. Shared by DocxToPMJSON (which marshals to JSON for
+// the bootstrap path's Y.Doc seeding) and DocxToHTML (which walks
+// the tree directly to HTML for the render path).
+func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
+	zr, err := zip.NewReader(bytes.NewReader(docx), int64(len(docx)))
+	if err != nil {
+		return PMNode{}, nil, fmt.Errorf("translate: open docx as zip: %w", err)
+	}
+
+	parts, err := readZipParts(zr)
+	if err != nil {
+		return PMNode{}, nil, err
+	}
+
+	docXML, ok := parts["word/document.xml"]
+	if !ok {
+		return PMNode{}, nil, fmt.Errorf("translate: docx missing word/document.xml")
+	}
+
+	parser := docxParser{
+		zip:       zr,
+		rels:      parseRelationships(parts["word/_rels/document.xml.rels"]),
+		numbering: parseNumberingFormats(parts["word/numbering.xml"]),
+		comments:  parseComments(parts["word/comments.xml"]),
+		footnotes: parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote"),
+		endnotes:  parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote"),
+	}
+
+	root, err := parser.parseDocument(docXML)
+	if err != nil {
+		return PMNode{}, nil, fmt.Errorf("translate: parse document.xml: %w", err)
+	}
+	return root, parser.warnings, nil
 }
 
 // readZipParts collects the bytes of every file in the docx zip.
@@ -371,7 +376,7 @@ func (p *docxParser) parseDocument(docXML []byte) (PMNode, error) {
 	if err != nil {
 		return PMNode{}, err
 	}
-	root.Content = groupListParagraphs(flat)
+	root.Content = renestInterruptingBulletSubLists(groupListParagraphs(flat))
 	return root, nil
 }
 
@@ -1115,6 +1120,30 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 				// "auto" means "follow the theme default" — drop it.
 				if v := attrValue(t, "val"); v != "" && !strings.EqualFold(v, "auto") {
 					textStyleAttrs["color"] = "#" + strings.ToUpper(v)
+				}
+			case "shd":
+				// <w:shd w:val="clear" w:color="auto" w:fill="RRGGBB"/> —
+				// run shading. w:fill carries the hex background. "auto"
+				// means "follow theme" (drop). w:shd is the precise
+				// background color; w:highlight (below) is a coarser
+				// named-color form. If both appear, the later element
+				// wins — Word emits w:shd after w:highlight in practice.
+				if v := attrValue(t, "fill"); v != "" && !strings.EqualFold(v, "auto") {
+					textStyleAttrs["backgroundColor"] = "#" + strings.ToUpper(v)
+				}
+			case "highlight":
+				// <w:highlight w:val="yellow"/> — Word's legacy fixed-
+				// palette highlighter. Map the OOXML named colors to
+				// hex so the renderer + the editor's color UI can treat
+				// them uniformly with w:shd. "none" / unknown values
+				// drop silently. If w:shd already set backgroundColor,
+				// don't overwrite — w:shd is more precise.
+				if _, alreadySet := textStyleAttrs["backgroundColor"]; !alreadySet {
+					if v := attrValue(t, "val"); v != "" {
+						if hex := highlightNameToHex(v); hex != "" {
+							textStyleAttrs["backgroundColor"] = hex
+						}
+					}
 				}
 			case "sz":
 				// <w:sz w:val="N"/> — N is half-points. We render as a
@@ -2260,6 +2289,50 @@ func skipUntilEnd(dec *xml.Decoder, name string) error {
 	}
 }
 
+// highlightNameToHex maps OOXML's <w:highlight w:val="…"> fixed-palette
+// names to hex strings the renderer can consume uniformly with w:shd's
+// arbitrary hex fill. Word's highlighter only supports this fixed set
+// (see ST_HighlightColor in the OOXML spec); arbitrary backgrounds go
+// through w:shd instead. Unknown names (including "none") return ""
+// and the caller drops the attr.
+func highlightNameToHex(name string) string {
+	switch strings.ToLower(name) {
+	case "black":
+		return "#000000"
+	case "blue":
+		return "#0000FF"
+	case "cyan":
+		return "#00FFFF"
+	case "darkblue":
+		return "#000080"
+	case "darkcyan":
+		return "#008080"
+	case "darkgray":
+		return "#808080"
+	case "darkgreen":
+		return "#008000"
+	case "darkmagenta":
+		return "#800080"
+	case "darkred":
+		return "#800000"
+	case "darkyellow":
+		return "#808000"
+	case "green":
+		return "#00FF00"
+	case "lightgray":
+		return "#C0C0C0"
+	case "magenta":
+		return "#FF00FF"
+	case "red":
+		return "#FF0000"
+	case "white":
+		return "#FFFFFF"
+	case "yellow":
+		return "#FFFF00"
+	}
+	return ""
+}
+
 // attrValue looks up a single attribute by local name on the
 // start element. Returns "" if absent.
 func attrValue(start xml.StartElement, name string) string {
@@ -2355,6 +2428,90 @@ func groupListParagraphs(blocks []PMNode) []PMNode {
 	return out
 }
 
+// renestInterruptingBulletSubLists fixes a docx-shape problem: Word
+// often emits a nested bullet list (under one item of a numbered
+// outline) as a separate list paragraph stream with its own numId,
+// so groupListParagraphs ends up producing three sibling list nodes:
+//
+//	orderedList (items 1..N, numId=A)
+//	bulletList  (the sub-bullets,  numId=B)
+//	orderedList (items N+1.., numId=A, start=N+1)
+//
+// The user's mental model is one outline with sub-bullets nested
+// inside item N. Reading order is preserved either way, but the
+// rendered HTML looks broken — the bullets appear at top level
+// rather than indented under their parent.
+//
+// This pass walks the block list and, whenever it finds the pattern
+// above, moves the bulletList inside the last listItem of the first
+// orderedList AND merges the two halves of the orderedList into one
+// (dropping the `start` attribute on the second half, since the
+// numbering now flows naturally without resumption).
+//
+// We only merge when the two orderedList halves share the same numId
+// (verifiable indirectly: the second half's `start` attribute equals
+// the first half's item count + 1). Sibling ordered lists that don't
+// belong together — e.g. two unrelated outlines — leave the
+// interrupting bulletList where it was.
+func renestInterruptingBulletSubLists(blocks []PMNode) []PMNode {
+	out := make([]PMNode, 0, len(blocks))
+	i := 0
+	for i < len(blocks) {
+		if i+2 < len(blocks) &&
+			blocks[i].Type == NodeTypeOrderedList &&
+			blocks[i+1].Type == NodeTypeBulletList &&
+			blocks[i+2].Type == NodeTypeOrderedList {
+			firstOL, midUL, secondOL := blocks[i], blocks[i+1], blocks[i+2]
+			expectedStart := topLevelItemCount(firstOL) + 1
+			if secondStart, _ := secondOL.Attrs["start"].(int); secondStart == expectedStart {
+				merged := mergeOrderedListsAroundBulletInterrupt(firstOL, midUL, secondOL)
+				out = append(out, merged)
+				i += 3
+				continue
+			}
+		}
+		out = append(out, blocks[i])
+		i++
+	}
+	return out
+}
+
+// topLevelItemCount counts immediate listItem children of a list node.
+// Nested sub-lists don't contribute to the outer list's item count.
+func topLevelItemCount(list PMNode) int {
+	n := 0
+	for _, c := range list.Content {
+		if c.Type == NodeTypeListItem {
+			n++
+		}
+	}
+	return n
+}
+
+// mergeOrderedListsAroundBulletInterrupt rebuilds the first orderedList
+// so its last listItem contains the bulletList as a child block, then
+// appends every listItem from the second orderedList. The `start`
+// attribute on the second half is no longer needed (numbering flows
+// continuously through one list now) so it's dropped.
+func mergeOrderedListsAroundBulletInterrupt(firstOL, midUL, secondOL PMNode) PMNode {
+	merged := PMNode{Type: NodeTypeOrderedList, Content: make([]PMNode, 0, len(firstOL.Content)+len(secondOL.Content))}
+	if firstOL.Attrs != nil {
+		merged.Attrs = cloneAttrs(firstOL.Attrs)
+	}
+	merged.Content = append(merged.Content, firstOL.Content...)
+	if last := len(merged.Content) - 1; last >= 0 && merged.Content[last].Type == NodeTypeListItem {
+		item := merged.Content[last]
+		item.Content = append(item.Content, midUL)
+		merged.Content[last] = item
+	}
+	for _, c := range secondOL.Content {
+		if c.Type == NodeTypeListItem {
+			merged.Content = append(merged.Content, c)
+		}
+	}
+	return merged
+}
+
 func listNumID(node PMNode) (string, bool) {
 	if node.Type != NodeTypeParagraph {
 		return "", false
@@ -2373,6 +2530,34 @@ func listNumID(node PMNode) (string, bool) {
 func buildListTree(paras []PMNode) PMNode {
 	if len(paras) == 0 {
 		return PMNode{}
+	}
+	// Word's docx can emit a same-numId paragraph stream that never
+	// reaches ilvl=0 (e.g. a sub-bullet list with its own numId whose
+	// only paragraphs are all at ilvl=1, because the emitter wrote
+	// them nested inside an outer ordered listItem). buildListTree's
+	// frame stack expects the root to be ilvl=0, so a deeper-only
+	// stream would trigger the "synthesize empty placeholder" branch
+	// once per missing level. Normalize the stream so the shallowest
+	// observed level is 0 — the relative nesting is what matters, not
+	// the absolute level number.
+	minLvl := -1
+	for _, p := range paras {
+		l := paraLevel(p)
+		if minLvl < 0 || l < minLvl {
+			minLvl = l
+		}
+	}
+	if minLvl > 0 {
+		paras = append([]PMNode(nil), paras...)
+		for i := range paras {
+			cur := paraLevel(paras[i])
+			if paras[i].Attrs == nil {
+				paras[i].Attrs = map[string]any{}
+			} else {
+				paras[i].Attrs = cloneAttrs(paras[i].Attrs)
+			}
+			paras[i].Attrs["_listLevel"] = cur - minLvl
+		}
 	}
 	rootType := listTypeFromFmt(listFmt(paras[0]))
 	root := PMNode{Type: rootType}

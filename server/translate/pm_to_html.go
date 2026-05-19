@@ -4,7 +4,7 @@ package translate
 //
 // PMJSONToHTML walks a ProseMirror document tree (the same JSON shape
 // pm_to_docx.go consumes) and emits a sanitized HTML content fragment
-// using the `tinycld-doc*` class vocabulary. The output is a fragment
+// using the `tinycld-text*` class vocabulary. The output is a fragment
 // (no <html>/<head>/<style>), suitable for inlining inside a preview
 // iframe or a print envelope. The endpoint (render_endpoint.go) calls
 // this then runs render.Sanitize() before writing the response.
@@ -12,43 +12,44 @@ package translate
 // Class vocabulary
 // ----------------
 // Container:
-//   - .tinycld-doc                       wraps the document root
+//   - .tinycld-text                       wraps the document root
 //
 // Block nodes:
-//   - .tinycld-doc-p                     paragraph
-//   - .tinycld-doc-h1 … .tinycld-doc-h6  heading levels
-//   - .tinycld-doc-blockquote            blockquote
-//   - .tinycld-doc-pre                   code block wrapper (<pre>)
-//   - .tinycld-doc-code-block            code block <code> child
-//   - .tinycld-doc-ul                    bullet list
-//   - .tinycld-doc-ol                    ordered list
-//   - .tinycld-doc-li                    list item
-//   - .tinycld-doc-table                 table
-//   - .tinycld-doc-tr                    table row
-//   - .tinycld-doc-th                    header cell (tableCell with isHeader)
-//   - .tinycld-doc-td                    body cell
-//   - .tinycld-doc-hr                    horizontal rule (pageBreak surrogate)
-//   - .tinycld-doc-img                   inline image
-//   - .tinycld-doc-img-wrap--left        floated-left image
-//   - .tinycld-doc-img-wrap--right       floated-right image
-//   - .tinycld-doc-img-wrap--break       full-width image with break
+//   - .tinycld-text-p                     paragraph
+//   - .tinycld-text-h1 … .tinycld-text-h6  heading levels
+//   - .tinycld-text-blockquote            blockquote
+//   - .tinycld-text-pre                   code block wrapper (<pre>)
+//   - .tinycld-text-code-block            code block <code> child
+//   - .tinycld-text-ul                    bullet list
+//   - .tinycld-text-ol                    ordered list
+//   - .tinycld-text-li                    list item
+//   - .tinycld-text-table                 table (gets a <colgroup> when
+//                                          colwidth data is available)
+//   - .tinycld-text-tr                    table row
+//   - .tinycld-text-th                    header cell (tableCell with isHeader)
+//   - .tinycld-text-td                    body cell
+//   - .tinycld-text-hr                    horizontal rule (pageBreak surrogate)
+//   - .tinycld-text-img                   inline image
+//   - .tinycld-text-img-wrap--left        floated-left image
+//   - .tinycld-text-img-wrap--right       floated-right image
+//   - .tinycld-text-img-wrap--break       full-width image with break
 //
 // Block-level alignment / indent modifiers (paragraph + heading):
-//   - .tinycld-doc-align--left
-//   - .tinycld-doc-align--center
-//   - .tinycld-doc-align--right
-//   - .tinycld-doc-align--justify
-//   - .tinycld-doc-indent--N             where N is 1..MaxIndentLevel
+//   - .tinycld-text-align--left
+//   - .tinycld-text-align--center
+//   - .tinycld-text-align--right
+//   - .tinycld-text-align--justify
+//   - .tinycld-text-indent--N             where N is 1..MaxIndentLevel
 //
 // Inline marks (applied to <span> wrappers around text runs):
-//   - .tinycld-doc-mark--bold
-//   - .tinycld-doc-mark--italic
-//   - .tinycld-doc-mark--underline
-//   - .tinycld-doc-mark--strike
-//   - .tinycld-doc-mark--code
-//   - .tinycld-doc-mark--link            anchor wrapper (`<a>`)
-//   - .tinycld-doc-mark--comment         comment-marked run (`<span data-comment-id="…">`)
-//   - .tinycld-doc-mark--text-style      generic textStyle (color/fontSize/fontFamily)
+//   - .tinycld-text-mark--bold
+//   - .tinycld-text-mark--italic
+//   - .tinycld-text-mark--underline
+//   - .tinycld-text-mark--strike
+//   - .tinycld-text-mark--code
+//   - .tinycld-text-mark--link            anchor wrapper (`<a>`)
+//   - .tinycld-text-mark--comment         comment-marked run (`<span data-comment-id="…">`)
+//   - .tinycld-text-mark--text-style      generic textStyle (color/fontSize/fontFamily)
 //
 // Footnotes / endnotes are rendered as superscript references; their
 // bodies are not currently included in the fragment (v1 deferral).
@@ -133,7 +134,7 @@ type HTMLRenderOpts struct {
 
 // PMJSONToHTML translates a ProseMirror JSON tree into an HTML
 // content fragment. The fragment is wrapped in `<article
-// class="tinycld-doc">…</article>` and never includes <html>/<head>/
+// class="tinycld-text">…</article>` and never includes <html>/<head>/
 // <style> — clients (preview iframe, print envelope) supply their
 // own CSS.
 //
@@ -149,11 +150,18 @@ func PMJSONToHTML(pmJSON []byte, opts HTMLRenderOpts) (string, error) {
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		return "", fmt.Errorf("translate: unmarshal pmJSON: %w", err)
 	}
+	return pmNodeToHTML(root, opts)
+}
+
+// pmNodeToHTML walks an in-memory PMNode tree → HTML. Shared by
+// PMJSONToHTML (JSON-in entry) and DocxToHTML (parser-in entry); the
+// latter skips JSON encoding entirely.
+func pmNodeToHTML(root PMNode, opts HTMLRenderOpts) (string, error) {
 	if root.Type != NodeTypeDoc {
 		return "", fmt.Errorf("translate: pmJSON root must be type=doc, got %q", root.Type)
 	}
 	r := newHTMLRenderer(opts)
-	r.b.WriteString(`<article class="tinycld-doc">`)
+	r.b.WriteString(`<article class="tinycld-text">`)
 	for _, child := range root.Content {
 		r.writeBlock(child)
 	}
@@ -196,20 +204,20 @@ func (r *htmlRenderer) writeBlock(n PMNode) {
 	case NodeTypeCodeBlock:
 		r.writeCodeBlock(n)
 	case NodeTypeBulletList:
-		r.writeList(n, "ul", "tinycld-doc-ul")
+		r.writeList(n, "ul", "tinycld-text-ul")
 	case NodeTypeOrderedList:
-		r.writeList(n, "ol", "tinycld-doc-ol")
+		r.writeList(n, "ol", "tinycld-text-ol")
 	case NodeTypeListItem:
 		r.writeListItem(n)
 	case NodeTypeTable:
 		r.writeTable(n)
 	case NodeTypePageBreak:
-		r.b.WriteString(`<hr class="tinycld-doc-hr">`)
+		r.b.WriteString(`<hr class="tinycld-text-hr">`)
 	case NodeTypeImage:
 		// A standalone image at block level shouldn't normally happen
 		// (the docx parser wraps liftable images in a paragraph) but
 		// we tolerate it by emitting a wrapping paragraph.
-		r.b.WriteString(`<p class="tinycld-doc-p">`)
+		r.b.WriteString(`<p class="tinycld-text-p">`)
 		r.writeImage(n)
 		r.b.WriteString(`</p>`)
 	default:
@@ -218,13 +226,39 @@ func (r *htmlRenderer) writeBlock(n PMNode) {
 }
 
 func (r *htmlRenderer) writeParagraph(n PMNode) {
-	classes := []string{"tinycld-doc-p"}
+	classes := []string{"tinycld-text-p"}
 	classes = appendAlignIndentClasses(classes, n.Attrs)
+	if wrap := paragraphFloatSide(n); wrap != "" {
+		classes = append(classes, "tinycld-text-p-with-float--"+wrap)
+	}
 	r.openTag("p", classes, nil)
 	for _, child := range n.Content {
 		r.writeInline(child)
 	}
 	r.b.WriteString(`</p>`)
+}
+
+// paragraphFloatSide returns "left" or "right" when the paragraph
+// contains a floated image (wrap=left|right), and "" otherwise. The
+// emitter tags such paragraphs with a marker class so the preview CSS
+// can clear the side and start a fresh block formatting context — a
+// floated image inside a paragraph that's still inside a prior float's
+// wrap zone gets positioned alongside the prior float instead of at
+// the container's left edge. Clearing the paragraph (not just the
+// img) is what restores the "new image row starts flush left" shape.
+// "break" wrap doesn't need this — it's already display:block with
+// clear:both on the img — so we ignore it here.
+func paragraphFloatSide(p PMNode) string {
+	for _, c := range p.Content {
+		if c.Type != NodeTypeImage {
+			continue
+		}
+		wrap, _ := c.Attrs["wrap"].(string)
+		if wrap == "left" || wrap == "right" {
+			return wrap
+		}
+	}
+	return ""
 }
 
 func (r *htmlRenderer) writeHeading(n PMNode) {
@@ -236,7 +270,7 @@ func (r *htmlRenderer) writeHeading(n PMNode) {
 		level = 6
 	}
 	tag := fmt.Sprintf("h%d", level)
-	classes := []string{fmt.Sprintf("tinycld-doc-h%d", level)}
+	classes := []string{fmt.Sprintf("tinycld-text-h%d", level)}
 	classes = appendAlignIndentClasses(classes, n.Attrs)
 	r.openTag(tag, classes, nil)
 	for _, child := range n.Content {
@@ -248,7 +282,7 @@ func (r *htmlRenderer) writeHeading(n PMNode) {
 }
 
 func (r *htmlRenderer) writeBlockquote(n PMNode) {
-	r.b.WriteString(`<blockquote class="tinycld-doc-blockquote">`)
+	r.b.WriteString(`<blockquote class="tinycld-text-blockquote">`)
 	for _, child := range n.Content {
 		r.writeBlock(child)
 	}
@@ -262,7 +296,7 @@ func (r *htmlRenderer) writeBlockquote(n PMNode) {
 // rather than re-entering writeInline (which would wrap each run in a
 // <span> redundantly).
 func (r *htmlRenderer) writeCodeBlock(n PMNode) {
-	r.b.WriteString(`<pre class="tinycld-doc-pre"><code class="tinycld-doc-code-block">`)
+	r.b.WriteString(`<pre class="tinycld-text-pre"><code class="tinycld-text-code-block">`)
 	for _, child := range n.Content {
 		if child.Type == NodeTypeText {
 			r.b.WriteString(escapeHTML(child.Text))
@@ -273,7 +307,17 @@ func (r *htmlRenderer) writeCodeBlock(n PMNode) {
 
 func (r *htmlRenderer) writeList(n PMNode, tag, listClass string) {
 	classes := []string{listClass}
-	r.openTag(tag, classes, nil)
+	var attrs map[string]string
+	// Only <ol> honors `start`. Word frequently emits sibling ordered
+	// lists with a non-1 start when a list is interrupted by a nested
+	// bullet sub-list (the second half resumes the original
+	// numbering); without `start` the resumed half would restart at 1.
+	if tag == "ol" {
+		if start := intAttrOr(n.Attrs, "start", 0); start > 1 {
+			attrs = map[string]string{"start": strconv.Itoa(start)}
+		}
+	}
+	r.openTag(tag, classes, attrs)
 	for _, child := range n.Content {
 		if child.Type == NodeTypeListItem {
 			r.writeListItem(child)
@@ -285,7 +329,7 @@ func (r *htmlRenderer) writeList(n PMNode, tag, listClass string) {
 }
 
 func (r *htmlRenderer) writeListItem(n PMNode) {
-	r.b.WriteString(`<li class="tinycld-doc-li">`)
+	r.b.WriteString(`<li class="tinycld-text-li">`)
 	for _, child := range n.Content {
 		r.writeBlock(child)
 	}
@@ -293,12 +337,14 @@ func (r *htmlRenderer) writeListItem(n PMNode) {
 }
 
 func (r *htmlRenderer) writeTable(n PMNode) {
-	r.b.WriteString(`<table class="tinycld-doc-table"><tbody>`)
+	r.b.WriteString(`<table class="tinycld-text-table">`)
+	r.writeTableColgroup(n)
+	r.b.WriteString(`<tbody>`)
 	for _, row := range n.Content {
 		if row.Type != NodeTypeTableRow {
 			continue
 		}
-		r.b.WriteString(`<tr class="tinycld-doc-tr">`)
+		r.b.WriteString(`<tr class="tinycld-text-tr">`)
 		for _, cell := range row.Content {
 			if cell.Type != NodeTypeTableCell {
 				continue
@@ -310,16 +356,80 @@ func (r *htmlRenderer) writeTable(n PMNode) {
 	r.b.WriteString(`</tbody></table>`)
 }
 
+// writeTableColgroup emits a <colgroup> of <col> elements with inline
+// width styles derived from the first row that carries colwidth on
+// every cell. Combined with `table-layout: fixed` in the preview CSS,
+// this preserves the per-column widths that came from the source
+// document (Word's <w:tblGrid>) instead of collapsing every imported
+// table to a uniform auto layout. When no row carries widths the
+// colgroup is omitted entirely and the table falls back to the CSS
+// max-width / auto sizing.
+func (r *htmlRenderer) writeTableColgroup(n PMNode) {
+	widths := firstRowColumnWidthsPx(n)
+	if len(widths) == 0 {
+		return
+	}
+	r.b.WriteString(`<colgroup>`)
+	for _, w := range widths {
+		if w > 0 {
+			r.b.WriteString(`<col style="width: `)
+			r.b.WriteString(strconv.Itoa(w))
+			r.b.WriteString(`px">`)
+		} else {
+			r.b.WriteString(`<col>`)
+		}
+	}
+	r.b.WriteString(`</colgroup>`)
+}
+
+// firstRowColumnWidthsPx walks a table's rows to find the first row
+// in which every cell carries a `colwidth` attribute, then unrolls
+// each cell's per-spanned-column widths into a flat slice. Returns
+// nil if no such row exists, matching the table emitter's behavior
+// in pm_to_docx.go::tableGeometry — both must agree on which row
+// defines the physical grid so round-trips don't drift.
+func firstRowColumnWidthsPx(table PMNode) []int {
+	for _, row := range table.Content {
+		if row.Type != NodeTypeTableRow {
+			continue
+		}
+		var widths []int
+		ok := true
+		for _, cell := range row.Content {
+			if cell.Type != NodeTypeTableCell {
+				continue
+			}
+			span := cellColspan(cell)
+			cw, hasCW := cellColwidthPx(cell)
+			if !hasCW || len(cw) == 0 {
+				ok = false
+				break
+			}
+			for i := 0; i < span; i++ {
+				if i < len(cw) {
+					widths = append(widths, cw[i])
+				} else {
+					widths = append(widths, cw[len(cw)-1])
+				}
+			}
+		}
+		if ok && len(widths) > 0 {
+			return widths
+		}
+	}
+	return nil
+}
+
 // writeTableCell emits one cell. The cell tag is <th> when the cell
 // carries isHeader=true (matching tiptap's table-header convention)
 // and <td> otherwise. colspan / rowspan attrs are passed through when
 // they exceed 1; the sanitizer's allowlist permits both on td/th.
 func (r *htmlRenderer) writeTableCell(n PMNode) {
 	tag := "td"
-	cls := "tinycld-doc-td"
+	cls := "tinycld-text-td"
 	if isHeader, _ := n.Attrs["isHeader"].(bool); isHeader {
 		tag = "th"
-		cls = "tinycld-doc-th"
+		cls = "tinycld-text-th"
 	}
 	attrs := map[string]string{}
 	if colspan := intAttrOr(n.Attrs, "colspan", 0); colspan > 1 {
@@ -353,7 +463,7 @@ func (r *htmlRenderer) writeInline(n PMNode) {
 	case NodeTypePageBreak:
 		// PM emits page breaks at block level (handled by writeBlock)
 		// but a stray inline one renders as an inline <hr> fallback.
-		r.b.WriteString(`<hr class="tinycld-doc-hr">`)
+		r.b.WriteString(`<hr class="tinycld-text-hr">`)
 	default:
 		r.writeUnsupported("inline", n.Type)
 	}
@@ -392,15 +502,15 @@ func (r *htmlRenderer) writeText(n PMNode) {
 func (r *htmlRenderer) markTags(m PMMark) (string, string) {
 	switch m.Type {
 	case MarkTypeBold:
-		return `<span class="tinycld-doc-mark--bold">`, `</span>`
+		return `<span class="tinycld-text-mark--bold">`, `</span>`
 	case MarkTypeItalic:
-		return `<span class="tinycld-doc-mark--italic">`, `</span>`
+		return `<span class="tinycld-text-mark--italic">`, `</span>`
 	case MarkTypeUnderline:
-		return `<span class="tinycld-doc-mark--underline">`, `</span>`
+		return `<span class="tinycld-text-mark--underline">`, `</span>`
 	case MarkTypeStrike:
-		return `<span class="tinycld-doc-mark--strike">`, `</span>`
+		return `<span class="tinycld-text-mark--strike">`, `</span>`
 	case MarkTypeCode:
-		return `<code class="tinycld-doc-mark--code">`, `</code>`
+		return `<code class="tinycld-text-mark--code">`, `</code>`
 	case MarkTypeLink:
 		href := stringAttr(m.Attrs, "href")
 		if !linkURLAllowed(href) {
@@ -408,51 +518,58 @@ func (r *htmlRenderer) markTags(m PMMark) (string, string) {
 			return "", ""
 		}
 		return fmt.Sprintf(
-			`<a class="tinycld-doc-mark--link" href="%s" rel="noopener noreferrer">`,
+			`<a class="tinycld-text-mark--link" href="%s" rel="noopener noreferrer">`,
 			escapeAttr(href),
 		), `</a>`
 	case MarkTypeComment:
 		id := stringAttr(m.Attrs, "id")
 		if id == "" {
-			return `<span class="tinycld-doc-mark--comment">`, `</span>`
+			return `<span class="tinycld-text-mark--comment">`, `</span>`
 		}
 		// data-comment-id is allowed on span by the sanitizer (see
 		// render/sanitize.go); preserved here so future link-to-thread
 		// enhancements can address the run.
 		return fmt.Sprintf(
-			`<span class="tinycld-doc-mark--comment" data-comment-id="%s">`,
+			`<span class="tinycld-text-mark--comment" data-comment-id="%s">`,
 			escapeAttr(id),
 		), `</span>`
 	case MarkTypeTextStyle:
 		// textStyle carries color / fontSize / fontFamily on a single
-		// mark. Inline `style=` is dropped by the sanitizer, so we
-		// surface the values via class + data-* attributes the CSS can
-		// target with attribute selectors.
-		var parts []string
-		var attrs []string
+		// mark. We surface them as an inline `style="…"` attribute —
+		// the shared sanitizer's safe-property allowlist passes
+		// color / font-size / font-family through unchanged, and
+		// browsers honor inline style universally (the earlier
+		// `data-color` + CSS-attribute-selector approach left the
+		// values in the DOM but produced no visible effect because
+		// `attr()` outside `content:` isn't supported cross-browser).
+		var decls []string
 		if color := stringAttr(m.Attrs, "color"); color != "" && isSafeColor(color) {
-			attrs = append(attrs, fmt.Sprintf(`data-color="%s"`, escapeAttr(color)))
-			parts = append(parts, "color")
+			decls = append(decls, "color: "+color)
+		}
+		if bg := stringAttr(m.Attrs, "backgroundColor"); bg != "" && isSafeColor(bg) {
+			decls = append(decls, "background-color: "+bg)
 		}
 		if sz := intAttrAny(m.Attrs, "fontSize"); sz > 0 {
-			attrs = append(attrs, fmt.Sprintf(`data-font-size="%d"`, sz))
-			parts = append(parts, "size")
+			decls = append(decls, fmt.Sprintf("font-size: %dpx", sz))
 		}
 		if ff := stringAttr(m.Attrs, "fontFamily"); ff != "" {
-			attrs = append(attrs, fmt.Sprintf(`data-font-family="%s"`, escapeAttr(ff)))
-			parts = append(parts, "family")
+			// Wrap in single quotes so multi-word families ("Times
+			// New Roman") parse as one token. Strip any quote chars
+			// from the input first; the sanitizer would otherwise
+			// drop the whole style attribute if it sees a stray
+			// quote that breaks CSS parsing.
+			safe := strings.ReplaceAll(strings.ReplaceAll(ff, "'", ""), `"`, "")
+			decls = append(decls, "font-family: '"+safe+"'")
 		}
-		if len(attrs) == 0 {
+		if len(decls) == 0 {
 			// Empty textStyle: no visible effect. Skip the wrapper to
 			// keep the output compact.
 			return "", ""
 		}
-		open := `<span class="tinycld-doc-mark--text-style"`
-		for _, a := range attrs {
-			open += " " + a
-		}
-		open += `>`
-		return open, `</span>`
+		return fmt.Sprintf(
+			`<span class="tinycld-text-mark--text-style" style="%s">`,
+			escapeAttr(strings.Join(decls, "; ")),
+		), `</span>`
 	}
 	r.writeUnsupported("mark", m.Type)
 	return "", ""
@@ -467,14 +584,14 @@ func (r *htmlRenderer) writeImage(n PMNode) {
 	if resolved == "" {
 		return
 	}
-	classes := []string{"tinycld-doc-img"}
+	classes := []string{"tinycld-text-img"}
 	switch stringAttr(n.Attrs, "wrap") {
 	case "left":
-		classes = append(classes, "tinycld-doc-img-wrap--left")
+		classes = append(classes, "tinycld-text-img-wrap--left")
 	case "right":
-		classes = append(classes, "tinycld-doc-img-wrap--right")
+		classes = append(classes, "tinycld-text-img-wrap--right")
 	case "break":
-		classes = append(classes, "tinycld-doc-img-wrap--break")
+		classes = append(classes, "tinycld-text-img-wrap--break")
 	}
 	attrs := map[string]string{"src": resolved}
 	if alt := stringAttr(n.Attrs, "alt"); alt != "" {
@@ -537,7 +654,7 @@ func (r *htmlRenderer) writeFootnoteReference(n PMNode, kind string) {
 		id = "?"
 	}
 	r.b.WriteString(fmt.Sprintf(
-		`<sup class="tinycld-doc-%s-ref">[%s]</sup>`,
+		`<sup class="tinycld-text-%s-ref">[%s]</sup>`,
 		kind, escapeHTML(id),
 	))
 }
@@ -626,8 +743,8 @@ func markPriority(t string) int {
 	return 100
 }
 
-// appendAlignIndentClasses adds .tinycld-doc-align--X and
-// .tinycld-doc-indent--N modifier classes to a block's class list
+// appendAlignIndentClasses adds .tinycld-text-align--X and
+// .tinycld-text-indent--N modifier classes to a block's class list
 // based on its textAlign / indent attrs. Defaults ("left" / 0) are
 // silently dropped — the base class already styles them correctly.
 func appendAlignIndentClasses(classes []string, attrs map[string]any) []string {
@@ -637,14 +754,14 @@ func appendAlignIndentClasses(classes []string, attrs map[string]any) []string {
 	if align := stringAttr(attrs, "textAlign"); align != "" && align != "left" {
 		switch align {
 		case "center", "right", "justify":
-			classes = append(classes, "tinycld-doc-align--"+align)
+			classes = append(classes, "tinycld-text-align--"+align)
 		}
 	}
 	if indent := intAttrOr(attrs, "indent", 0); indent > 0 {
 		if indent > MaxIndentLevel {
 			indent = MaxIndentLevel
 		}
-		classes = append(classes, "tinycld-doc-indent--"+strconv.Itoa(indent))
+		classes = append(classes, "tinycld-text-indent--"+strconv.Itoa(indent))
 	}
 	return classes
 }

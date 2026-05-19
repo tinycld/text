@@ -14,7 +14,7 @@ func TestPMJSONToHTML_EmptyDoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if out != `<article class="tinycld-doc"></article>` {
+	if out != `<article class="tinycld-text"></article>` {
 		t.Fatalf("unexpected empty-doc output: %q", out)
 	}
 }
@@ -41,7 +41,7 @@ func TestPMJSONToHTML_SimpleParagraph(t *testing.T) {
         {"type":"paragraph","content":[{"type":"text","text":"Hello world"}]}
     ]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	want := `<article class="tinycld-doc"><p class="tinycld-doc-p">Hello world</p></article>`
+	want := `<article class="tinycld-text"><p class="tinycld-text-p">Hello world</p></article>`
 	if out != want {
 		t.Fatalf("got %q\nwant %q", out, want)
 	}
@@ -52,7 +52,7 @@ func TestPMJSONToHTML_HeadingLevels(t *testing.T) {
 		in := `{"type":"doc","content":[{"type":"heading","attrs":{"level":` +
 			itoaSimple(level) + `},"content":[{"type":"text","text":"Title"}]}]}`
 		out := mustRender(t, in, HTMLRenderOpts{})
-		wantTag := "<h" + itoaSimple(level) + ` class="tinycld-doc-h` + itoaSimple(level) + `">Title</h` + itoaSimple(level) + ">"
+		wantTag := "<h" + itoaSimple(level) + ` class="tinycld-text-h` + itoaSimple(level) + `">Title</h` + itoaSimple(level) + ">"
 		if !strings.Contains(out, wantTag) {
 			t.Fatalf("level=%d: missing %q in %q", level, wantTag, out)
 		}
@@ -63,7 +63,7 @@ func TestPMJSONToHTML_HeadingClampsLevel(t *testing.T) {
 	// Out-of-range levels clamp into 1..6 (level=8 → h6).
 	in := `{"type":"doc","content":[{"type":"heading","attrs":{"level":8},"content":[{"type":"text","text":"X"}]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<h6 class="tinycld-doc-h6">X</h6>`) {
+	if !strings.Contains(out, `<h6 class="tinycld-text-h6">X</h6>`) {
 		t.Fatalf("expected h6 fallback, got %q", out)
 	}
 }
@@ -74,10 +74,10 @@ func TestPMJSONToHTML_AlignAndIndent(t *testing.T) {
          "content":[{"type":"text","text":"X"}]}
     ]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, "tinycld-doc-align--center") {
+	if !strings.Contains(out, "tinycld-text-align--center") {
 		t.Fatalf("missing center align class: %q", out)
 	}
-	if !strings.Contains(out, "tinycld-doc-indent--2") {
+	if !strings.Contains(out, "tinycld-text-indent--2") {
 		t.Fatalf("missing indent-2 class: %q", out)
 	}
 }
@@ -88,11 +88,11 @@ func TestPMJSONToHTML_TextMarks(t *testing.T) {
 		mark string
 		want string
 	}{
-		{"bold", `{"type":"bold"}`, "tinycld-doc-mark--bold"},
-		{"italic", `{"type":"italic"}`, "tinycld-doc-mark--italic"},
-		{"underline", `{"type":"underline"}`, "tinycld-doc-mark--underline"},
-		{"strike", `{"type":"strike"}`, "tinycld-doc-mark--strike"},
-		{"code", `{"type":"code"}`, "tinycld-doc-mark--code"},
+		{"bold", `{"type":"bold"}`, "tinycld-text-mark--bold"},
+		{"italic", `{"type":"italic"}`, "tinycld-text-mark--italic"},
+		{"underline", `{"type":"underline"}`, "tinycld-text-mark--underline"},
+		{"strike", `{"type":"strike"}`, "tinycld-text-mark--strike"},
+		{"code", `{"type":"code"}`, "tinycld-text-mark--code"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -117,10 +117,10 @@ func TestPMJSONToHTML_StrikeWithBold(t *testing.T) {
         ]}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, "tinycld-doc-mark--strike") {
+	if !strings.Contains(out, "tinycld-text-mark--strike") {
 		t.Fatalf("missing strike class: %q", out)
 	}
-	if !strings.Contains(out, "tinycld-doc-mark--bold") {
+	if !strings.Contains(out, "tinycld-text-mark--bold") {
 		t.Fatalf("missing bold class: %q", out)
 	}
 	idxBold := strings.Index(out, "mark--bold")
@@ -140,10 +140,10 @@ func TestPMJSONToHTML_StrikeWithTextStyle(t *testing.T) {
         ]}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, "tinycld-doc-mark--strike") {
+	if !strings.Contains(out, "tinycld-text-mark--strike") {
 		t.Fatalf("missing strike class: %q", out)
 	}
-	if !strings.Contains(out, `data-color="#ff0000"`) {
+	if !strings.Contains(out, `color: #ff0000`) {
 		t.Fatalf("missing textStyle color: %q", out)
 	}
 	idxStrike := strings.Index(out, "mark--strike")
@@ -224,10 +224,51 @@ func TestPMJSONToHTML_TextStyleMark(t *testing.T) {
         ]}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `data-color="#ff0000"`) ||
-		!strings.Contains(out, `data-font-size="18"`) ||
-		!strings.Contains(out, `data-font-family="Arial"`) {
-		t.Fatalf("missing textStyle data-attrs: %q", out)
+	// font-family wraps the family name in single quotes; the
+	// attribute-escaping pass converts those to &#39; before the
+	// value lands in the HTML, so assert on the escaped form.
+	if !strings.Contains(out, `color: #ff0000`) ||
+		!strings.Contains(out, `font-size: 18px`) ||
+		!strings.Contains(out, `font-family: &#39;Arial&#39;`) {
+		t.Fatalf("missing textStyle inline-style declarations: %q", out)
+	}
+	if !strings.Contains(out, `class="tinycld-text-mark--text-style"`) {
+		t.Fatalf("missing textStyle wrapper class: %q", out)
+	}
+}
+
+func TestPMJSONToHTML_TextStyleMark_BackgroundColor(t *testing.T) {
+	in := `{"type":"doc","content":[{"type":"paragraph","content":[
+        {"type":"text","text":"X","marks":[
+            {"type":"textStyle","attrs":{"backgroundColor":"#FFFF00"}}
+        ]}
+    ]}]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if !strings.Contains(out, `background-color: #FFFF00`) {
+		t.Fatalf("missing backgroundColor declaration: %q", out)
+	}
+	if !strings.Contains(out, `class="tinycld-text-mark--text-style"`) {
+		t.Fatalf("missing textStyle wrapper class: %q", out)
+	}
+}
+
+// TestPMJSONToHTML_TextStyleMark_BackgroundColor_RejectsUnsafe pins the
+// safe-color gate for backgroundColor. The same isSafeColor allowlist
+// that protects `color` also guards `background-color`; this test exists
+// so a future refactor can't accidentally remove the check for one
+// attr but not the other.
+func TestPMJSONToHTML_TextStyleMark_BackgroundColor_RejectsUnsafe(t *testing.T) {
+	in := `{"type":"doc","content":[{"type":"paragraph","content":[
+        {"type":"text","text":"X","marks":[
+            {"type":"textStyle","attrs":{"backgroundColor":"url(javascript:1)"}}
+        ]}
+    ]}]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if strings.Contains(out, "background-color:") {
+		t.Fatalf("unsafe backgroundColor must be stripped: %q", out)
+	}
+	if strings.Contains(out, "javascript:") {
+		t.Fatalf("javascript: must not leak: %q", out)
 	}
 }
 
@@ -238,8 +279,14 @@ func TestPMJSONToHTML_TextStyleMark_RejectsUnsafeColor(t *testing.T) {
         ]}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if strings.Contains(out, "data-color=") {
+	// Unsafe color must be rejected upstream of style emission — the
+	// wrapper span has no `color:` declaration at all. (And with no
+	// other safe attrs set, the wrapper itself is skipped entirely.)
+	if strings.Contains(out, "color:") {
 		t.Fatalf("unsafe color must be stripped: %q", out)
+	}
+	if strings.Contains(out, "javascript:") {
+		t.Fatalf("javascript: must not leak: %q", out)
 	}
 }
 
@@ -305,10 +352,10 @@ func TestPMJSONToHTML_BlockquoteAndCodeBlock(t *testing.T) {
         {"type":"codeBlock","content":[{"type":"text","text":"fn main(){}"}]}
     ]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<blockquote class="tinycld-doc-blockquote">`) {
+	if !strings.Contains(out, `<blockquote class="tinycld-text-blockquote">`) {
 		t.Fatalf("missing blockquote: %q", out)
 	}
-	if !strings.Contains(out, `<pre class="tinycld-doc-pre"><code class="tinycld-doc-code-block">fn main(){}</code></pre>`) {
+	if !strings.Contains(out, `<pre class="tinycld-text-pre"><code class="tinycld-text-code-block">fn main(){}</code></pre>`) {
 		t.Fatalf("missing pre/code shape: %q", out)
 	}
 }
@@ -327,14 +374,63 @@ func TestPMJSONToHTML_NestedLists(t *testing.T) {
         ]}
     ]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<ul class="tinycld-doc-ul">`) {
+	if !strings.Contains(out, `<ul class="tinycld-text-ul">`) {
 		t.Fatalf("missing ul: %q", out)
 	}
-	if !strings.Contains(out, `<ol class="tinycld-doc-ol">`) {
+	if !strings.Contains(out, `<ol class="tinycld-text-ol">`) {
 		t.Fatalf("missing nested ol: %q", out)
 	}
 	if !strings.Contains(out, "outer") || !strings.Contains(out, "inner") {
 		t.Fatalf("missing list item text: %q", out)
+	}
+}
+
+// Word emits an ordered list's resumption (after a nested bullet
+// sub-list with a different numId interrupts it) with a `start` attr
+// so the visual numbering continues — 1..5, bullets, 6. The renderer
+// must surface that as the HTML `start` attribute on <ol>.
+func TestPMJSONToHTML_OrderedListHonorsStart(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"orderedList","attrs":{"start":6},"content":[
+            {"type":"listItem","content":[
+                {"type":"paragraph","content":[{"type":"text","text":"Columns"}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if !strings.Contains(out, `<ol class="tinycld-text-ol" start="6">`) {
+		t.Fatalf("missing start attribute on resumed ol: %q", out)
+	}
+}
+
+// start=1 is the default for ordered lists; omit the attribute to
+// keep the rendered HTML clean for the common case.
+func TestPMJSONToHTML_OrderedListOmitsStartOne(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"orderedList","attrs":{"start":1},"content":[
+            {"type":"listItem","content":[
+                {"type":"paragraph","content":[{"type":"text","text":"a"}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if strings.Contains(out, `start=`) {
+		t.Fatalf("start=1 should be omitted, got: %q", out)
+	}
+}
+
+// `start` is meaningless on <ul> and must never be emitted.
+func TestPMJSONToHTML_BulletListIgnoresStart(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"bulletList","attrs":{"start":5},"content":[
+            {"type":"listItem","content":[
+                {"type":"paragraph","content":[{"type":"text","text":"x"}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if strings.Contains(out, `start=`) {
+		t.Fatalf("start must not appear on ul: %q", out)
 	}
 }
 
@@ -355,17 +451,109 @@ func TestPMJSONToHTML_TableWithMergedCells(t *testing.T) {
         ]}
     ]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<table class="tinycld-doc-table">`) {
+	if !strings.Contains(out, `<table class="tinycld-text-table">`) {
 		t.Fatalf("missing table: %q", out)
 	}
-	if !strings.Contains(out, `<th class="tinycld-doc-th" colspan="2">`) {
+	if !strings.Contains(out, `<th class="tinycld-text-th" colspan="2">`) {
 		t.Fatalf("missing th colspan: %q", out)
 	}
-	if !strings.Contains(out, `<td class="tinycld-doc-td" rowspan="2">`) {
+	if !strings.Contains(out, `<td class="tinycld-text-td" rowspan="2">`) {
 		t.Fatalf("missing td rowspan: %q", out)
 	}
 	if !strings.Contains(out, "Hdr") || !strings.Contains(out, "A") || !strings.Contains(out, "B") {
 		t.Fatalf("missing cell text: %q", out)
+	}
+}
+
+func TestPMJSONToHTML_TableWithColwidthEmitsColgroup(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"table","content":[
+            {"type":"tableRow","content":[
+                {"type":"tableCell","attrs":{"colwidth":[120]},
+                 "content":[{"type":"paragraph","content":[{"type":"text","text":"A"}]}]},
+                {"type":"tableCell","attrs":{"colwidth":[200]},
+                 "content":[{"type":"paragraph","content":[{"type":"text","text":"B"}]}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if !strings.Contains(out, `<colgroup><col style="width: 120px"><col style="width: 200px"></colgroup>`) {
+		t.Fatalf("missing or wrong colgroup: %q", out)
+	}
+}
+
+// A cell with colspan>1 carries a colwidth array of length colspan;
+// each entry must become its own <col>.
+func TestPMJSONToHTML_TableColspanUnrollsColwidth(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"table","content":[
+            {"type":"tableRow","content":[
+                {"type":"tableCell","attrs":{"colspan":2,"colwidth":[80,140]},
+                 "content":[{"type":"paragraph","content":[{"type":"text","text":"wide"}]}]},
+                {"type":"tableCell","attrs":{"colwidth":[60]},
+                 "content":[{"type":"paragraph","content":[{"type":"text","text":"narrow"}]}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if !strings.Contains(out, `<colgroup><col style="width: 80px"><col style="width: 140px"><col style="width: 60px"></colgroup>`) {
+		t.Fatalf("colspan didn't unroll colwidth correctly: %q", out)
+	}
+}
+
+// When no row carries colwidth on every cell, the renderer omits
+// <colgroup> entirely so the table falls back to the CSS default.
+func TestPMJSONToHTML_TableWithoutColwidthOmitsColgroup(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"table","content":[
+            {"type":"tableRow","content":[
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"A"}]}]},
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"B"}]}]}
+            ]}
+        ]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{})
+	if strings.Contains(out, "<colgroup>") {
+		t.Fatalf("unexpected colgroup in width-less table: %q", out)
+	}
+}
+
+// A paragraph containing a left/right-floated image gets a marker
+// class so the preview CSS can `clear:` the paragraph and start a
+// fresh BFC. Without this, sequential float-with-text paragraphs
+// (Word's "image + caption" pattern repeated down a page) place the
+// second image against the first float's edge instead of flush left.
+func TestPMJSONToHTML_ParagraphWithFloatedImageGetsMarkerClass(t *testing.T) {
+	in := `{"type":"doc","content":[
+        {"type":"paragraph","content":[
+            {"type":"image","attrs":{"src":"https://example/a.png","wrap":"left"}},
+            {"type":"text","text":"text wrapping right"}
+        ]},
+        {"type":"paragraph","content":[
+            {"type":"image","attrs":{"src":"https://example/b.png","wrap":"right"}},
+            {"type":"text","text":"text wrapping left"}
+        ]},
+        {"type":"paragraph","content":[
+            {"type":"image","attrs":{"src":"https://example/c.png","wrap":"break"}}
+        ]},
+        {"type":"paragraph","content":[{"type":"text","text":"plain"}]}
+    ]}`
+	out := mustRender(t, in, HTMLRenderOpts{Images: ImageModeURL})
+	if !strings.Contains(out, `tinycld-text-p tinycld-text-p-with-float--left`) {
+		t.Fatalf("missing left-float marker class: %q", out)
+	}
+	if !strings.Contains(out, `tinycld-text-p tinycld-text-p-with-float--right`) {
+		t.Fatalf("missing right-float marker class: %q", out)
+	}
+	// "break"-wrapped images already clear themselves; no paragraph
+	// marker class needed.
+	if strings.Contains(out, `tinycld-text-p-with-float--break`) {
+		t.Fatalf("break-wrapped image should not produce a paragraph marker class: %q", out)
+	}
+	// Plain text paragraphs stay clean.
+	plainCount := strings.Count(out, `class="tinycld-text-p">plain</p>`)
+	if plainCount != 1 {
+		t.Fatalf("plain paragraph should keep just the base class, got: %q", out)
 	}
 }
 
@@ -458,7 +646,7 @@ func TestPMJSONToHTML_Image_WrapMode(t *testing.T) {
         {"type":"image","attrs":{"src":"data:image/png;base64,AAA=","wrap":"left"}}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, "tinycld-doc-img-wrap--left") {
+	if !strings.Contains(out, "tinycld-text-img-wrap--left") {
 		t.Fatalf("missing wrap--left class: %q", out)
 	}
 }
@@ -466,7 +654,7 @@ func TestPMJSONToHTML_Image_WrapMode(t *testing.T) {
 func TestPMJSONToHTML_PageBreak(t *testing.T) {
 	in := `{"type":"doc","content":[{"type":"pageBreak"}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<hr class="tinycld-doc-hr">`) {
+	if !strings.Contains(out, `<hr class="tinycld-text-hr">`) {
 		t.Fatalf("missing page break <hr>: %q", out)
 	}
 }
@@ -477,7 +665,7 @@ func TestPMJSONToHTML_FootnoteReference(t *testing.T) {
         {"type":"footnoteReference","attrs":{"id":"3"}}
     ]}]}`
 	out := mustRender(t, in, HTMLRenderOpts{})
-	if !strings.Contains(out, `<sup class="tinycld-doc-footnote-ref">[3]</sup>`) {
+	if !strings.Contains(out, `<sup class="tinycld-text-footnote-ref">[3]</sup>`) {
 		t.Fatalf("missing footnote ref: %q", out)
 	}
 }

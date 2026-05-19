@@ -18,7 +18,7 @@ import (
 // RendererVersion is the text renderer's ETag-cache-buster. Bump on
 // any change to the emitted HTML structure, class vocabulary, or
 // sanitizer allowlist.
-const RendererVersion = "v1"
+const RendererVersion = "v5"
 
 // allowlist is text's policy for the shared sanitizer. The prose tag
 // set is wide: text fragments include <article>, every heading level,
@@ -60,11 +60,16 @@ var allowlist = coreRender.Allowlist{
 		"tr":         {},
 		"th":         {},
 		"td":         {},
+		"colgroup":   {},
+		"col":        {},
 	},
 	Attrs: map[string]map[string]struct{}{
 		"a": {
 			"href": {},
 			"rel":  {},
+		},
+		"ol": {
+			"start": {},
 		},
 		"img": {
 			"src":      {},

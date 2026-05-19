@@ -1,35 +1,51 @@
-import { captureException } from '@tinycld/core/lib/errors'
-import type { EditorHandle } from '@tinycld/core/lib/editor/types'
 import { useCallback } from 'react'
+import { Platform } from 'react-native'
 import { handlePrint } from '../lib/print/handle-print'
-import { renderPrintHtml } from '../lib/print/render-print-html'
+import { buildTextPrintCssNative } from '../lib/print/print-css-native'
+import { buildTextPrintCssWeb } from '../lib/print/print-css-web'
+import {
+    captureException,
+    fetchRenderedHtml,
+    printRenderedDocument,
+} from './print-rendered-document'
 
-// Pure async body, exported for unit testing in a node environment
-// (no React renderer available — see tests/use-print-document.test.tsx
-// and the same pattern in calc/tests/pivot-banner.test.tsx).
-export async function printEditorDocument(
-    editor: EditorHandle,
-    deps: {
-        handlePrint: (html: string) => Promise<void>
-        captureException: (tag: string, err: unknown) => void
-    } = { handlePrint, captureException }
-): Promise<void> {
-    try {
-        const body = await editor.getHTML()
-        const fullHtml = renderPrintHtml(body)
-        await deps.handlePrint(fullHtml)
-    } catch (err) {
-        deps.captureException('usePrintDocument', err)
-    }
+// printCssForPlatform picks the right CSS module for the current
+// platform. Web prints to a real browser print dialog; native prints
+// to expo-print, which runs the HTML in a system WebView. The web
+// stylesheet uses page-rule features the native renderer ignores;
+// the native variant is currently a re-export of the web rules (see
+// lib/print/print-css-native.ts).
+function printCssForPlatform(): string {
+    if (Platform.OS === 'web') return buildTextPrintCssWeb()
+    return buildTextPrintCssNative()
 }
 
-// usePrintDocument returns a stable callback that prints the document
-// currently held by the editor. The platform-resolved handlePrint
-// opens the browser print dialog on web (via window.print()) or
-// AirPrint / Android system print on native (via expo-print).
+// usePrintDocument returns a stable callback that prints the
+// document referenced by `driveItemId`. Routes through the server's
+// /api/text/render endpoint, which means printing no longer
+// requires the editor to be mounted. The drive preview, share view,
+// and any future "Print from list" surface can trigger this with
+// just a driveItemId.
 //
-// Errors are captured (with cancellation suppressed inside the native
-// handler), so callers don't need their own try/catch.
-export function usePrintDocument(editor: EditorHandle) {
-    return useCallback(() => printEditorDocument(editor), [editor])
+// The previous signature (taking an EditorHandle and calling
+// editor.getHTML()) is gone. Replace with the driveItemId-only call.
+//
+// Errors are captured (with cancellation suppressed inside the
+// native handler), so callers don't need their own try/catch.
+export function usePrintDocument(driveItemId: string) {
+    return useCallback(
+        () =>
+            printRenderedDocument(driveItemId, {
+                handlePrint,
+                fetchRenderedHtml,
+                captureException,
+                printCss: printCssForPlatform(),
+            }),
+        [driveItemId]
+    )
 }
+
+// Re-export the pure body for tests; the React-renderer-free entry
+// lives in print-rendered-document.ts so a vitest node environment
+// can import it without touching react-native.
+export { printRenderedDocument } from './print-rendered-document'

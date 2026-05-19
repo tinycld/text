@@ -77,7 +77,17 @@ const (
 	MarkTypeBold      = "bold"
 	MarkTypeItalic    = "italic"
 	MarkTypeUnderline = "underline"
-	MarkTypeLink      = "link"
+	// MarkTypeStrike is the strike-through (line-through) inline mark.
+	// Tiptap's StarterKit ships the matching `strike` mark; the HTML
+	// renderer surfaces it as <span class="tinycld-doc-mark--strike">
+	// styled with `text-decoration: line-through` in preview-css.ts and
+	// the print stylesheets. Strike does not currently round-trip
+	// through OOXML — pm_to_docx silently drops the mark on export and
+	// docx_to_pm doesn't import <w:strike/>. Full round-trip is tracked
+	// separately; the HTML renderer's coverage here ensures previews
+	// and prints of editor-only documents render the formatting.
+	MarkTypeStrike = "strike"
+	MarkTypeLink   = "link"
 	// MarkTypeTextStyle carries the @tiptap/extension-text-style mark.
 	// Attributes supported on the mark:
 	//   - color:      Word <w:color w:val="RRGGBB"> ⇄ "#RRGGBB" hex
@@ -109,6 +119,7 @@ var SupportedMarks = map[string]bool{
 	MarkTypeBold:      true,
 	MarkTypeItalic:    true,
 	MarkTypeUnderline: true,
+	MarkTypeStrike:    true,
 	MarkTypeLink:      true,
 	MarkTypeTextStyle: true,
 	MarkTypeComment:   true,

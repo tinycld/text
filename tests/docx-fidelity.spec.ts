@@ -266,35 +266,50 @@ test.describe('Text — .docx fidelity', () => {
         await expect(page.locator('.ProseMirror h3')).toHaveCount(2)
     })
 
-    test('numbered list continues past the nested bullet break (Columns = 6)', async ({
+    test('outline list nests the interrupting bullets under item 5 (single ol 1–6)', async ({
         page,
     }) => {
-        // The fixture's outline list is decimal 1–5 (Headings…Tables),
-        // then a nested bulleted list (Simple/Complex Tables), then the
-        // numbered list resumes at item 6 (Columns) — Word's natural
-        // continuation behavior. We surface this on import by emitting
-        // a `start` attribute on the resumed <ol>, and round-trip it on
-        // export by reusing the same numId so re-import re-derives it.
+        // The fixture's outline is decimal 1–5 (Headings…Tables), then a
+        // nested bulleted list (Simple/Complex Tables) that Word emits as
+        // a separate list-paragraph stream, then a final numbered item
+        // (Columns). The importer's renestInterruptingBulletSubLists pass
+        // (server/translate/docx_to_pm.go) merges this into ONE ordered
+        // list of six items with the bullets nested inside item 5's
+        // <li> — matching the user's mental model of one outline with
+        // sub-bullets. The numbering then flows naturally (1–6) with no
+        // `start`-attribute resumption.
         await openFixture(page)
         const { orderedLists } = await domSnapshot(page)
 
-        const headingsList = orderedLists.find((l) => l.firstItem.startsWith('Headings'))
-        const columnsList = orderedLists.find((l) => l.firstItem.startsWith('Columns'))
+        // Exactly one top-level ordered list — the bullets are nested,
+        // not a sibling, and the second numbered half was merged in.
+        expect(
+            orderedLists,
+            'expected a single merged top-level <ol> (1–6)'
+        ).toHaveLength(1)
 
-        expect(headingsList, 'expected a top-level <ol> starting with "Headings"').toBeTruthy()
-        expect(columnsList, 'expected a top-level <ol> starting with "Columns"').toBeTruthy()
-        expect(headingsList?.start, 'first list should start at 1').toBe(1)
-        expect(columnsList?.start, 'resumed list should start at 6 to match Word').toBe(6)
-        expect(headingsList?.itemTexts).toHaveLength(5)
-        expect(columnsList?.itemTexts).toHaveLength(1)
+        const outline = orderedLists[0]
+        expect(outline.start, 'merged list starts at 1 (no resumption)').toBe(1)
+        expect(outline.firstItem.startsWith('Headings')).toBe(true)
+        expect(outline.itemTexts, 'six items, Headings…Columns').toHaveLength(6)
+        expect(outline.itemTexts[5].startsWith('Columns')).toBe(true)
 
-        // The HTML `start` attribute is what an external reader (printer,
-        // PDF, screen reader) would see — assert it is the literal "6"
-        // string the browser rendered.
-        const columnsOl = page.locator('.ProseMirror ol', {
-            has: page.locator('li', { hasText: 'Columns' }),
-        })
-        await expect(columnsOl).toHaveAttribute('start', '6')
+        // The interrupting bullet list is nested inside the outline's
+        // "Tables" item (#5), not at top level. Find the <ul> whose
+        // closest ancestor <li> contains "Tables".
+        const nestedBullets = page.locator('.ProseMirror li', { hasText: 'Tables' }).locator('ul')
+        await expect(nestedBullets.first()).toBeVisible()
+        await expect(
+            nestedBullets.locator('li', { hasText: 'Simple Tables' }).first()
+        ).toBeVisible()
+
+        // No top-level <ol> carries a `start` attribute — numbering is
+        // continuous, not resumed.
+        const topLevelOls = page.locator('.ProseMirror > ol, .ProseMirror ol:not(li ol)')
+        const count = await topLevelOls.count()
+        for (let i = 0; i < count; i++) {
+            await expect(topLevelOls.nth(i)).not.toHaveAttribute('start', /.*/)
+        }
     })
 
     test('tables keep their .docx column widths instead of stretching to 100%', async ({

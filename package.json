@@ -12,7 +12,8 @@
         "./screens/*": "./tinycld/text/screens/*.tsx",
         "./provider": "./tinycld/text/provider.tsx",
         "./hooks/*": "./tinycld/text/hooks/*.ts",
-        "./components/*": "./tinycld/text/components/*.tsx"
+        "./components/*": "./tinycld/text/components/*.tsx",
+        "./seed": "./tinycld/text/seed.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit --skipLibCheck"

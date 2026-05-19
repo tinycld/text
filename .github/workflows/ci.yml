@@ -183,7 +183,14 @@ jobs:
         env:
           CI: true
           NODE_OPTIONS: --preserve-symlinks
-        run: npx playwright test --project "@tinycld/text" --timeout=90000
+        # 45s per-test timeout (was 90s). The suite runs serially in CI
+        # (playwright.config.ts sets workers:1 against the single shared
+        # PocketBase) with retries:2, so the per-test timeout is the
+        # dominant cost when a test hangs. A genuinely-passing text test
+        # finishes in single-digit seconds; 45s is generous headroom for
+        # the slowest (docx upload + Yjs round-trip) without letting a
+        # broken selector burn 90s × 3 retries and blow the 25-min job cap.
+        run: npx playwright test --project "@tinycld/text" --timeout=45000
 
       - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}

@@ -50,7 +50,7 @@ func requireAuthText(re *core.RequestEvent) error {
 
 // handleRender returns the rendered HTML fragment for the drive_item
 // identified by `:id`. The response is a sanitized content fragment
-// containing only `tinycld-doc*` classes — no <html>, no <head>, no
+// containing only `tinycld-text*` classes — no <html>, no <head>, no
 // inline styles. Clients (preview iframe / print envelope) wrap it
 // with their own CSS.
 //
@@ -109,16 +109,9 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 
 	var fragment string
 	if len(docxBytes) == 0 {
-		fragment = `<article class="tinycld-doc"></article>`
+		fragment = `<article class="tinycld-text"></article>`
 	} else {
-		pmJSON, _, err := translate.DocxToPMJSON(docxBytes)
-		if err != nil {
-			return re.InternalServerError("could not parse document", err)
-		}
-		opts := translate.HTMLRenderOpts{
-			Images:       images,
-			EmbedFetcher: nil,
-		}
+		opts := translate.HTMLRenderOpts{Images: images}
 		// Embed mode fetches image bytes from drive's filesystem. We
 		// only wire the fetcher when needed; URL mode skips the
 		// closure construction so docx-imported images (which carry
@@ -126,9 +119,13 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 		if images == translate.ImageModeEmbed {
 			opts.EmbedFetcher = makeEmbedFetcher(app)
 		}
-		fragment, err = translate.PMJSONToHTML(pmJSON, opts)
-		if err != nil {
-			return re.InternalServerError("could not render document", err)
+		// DocxToHTML walks the parsed PMNode tree directly to HTML —
+		// no JSON marshal/unmarshal in the render path. Warnings are
+		// discarded here; the bootstrap path captures them on import.
+		var renderErr error
+		fragment, _, renderErr = translate.DocxToHTML(docxBytes, opts)
+		if renderErr != nil {
+			return re.InternalServerError("could not render document", renderErr)
 		}
 	}
 

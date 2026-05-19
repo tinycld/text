@@ -162,6 +162,95 @@ func TestRender_RejectsNonDocxMime(t *testing.T) {
 	scenario.Test(t)
 }
 
+// TestRender_RejectsEmptyMime guards the mime gate against
+// drive_items where mime_type was never set (older import paths,
+// manually-inserted rows, partial syncs). Empty string is not the
+// docx mime, so the gate must reject — same 400 path as a mismatching
+// non-empty value.
+func TestRender_RejectsEmptyMime(t *testing.T) {
+	app := setupAuthTestApp(t)
+	registerRenderAPI(app)
+
+	user := mustCreateUser(t, app, "render-mime-empty@example.com")
+	item := seedDriveItemInOrg(t, app, "org1", "no-mime")
+	item.Set("mime_type", "")
+	if err := app.Save(item); err != nil {
+		t.Fatalf("save mime_type: %v", err)
+	}
+	userOrgID := seedUserOrg(t, app, user.Id, "org1")
+	seedShare(t, app, item.Id, userOrgID, "owner")
+
+	scenario := &tests.ApiScenario{
+		Name:           "empty mime returns 400",
+		Method:         http.MethodGet,
+		URL:            "/api/text/render/" + item.Id,
+		ExpectedStatus: http.StatusBadRequest,
+		ExpectedContent: []string{
+			"Not a docx",
+		},
+		Headers: map[string]string{
+			"Authorization": userToken(t, app, user),
+		},
+		TestAppFactory:        func(_ testing.TB) *tests.TestApp { return app },
+		DisableTestAppCleanup: true,
+	}
+	scenario.Test(t)
+}
+
+// TestRender_RejectsUnauthenticated guards the auth middleware: a
+// request with no Authorization header must respond with 401 before
+// the mime gate or share-role check even runs. Catches a regression
+// where someone disables the BindFunc(requireAuthText) wiring.
+func TestRender_RejectsUnauthenticated(t *testing.T) {
+	app := setupAuthTestApp(t)
+	registerRenderAPI(app)
+	item := seedDriveItemInOrg(t, app, "org1", "anything.docx")
+	scenario := &tests.ApiScenario{
+		Name:           "no auth returns 401",
+		Method:         http.MethodGet,
+		URL:            "/api/text/render/" + item.Id,
+		ExpectedStatus: http.StatusUnauthorized,
+		ExpectedContent: []string{
+			"Authentication required",
+		},
+		TestAppFactory:        func(_ testing.TB) *tests.TestApp { return app },
+		DisableTestAppCleanup: true,
+	}
+	scenario.Test(t)
+}
+
+// TestRender_RejectsUnshared guards the share-role check: an
+// authenticated user with no share on the drive_item must get 403,
+// not a 400/200/304 leaking item existence. The mime gate runs
+// after the share check so a non-shared item with mismatching mime
+// still surfaces as 403, never 400.
+func TestRender_RejectsUnshared(t *testing.T) {
+	app := setupAuthTestApp(t)
+	registerRenderAPI(app)
+	user := mustCreateUser(t, app, "render-mime-unshared@example.com")
+	item := seedDriveItemInOrg(t, app, "org1", "secret.docx")
+	item.Set("mime_type", docxMimeType)
+	if err := app.Save(item); err != nil {
+		t.Fatalf("save mime_type: %v", err)
+	}
+	// Deliberately omit seedShare so the user has no access.
+	scenario := &tests.ApiScenario{
+		Name:           "no share returns 403",
+		Method:         http.MethodGet,
+		URL:            "/api/text/render/" + item.Id,
+		ExpectedStatus: http.StatusForbidden,
+		ExpectedContent: []string{
+			"No access to this drive item",
+		},
+		TestAppFactory:        func(_ testing.TB) *tests.TestApp { return app },
+		DisableTestAppCleanup: true,
+		Headers: map[string]string{
+			"Authorization": userToken(t, app, user),
+		},
+	}
+	scenario.Test(t)
+}
+
 // userToken mints a fresh auth token for the given record. Mirrors
 // the helper PB tests typically reach for; copied here to avoid
 // pulling in test fixtures that don't otherwise belong in this package.

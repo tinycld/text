@@ -23,7 +23,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { printRenderedDocument } from '../tinycld/text/hooks/print-rendered-document'
 
 const SAMPLE_FRAGMENT =
-    '<article class="tinycld-doc"><h1 class="tinycld-doc-h1">Hi</h1><p class="tinycld-doc-p">x</p></article>'
+    '<article class="tinycld-text"><h1 class="tinycld-text-h1">Hi</h1><p class="tinycld-text-p">x</p></article>'
 
 function makeDeps(overrides: Partial<TestDeps> = {}) {
     const handlePrint = vi.fn(async (_html: string) => {})
@@ -33,8 +33,8 @@ function makeDeps(overrides: Partial<TestDeps> = {}) {
             ({ html: SAMPLE_FRAGMENT, etag: '"abc"' }) as RenderedHtml
     )
     const printCss = `
-.tinycld-doc-p { margin: 0 0 0.5em 0; }
-.tinycld-doc-h1 { font-size: 18pt; }
+.tinycld-text-p { margin: 0 0 0.5em 0; }
+.tinycld-text-h1 { font-size: 18pt; }
 `
     return {
         handlePrint,
@@ -74,7 +74,7 @@ describe('printRenderedDocument', () => {
         const passed = deps.handlePrint.mock.calls[0][0]
         // The CSS is wrapped in a <style> block inside <head>.
         expect(passed).toMatch(/<head>[\s\S]*<style>[\s\S]*<\/style>[\s\S]*<\/head>/)
-        expect(passed).toContain('.tinycld-doc-h1 { font-size: 18pt; }')
+        expect(passed).toContain('.tinycld-text-h1 { font-size: 18pt; }')
     })
 
     it('reports fetchRenderedHtml rejections via captureException without throwing', async () => {

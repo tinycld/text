@@ -79,7 +79,7 @@ const (
 	MarkTypeUnderline = "underline"
 	// MarkTypeStrike is the strike-through (line-through) inline mark.
 	// Tiptap's StarterKit ships the matching `strike` mark; the HTML
-	// renderer surfaces it as <span class="tinycld-doc-mark--strike">
+	// renderer surfaces it as <span class="tinycld-text-mark--strike">
 	// styled with `text-decoration: line-through` in preview-css.ts and
 	// the print stylesheets. Strike does not currently round-trip
 	// through OOXML — pm_to_docx silently drops the mark on export and
@@ -164,4 +164,10 @@ const (
 	WarningUnsupportedNode      WarningCode = "unsupportedNode"
 	WarningImageTooLarge        WarningCode = "imageTooLarge"
 	WarningUnsupportedImageType WarningCode = "unsupportedImageType"
+	// WarningBackgroundColorLost is emitted when a textStyle mark's
+	// backgroundColor isn't a 6-digit hex (or a normalizable rgb()/
+	// rgba() value). OOXML's <w:shd w:fill="…"> only accepts hex, so
+	// the run gets emitted without a background. The HTML render
+	// preserves the original color; the .docx loses it.
+	WarningBackgroundColorLost WarningCode = "backgroundColorLost"
 )

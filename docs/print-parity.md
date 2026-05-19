@@ -28,17 +28,17 @@ fetchRenderedHtml(source,  → renderPrintEnvelope(html,    → handlePrint
 
 | Aspect              | Old output                                  | New output                                                  | Why                                                              |
 | ------------------- | ------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
-| Outer wrapper       | `<article class="print-document">…</article>` | `<article class="tinycld-doc">…</article>`                  | Class vocabulary unified with preview path; print CSS targets it |
-| Paragraph           | `<p>…</p>`                                  | `<p class="tinycld-doc-p">…</p>`                            | Same — class enables targeted styling                            |
-| Heading             | `<h1>…</h1>`                                | `<h1 class="tinycld-doc-h1">…</h1>`                         | Same                                                             |
-| Bold                | `<strong>…</strong>`                        | `<span class="tinycld-doc-mark--bold">…</span>`             | Mark-based class; semantic boldness conveyed via `font-weight: 700` rule |
-| Italic              | `<em>…</em>`                                | `<span class="tinycld-doc-mark--italic">…</span>`           | Same                                                             |
-| Link                | `<a href="…">…</a>`                         | `<a class="tinycld-doc-mark--link" href="…" rel="noopener noreferrer">…</a>` | `rel` added for security; class targets link styling             |
-| Code (inline)       | `<code>…</code>`                            | `<code class="tinycld-doc-mark--code">…</code>`             | Class differentiates inline code from code block                 |
-| Code block          | `<pre><code>…</code></pre>`                 | `<pre class="tinycld-doc-pre"><code class="tinycld-doc-code-block">…</code></pre>` | Same                                                             |
-| Image               | `<img src="data:…">`                        | `<img class="tinycld-doc-img" src="data:…" loading="lazy" decoding="async">` | Same image transport (data URI), with native browser hints       |
-| Table cell border   | inline `style="border-top: 1px solid;"`     | base `.tinycld-doc-td { border: 1px solid }` (sanitizer drops inline `style=`) | Inline `style=` is dropped by the sanitizer; default cell border drawn by the print CSS rule |
-| Color (text)        | inline `style="color: #ff0000"`             | `<span class="tinycld-doc-mark--text-style" data-color="#ff0000">` | Inline `style=` is dropped; `data-color` attribute available for future CSS attribute selectors |
+| Outer wrapper       | `<article class="print-document">…</article>` | `<article class="tinycld-text">…</article>`                  | Class vocabulary unified with preview path; print CSS targets it |
+| Paragraph           | `<p>…</p>`                                  | `<p class="tinycld-text-p">…</p>`                            | Same — class enables targeted styling                            |
+| Heading             | `<h1>…</h1>`                                | `<h1 class="tinycld-text-h1">…</h1>`                         | Same                                                             |
+| Bold                | `<strong>…</strong>`                        | `<span class="tinycld-text-mark--bold">…</span>`             | Mark-based class; semantic boldness conveyed via `font-weight: 700` rule |
+| Italic              | `<em>…</em>`                                | `<span class="tinycld-text-mark--italic">…</span>`           | Same                                                             |
+| Link                | `<a href="…">…</a>`                         | `<a class="tinycld-text-mark--link" href="…" rel="noopener noreferrer">…</a>` | `rel` added for security; class targets link styling             |
+| Code (inline)       | `<code>…</code>`                            | `<code class="tinycld-text-mark--code">…</code>`             | Class differentiates inline code from code block                 |
+| Code block          | `<pre><code>…</code></pre>`                 | `<pre class="tinycld-text-pre"><code class="tinycld-text-code-block">…</code></pre>` | Same                                                             |
+| Image               | `<img src="data:…">`                        | `<img class="tinycld-text-img" src="data:…" loading="lazy" decoding="async">` | Same image transport (data URI), with native browser hints       |
+| Table cell border   | inline `style="border-top: 1px solid;"`     | base `.tinycld-text-td { border: 1px solid }` (sanitizer drops inline `style=`) | Inline `style=` is dropped by the sanitizer; default cell border drawn by the print CSS rule |
+| Color (text)        | inline `style="color: #ff0000"`             | `<span class="tinycld-text-mark--text-style" data-color="#ff0000">` | Inline `style=` is dropped; `data-color` attribute available for future CSS attribute selectors |
 
 ## Lost / changed: items the new print path no longer reproduces
 

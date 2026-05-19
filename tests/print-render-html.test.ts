@@ -12,7 +12,7 @@ import { buildTextPrintCssWeb } from '../tinycld/text/lib/print/print-css-web'
 
 describe('text print envelope', () => {
     const sampleFragment =
-        '<article class="tinycld-doc"><p class="tinycld-doc-p">hello</p></article>'
+        '<article class="tinycld-text"><p class="tinycld-text-p">hello</p></article>'
 
     it('produces a full HTML document with doctype', () => {
         const html = renderPrintEnvelope(sampleFragment, buildTextPrintCssWeb())
@@ -35,12 +35,12 @@ describe('text print envelope', () => {
         expect(html).toContain(sampleFragment)
     })
 
-    it('emits CSS rules that target the tinycld-doc class vocabulary', () => {
+    it('emits CSS rules that target the tinycld-text class vocabulary', () => {
         const css = buildTextPrintCssWeb()
-        expect(css).toContain('.tinycld-doc-p')
-        expect(css).toContain('.tinycld-doc-h1')
-        expect(css).toContain('.tinycld-doc-table')
-        expect(css).toContain('.tinycld-doc-mark--bold')
+        expect(css).toContain('.tinycld-text-p')
+        expect(css).toContain('.tinycld-text-h1')
+        expect(css).toContain('.tinycld-text-table')
+        expect(css).toContain('.tinycld-text-mark--bold')
         // Class vocabulary moved away from .ProseMirror / .print-document.
         expect(css).not.toMatch(/\.ProseMirror\b/)
         expect(css).not.toMatch(/\.print-document\b/)
@@ -61,24 +61,24 @@ describe('text print envelope', () => {
 
     it('forwards heading + paragraph fragments verbatim', () => {
         const fragment =
-            '<article class="tinycld-doc">' +
-            '<h1 class="tinycld-doc-h1">Title</h1>' +
-            '<h2 class="tinycld-doc-h2">Sub</h2>' +
-            '<p class="tinycld-doc-p">Body text.</p>' +
+            '<article class="tinycld-text">' +
+            '<h1 class="tinycld-text-h1">Title</h1>' +
+            '<h2 class="tinycld-text-h2">Sub</h2>' +
+            '<p class="tinycld-text-p">Body text.</p>' +
             '</article>'
         const html = renderPrintEnvelope(fragment, buildTextPrintCssWeb())
-        expect(html).toContain('<h1 class="tinycld-doc-h1">Title</h1>')
-        expect(html).toContain('<h2 class="tinycld-doc-h2">Sub</h2>')
-        expect(html).toContain('<p class="tinycld-doc-p">Body text.</p>')
+        expect(html).toContain('<h1 class="tinycld-text-h1">Title</h1>')
+        expect(html).toContain('<h2 class="tinycld-text-h2">Sub</h2>')
+        expect(html).toContain('<p class="tinycld-text-p">Body text.</p>')
     })
 
     it('forwards table + image content carried by the server fragment', () => {
         const fragment =
-            '<article class="tinycld-doc">' +
-            '<table class="tinycld-doc-table"><tbody><tr>' +
-            '<td class="tinycld-doc-td">cell</td>' +
+            '<article class="tinycld-text">' +
+            '<table class="tinycld-text-table"><tbody><tr>' +
+            '<td class="tinycld-text-td">cell</td>' +
             '</tr></tbody></table>' +
-            '<p class="tinycld-doc-p"><img class="tinycld-doc-img" src="data:image/png;base64,iVBORw0KGgo=" alt="pic"></p>' +
+            '<p class="tinycld-text-p"><img class="tinycld-text-img" src="data:image/png;base64,iVBORw0KGgo=" alt="pic"></p>' +
             '</article>'
         const html = renderPrintEnvelope(fragment, buildTextPrintCssWeb())
         expect(html).toContain('cell')
@@ -88,14 +88,14 @@ describe('text print envelope', () => {
 
     it('forwards inline mark spans', () => {
         const fragment =
-            '<article class="tinycld-doc"><p class="tinycld-doc-p">' +
-            '<span class="tinycld-doc-mark--bold">b</span>' +
-            '<span class="tinycld-doc-mark--italic">i</span>' +
-            '<a class="tinycld-doc-mark--link" href="https://example.com">link</a>' +
+            '<article class="tinycld-text"><p class="tinycld-text-p">' +
+            '<span class="tinycld-text-mark--bold">b</span>' +
+            '<span class="tinycld-text-mark--italic">i</span>' +
+            '<a class="tinycld-text-mark--link" href="https://example.com">link</a>' +
             '</p></article>'
         const html = renderPrintEnvelope(fragment, buildTextPrintCssWeb())
-        expect(html).toContain('tinycld-doc-mark--bold')
-        expect(html).toContain('tinycld-doc-mark--italic')
+        expect(html).toContain('tinycld-text-mark--bold')
+        expect(html).toContain('tinycld-text-mark--italic')
         expect(html).toContain('href="https://example.com"')
     })
 

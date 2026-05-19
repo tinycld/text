@@ -32,13 +32,18 @@ test.describe('Text — Menubar', () => {
         test('Rename updates the document header', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-rename')
 
-            page.once('dialog', async dialog => {
-                expect(dialog.type()).toBe('prompt')
-                await dialog.accept('Renamed Document')
-            })
-
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'Rename' }).click()
+
+            // Rename now uses the in-app PromptDialog (not window.prompt):
+            // a modal whose input carries accessibilityLabel=title
+            // ("Rename"), and a "Rename" confirm button. Scope to that
+            // input by name — `getByRole('textbox')` alone would match
+            // the ProseMirror editor body, not the dialog field.
+            const input = page.getByRole('textbox', { name: 'Rename' })
+            await expect(input).toBeVisible({ timeout: 15_000 })
+            await input.fill('Renamed Document')
+            await page.getByRole('button', { name: 'Rename', exact: true }).click()
 
             // The header text lives in the topmost row's <Text> with
             // the document name; it's the first match for "Renamed
@@ -52,17 +57,22 @@ test.describe('Text — Menubar', () => {
         test('Make a copy opens the Choose a folder dialog', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-copy')
 
-            page.once('dialog', async dialog => {
-                expect(dialog.type()).toBe('prompt')
-                await dialog.accept('Copied Document')
-            })
-
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'Make a copy' }).click()
 
-            // The dialog title interpolates the user-entered copy name —
-            // matching on it confirms the prompt → store → dialog
-            // wiring all the way through.
+            // Make-a-copy now uses the in-app PromptDialog (was
+            // window.prompt). Scope to the dialog input by its
+            // accessibilityLabel (title "Make a copy"), then confirm.
+            const input = page.getByRole('textbox', { name: 'Make a copy' })
+            await expect(input).toBeVisible({ timeout: 15_000 })
+            await input.fill('Copied Document')
+            await page.getByRole('button', { name: 'Create copy' }).click()
+
+            // makeCopy stashes the name + opens the CopyToFolderDialog
+            // (drive's ChooseFolderDialog) titled `Copy "<name>" to` —
+            // confirms the prompt → store → folder-picker wiring all the
+            // way through. The copy itself fires when the user picks a
+            // folder, which is drive's concern, not text's.
             await expect(
                 page.getByText(/Copy "Copied Document" to/).first()
             ).toBeVisible({ timeout: 15_000 })

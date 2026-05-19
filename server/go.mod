@@ -6,7 +6,7 @@ require (
 	github.com/ZeroHawkeye/wordZero v1.6.0
 	github.com/pocketbase/pocketbase v0.38.1
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
-	tinycld.org/core v0.0.0-00010101000000-000000000000
+	tinycld.org/core v0.0.0
 )
 
 require (
@@ -47,5 +47,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.50.1 // indirect
 )
-
-replace tinycld.org/core => ../../tinycld/packages/@tinycld/core/server

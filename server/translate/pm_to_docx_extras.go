@@ -60,6 +60,11 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	doc = rewriteNoteReferences(doc, em.endnotes, true)
 	doc = rewritePageBreaks(doc, em.pageBreaks)
 	doc = rewriteCodeMarks(doc, em.codeMarks)
+	// bgColor must run AFTER code marks: if both are present on the
+	// same run, the code rewriter strips its inner markers first,
+	// leaving just `<run bg-open><run real><run bg-close>` for the
+	// bgColor rewriter to find unambiguously.
+	doc = rewriteBgColorMarks(doc, em.bgColorSpans)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {
@@ -213,6 +218,53 @@ func rewriteCodeMarks(doc string, marks []codeMarkSpan) string {
 		doc = doc[:closeIdx] + doc[closeIdx+len(closeRun):]
 	}
 	return doc
+}
+
+// rewriteBgColorMarks finds each open-marker run, locates the next
+// real run after it, splices a <w:shd> element into that run's
+// <w:rPr>, then strips the close marker. Mirrors rewriteCodeMarks
+// structurally — the only difference is which element we inject and
+// that the hex value comes from the span (not a constant).
+func rewriteBgColorMarks(doc string, spans []bgColorSpan) string {
+	for _, span := range spans {
+		openRun, openIdx := findMarkerRun(doc, span.OpenMarker)
+		if openIdx < 0 {
+			continue
+		}
+		doc = doc[:openIdx] + doc[openIdx+len(openRun):]
+		realRun, realIdx := nextRunRun(doc, openIdx)
+		if realIdx < 0 {
+			continue
+		}
+		patched := injectShd(realRun, span.Hex)
+		doc = doc[:realIdx] + patched + doc[realIdx+len(realRun):]
+		closeRun, closeIdx := findMarkerRun(doc, span.CloseMarker)
+		if closeIdx < 0 {
+			continue
+		}
+		doc = doc[:closeIdx] + doc[closeIdx+len(closeRun):]
+	}
+	return doc
+}
+
+// injectShd splices `<w:shd w:val="clear" w:color="auto" w:fill="HEX"/>`
+// into the run's <w:rPr>. Same three-shape logic as injectVerbatimChar.
+// We append the shd inside the rPr rather than prepending so that
+// existing color / underline / etc. ordering is preserved (Word emits
+// shd late in the rPr child list; some readers are picky about order).
+func injectShd(run, hex string) string {
+	shd := `<w:shd w:val="clear" w:color="auto" w:fill="` + hex + `"/>`
+	if idx := strings.Index(run, "</w:rPr>"); idx >= 0 {
+		return run[:idx] + shd + run[idx:]
+	}
+	if idx := strings.Index(run, "<w:rPr/>"); idx >= 0 {
+		return run[:idx] + "<w:rPr>" + shd + "</w:rPr>" + run[idx+len("<w:rPr/>"):]
+	}
+	openEnd := strings.Index(run, ">")
+	if openEnd < 0 {
+		return run
+	}
+	return run[:openEnd+1] + "<w:rPr>" + shd + "</w:rPr>" + run[openEnd+1:]
 }
 
 // nextRunRun returns the first <w:r ...>…</w:r> element starting at

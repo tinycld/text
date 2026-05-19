@@ -6,6 +6,7 @@ import {
     AlignJustify,
     AlignLeft,
     AlignRight,
+    Baseline,
     Bold,
     Code,
     Code2,
@@ -13,6 +14,7 @@ import {
     Heading1,
     Heading2,
     Heading3,
+    Highlighter,
     Image as ImageIcon,
     Indent,
     Italic,
@@ -38,6 +40,7 @@ import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'
 import { TableMenu } from './TableMenu'
+import { TextColorButton } from './TextColorButton'
 import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface DocumentToolbarProps {
@@ -134,6 +137,37 @@ export function DocumentToolbar({
                         onPress={() => commands.toggleCodeBlock?.()}
                         iconColor={iconColor}
                         activeColor={activeColor}
+                    />
+
+                    <TextColorButton
+                        icon={Baseline}
+                        accessibilityLabel="Text color"
+                        menuKey="text-color"
+                        color={state.currentTextColor ?? undefined}
+                        disabled={disabled}
+                        iconColor={iconColor}
+                        onSelect={value => {
+                            if (value === '') {
+                                commands.unsetTextColor?.()
+                            } else {
+                                commands.setTextColor?.(value)
+                            }
+                        }}
+                    />
+                    <TextColorButton
+                        icon={Highlighter}
+                        accessibilityLabel="Highlight color"
+                        menuKey="background-color"
+                        color={state.currentBackgroundColor ?? undefined}
+                        disabled={disabled}
+                        iconColor={iconColor}
+                        onSelect={value => {
+                            if (value === '') {
+                                commands.unsetBackgroundColor?.()
+                            } else {
+                                commands.setBackgroundColor?.(value)
+                            }
+                        }}
                     />
 
                     <Separator />

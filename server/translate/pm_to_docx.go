@@ -156,7 +156,7 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -219,6 +219,17 @@ type emitter struct {
 	// links / comments / page breaks (see postProcessRichXML).
 	codeMarks   []codeMarkSpan
 	codeMarkSeq int
+
+	// bgColorSpans tracks each inline backgroundColor-styled run.
+	// WordZero's RunProperties has no Shd field (only Highlight, which
+	// is limited to a fixed 17-color named palette), so we apply the
+	// same marker-token strategy used for code marks: wrap the run in
+	// open/close markers at emit time and rewrite document.xml in the
+	// post-process pass, splicing the markers out and injecting
+	// <w:shd w:val="clear" w:color="auto" w:fill="RRGGBB"/> into the
+	// surviving run's <w:rPr>.
+	bgColorSpans []bgColorSpan
+	bgColorSeq   int
 
 	// warnings accumulates soft-degradation signals raised during
 	// emission (currently: oversized / unsupported-type images dropped).
@@ -293,6 +304,15 @@ type linkRel struct {
 type codeMarkSpan struct {
 	OpenMarker  string
 	CloseMarker string
+}
+
+// bgColorSpan tracks one inline backgroundColor run. Hex is the
+// 6-digit RRGGBB (no leading '#') that gets written verbatim into
+// <w:shd w:fill="…">. Same marker-flanking shape as codeMarkSpan.
+type bgColorSpan struct {
+	OpenMarker  string
+	CloseMarker string
+	Hex         string
 }
 
 func newEmitter() *emitter {
@@ -1242,6 +1262,128 @@ func codeOpenToken(n int) string {
 func codeCloseToken(n int) string {
 	return "{{__pmcd:" + strconv.Itoa(n) + ":close}}"
 }
+func bgColorOpenToken(n int) string {
+	return "{{__pmbg:" + strconv.Itoa(n) + ":open}}"
+}
+func bgColorCloseToken(n int) string {
+	return "{{__pmbg:" + strconv.Itoa(n) + ":close}}"
+}
+
+// bgColorHexFromMarks extracts the textStyle mark's backgroundColor
+// attr and normalizes it to a 6-digit RRGGBB hex string (no leading
+// '#'). Returns:
+//
+//   - (hex, "", true)    — a hex value (literal or normalized from rgb()/rgba())
+//   - ("",  raw, false)  — a backgroundColor was set but could not be
+//                           normalized (caller should record a warning)
+//   - ("",  "",  false)  — no backgroundColor on any textStyle mark
+//
+// OOXML's <w:shd w:fill="…"> only accepts hex, so anything we can't
+// normalize is dropped on export. We normalize rgb()/rgba() to hex
+// (dropping alpha) so the most common CSS-style inputs survive; named
+// CSS colors and other forms surface a WarningBackgroundColorLost.
+func bgColorHexFromMarks(marks []PMMark) (hex, raw string, ok bool) {
+	for _, m := range marks {
+		if m.Type != MarkTypeTextStyle {
+			continue
+		}
+		c, isString := m.Attrs["backgroundColor"].(string)
+		if !isString || c == "" {
+			continue
+		}
+		if normalized, ok := normalizeColorToHex(c); ok {
+			return normalized, "", true
+		}
+		return "", c, false
+	}
+	return "", "", false
+}
+
+// normalizeColorToHex converts a CSS color string to a 6-digit
+// uppercase RRGGBB hex. Accepts:
+//
+//   - "#RRGGBB" / "RRGGBB" — passed through with case normalization
+//   - "rgb(r,g,b)"          — converted; whitespace tolerated
+//   - "rgba(r,g,b,a)"       — alpha dropped, RGB converted
+//
+// All other forms (named colors, hsl(), hwb(), color()) return ok=false.
+// Named colors aren't normalized because the OOXML highlight palette
+// is the only place we map names to hex, and that mapping is
+// asymmetric with CSS (e.g. CSS darkgray=#A9A9A9 vs OOXML
+// darkGray=#808080) — surfacing a warning is safer than guessing.
+func normalizeColorToHex(value string) (string, bool) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return "", false
+	}
+	if strings.HasPrefix(v, "#") || isPlainHex(v) {
+		hex := strings.TrimPrefix(v, "#")
+		if len(hex) != 6 || !isPlainHex(hex) {
+			return "", false
+		}
+		return strings.ToUpper(hex), true
+	}
+	lower := strings.ToLower(v)
+	if strings.HasPrefix(lower, "rgb(") || strings.HasPrefix(lower, "rgba(") {
+		open := strings.IndexByte(v, '(')
+		close := strings.LastIndexByte(v, ')')
+		if open < 0 || close <= open {
+			return "", false
+		}
+		parts := strings.Split(v[open+1:close], ",")
+		if len(parts) < 3 {
+			return "", false
+		}
+		// rgba() may include an alpha — we drop it. We don't try to
+		// blend onto white; doing so would change the visible color
+		// in unexpected ways. The warning captures that loss.
+		r, rOK := parseColorByte(parts[0])
+		g, gOK := parseColorByte(parts[1])
+		b, bOK := parseColorByte(parts[2])
+		if !rOK || !gOK || !bOK {
+			return "", false
+		}
+		return fmt.Sprintf("%02X%02X%02X", r, g, b), true
+	}
+	return "", false
+}
+
+// isPlainHex reports whether s consists entirely of 0-9 / a-f / A-F.
+func isPlainHex(s string) bool {
+	for _, ch := range s {
+		isHex := (ch >= '0' && ch <= '9') ||
+			(ch >= 'a' && ch <= 'f') ||
+			(ch >= 'A' && ch <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// parseColorByte parses one CSS rgb()/rgba() component. Accepts
+// integer 0–255 (the dominant form in tiptap output) and clamps. A
+// trailing '%' switches to the 0-100 percent form. Returns ok=false
+// on parse error or out-of-range.
+func parseColorByte(s string) (uint8, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if strings.HasSuffix(s, "%") {
+		raw := strings.TrimSuffix(s, "%")
+		f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || f < 0 || f > 100 {
+			return 0, false
+		}
+		return uint8((f / 100.0) * 255.0), true
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 255 {
+		return 0, false
+	}
+	return uint8(n), true
+}
 
 // hasCodeMark reports whether the given marks slice carries an
 // inline `code` mark — used to decide whether to plant the
@@ -1330,6 +1472,28 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		p.AddFormattedText(span.OpenMarker, empty)
 	}
 
+	// bgColor markers wrap the actual run (outside code-mark markers,
+	// inside link markers) so the same hyperlink-run that gets rStyle
+	// from the code rewriter also gets <w:shd> from the bgColor
+	// rewriter. Hex is captured here so the rewriter has it.
+	var bgSpan *bgColorSpan
+	if hex, raw, ok := bgColorHexFromMarks(node.Marks); ok {
+		em.bgColorSeq++
+		span := bgColorSpan{
+			OpenMarker:  bgColorOpenToken(em.bgColorSeq),
+			CloseMarker: bgColorCloseToken(em.bgColorSeq),
+			Hex:         hex,
+		}
+		em.bgColorSpans = append(em.bgColorSpans, span)
+		bgSpan = &span
+	} else if raw != "" {
+		// User-set color we couldn't normalize (named colors, hsl(),
+		// etc.). Render preserves it in HTML but DOCX export drops
+		// it. Surface a single de-duped warning so the caller (and
+		// ultimately the UI) can tell the user.
+		em.addWarning(WarningBackgroundColorLost, raw)
+	}
+
 	// Code-mark markers wrap the actual run so the post-process pass
 	// can splice <w:rStyle w:val="VerbatimChar"/> onto its <w:rPr>.
 	// Markers sit inside the link wrapper (when present) so the inner
@@ -1361,6 +1525,9 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		// ambiguity. Pass an empty (not nil) TextFormat — WordZero's
 		// AddFormattedText drops the text entirely when format==nil.
 		p.AddFormattedText(open, empty)
+		if bgSpan != nil {
+			p.AddFormattedText(bgSpan.OpenMarker, empty)
+		}
 		if codeSpan != nil {
 			p.AddFormattedText(codeSpan.OpenMarker, empty)
 		}
@@ -1368,9 +1535,15 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		patchLastRunFontSize(p, px)
 		if codeSpan != nil {
 			p.AddFormattedText(codeSpan.CloseMarker, empty)
+		}
+		if bgSpan != nil {
+			p.AddFormattedText(bgSpan.CloseMarker, empty)
 		}
 		p.AddFormattedText(closeTok, empty)
 	} else {
+		if bgSpan != nil {
+			p.AddFormattedText(bgSpan.OpenMarker, empty)
+		}
 		if codeSpan != nil {
 			p.AddFormattedText(codeSpan.OpenMarker, empty)
 		}
@@ -1378,6 +1551,9 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		patchLastRunFontSize(p, px)
 		if codeSpan != nil {
 			p.AddFormattedText(codeSpan.CloseMarker, empty)
+		}
+		if bgSpan != nil {
+			p.AddFormattedText(bgSpan.CloseMarker, empty)
 		}
 	}
 

@@ -171,6 +171,46 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
+    it("setTextColor forwards the CSS color value as the payload (e.g. '#FF0000')", () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.setTextColor?.('#FF0000')
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'set-text-color',
+            payload: '#FF0000',
+        })
+    })
+
+    it('unsetTextColor posts { format, unset-text-color, null }', () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.unsetTextColor?.()
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'unset-text-color',
+            payload: null,
+        })
+    })
+
+    it("setBackgroundColor forwards the CSS color value as the payload (e.g. '#FFFF00')", () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.setBackgroundColor?.('#FFFF00')
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'set-background-color',
+            payload: '#FFFF00',
+        })
+    })
+
+    it('unsetBackgroundColor posts { format, unset-background-color, null }', () => {
+        const commands = buildWebViewEditorCommands(stubBridge(postMessage))
+        commands.unsetBackgroundColor?.()
+        expect(lastPostedMessage()).toEqual({
+            namespace: 'format',
+            type: 'unset-background-color',
+            payload: null,
+        })
+    })
+
     it("setCellShading wraps the color in { color } so the in-WebView dispatcher's destructure works", () => {
         const commands = buildWebViewEditorCommands(stubBridge(postMessage))
         commands.setCellShading?.('#FFFF00')

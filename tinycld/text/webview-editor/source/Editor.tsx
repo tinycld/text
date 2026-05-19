@@ -8,6 +8,7 @@ import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
+import { BackgroundColor } from '@tiptap/extension-text-style/background-color'
 import { FontFamily } from '@tiptap/extension-text-style/font-family'
 import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -29,8 +30,10 @@ import {
     deriveActiveHeadingLevel,
     deriveActiveIndent,
     deriveCurrentAlign,
+    deriveCurrentBackgroundColor,
     deriveCurrentFontFamily,
     deriveCurrentFontSize,
+    deriveCurrentTextColor,
     deriveImageSelection,
 } from './editor-state'
 import { RealtimeClient } from './realtime-client'
@@ -195,6 +198,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             // peer would be silently dropped on a native edit.
             TextStyle,
             Color,
+            BackgroundColor,
             FontSize,
             FontFamily,
             TextAlign.configure({
@@ -284,6 +288,8 @@ function EditorMounted({ init }: EditorMountedProps) {
                 canOutdent: deriveActiveIndent(editor) > 0,
                 currentFontSize: deriveCurrentFontSize(editor),
                 currentFontFamily: deriveCurrentFontFamily(editor),
+                currentTextColor: deriveCurrentTextColor(editor),
+                currentBackgroundColor: deriveCurrentBackgroundColor(editor),
                 // Broadcast the live word count alongside every other
                 // toolbar state field. The rAF-coalesce + identity-skip
                 // already throttle this; doc.textContent is O(N) over

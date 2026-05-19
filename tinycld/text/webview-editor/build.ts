@@ -13,21 +13,20 @@ const here = dirname(fileURLToPath(import.meta.url))
 const sourceDir = resolve(here, 'source')
 const buildDir = resolve(here, 'build')
 
-// The source/ folder lives in the @tinycld/text sibling repo, which
-// has no node_modules of its own by design. The entry script imports
-// from @tinycld/core/*, yjs, y-protocols, @tiptap/*, etc., all of
-// which only exist in the app shell's node_modules. Pointing esbuild
-// at that tree via nodePaths lets module resolution succeed.
-// Worktree patch: this text/ worktree lives at
-// ~/code/tinycld/text-worktrees/server-html-render/, so the app
-// shell's node_modules sits a different number of levels up than in
-// the canonical sibling layout. Resolve via TINYCLD_APP_ROOT, which
-// the generator's build orchestrator always sets to the app shell's
-// directory; fall back to the canonical sibling path when the env
-// var isn't present (manual invocation).
-const appShellNodeModules = process.env.TINYCLD_APP_ROOT
-    ? resolve(process.env.TINYCLD_APP_ROOT, 'node_modules')
-    : resolve(here, '../../../../tinycld/node_modules')
+// The source/ folder lives in the @tinycld/text sibling repo, which has no
+// node_modules of its own by design. The entry script imports from
+// @tinycld/core/*, yjs, y-protocols, @tiptap/*, etc., all of which only
+// exist in the app shell's node_modules. Pointing esbuild at that tree via
+// nodePaths lets module resolution succeed.
+//
+// Prefer TINYCLD_APP_ROOT (set by generate-packages.ts) so this works in
+// both the dev sibling layout (~/code/tinycld/{text,tinycld}/) and the
+// docker build layout (/app/ is the app shell, packages are baked under
+// /app/packages/<scope>/<pkg>/). Fall back to the legacy relative path for
+// folks running this script standalone outside the generator.
+const appShellRoot =
+    process.env.TINYCLD_APP_ROOT ?? resolve(here, '../../../../tinycld')
+const appShellNodeModules = resolve(appShellRoot, 'node_modules')
 
 async function main() {
     const result = await bundleWebViewEditor({

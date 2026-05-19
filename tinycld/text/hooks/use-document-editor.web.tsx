@@ -17,6 +17,7 @@ import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
+import { BackgroundColor } from '@tiptap/extension-text-style/background-color'
 import { FontFamily } from '@tiptap/extension-text-style/font-family'
 import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
@@ -41,8 +42,10 @@ import {
     CodeShortcuts,
     deriveActiveIndent,
     deriveCurrentAlign,
+    deriveCurrentBackgroundColor,
     deriveCurrentFontFamily,
     deriveCurrentFontSize,
+    deriveCurrentTextColor,
 } from '../webview-editor/source/editor-state'
 import type { DocumentEditorResult } from './use-document-editor'
 import { createWebCommentBridge } from './web-comment-bridge'
@@ -324,6 +327,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // the corresponding attrs in server/translate.
                 TextStyle,
                 Color,
+                BackgroundColor,
                 FontSize,
                 FontFamily,
                 // TextAlign: adds the textAlign attr to paragraph +
@@ -500,6 +504,28 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             setFontFamily: (family: string) =>
                 tiptapEditor?.chain().focus().setFontFamily(family).run(),
             unsetFontFamily: () => tiptapEditor?.chain().focus().unsetFontFamily().run(),
+            // setTextColor / setBackgroundColor accept any CSS color
+            // (hex preferred — the docx exporter rewrites runs whose
+            // textStyle.backgroundColor is a 6-digit hex into <w:shd>;
+            // non-hex bg values render in HTML but won't survive docx
+            // round-trip cleanly). Empty string clears the override.
+            setTextColor: (color: string) => {
+                if (!color) {
+                    tiptapEditor?.chain().focus().unsetColor().run()
+                } else {
+                    tiptapEditor?.chain().focus().setColor(color).run()
+                }
+            },
+            unsetTextColor: () => tiptapEditor?.chain().focus().unsetColor().run(),
+            setBackgroundColor: (color: string) => {
+                if (!color) {
+                    tiptapEditor?.chain().focus().unsetBackgroundColor().run()
+                } else {
+                    tiptapEditor?.chain().focus().setBackgroundColor(color).run()
+                }
+            },
+            unsetBackgroundColor: () =>
+                tiptapEditor?.chain().focus().unsetBackgroundColor().run(),
             // Imperative entry point that mirrors what ImageNodeView.web.tsx
             // does on direct user input — exists so the surface matches
             // the WebView/native variant, where the bottom sheet routes
@@ -549,6 +575,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         canOutdent: deriveActiveIndent(tiptapEditor) > 0,
         currentFontSize: deriveCurrentFontSize(tiptapEditor),
         currentFontFamily: deriveCurrentFontFamily(tiptapEditor),
+        currentTextColor: deriveCurrentTextColor(tiptapEditor),
+        currentBackgroundColor: deriveCurrentBackgroundColor(tiptapEditor),
         // Word count rides through toolbarState so the WordCountBadge
         // can read it the same way on web and native. Recomputes once
         // per transaction (the editor already rerenders on every tx

@@ -207,6 +207,34 @@ export function installFormatBridge(
             case 'unset-font-family':
                 editor.chain().focus().unsetFontFamily().run()
                 break
+            case 'set-text-color': {
+                // payload is a CSS color string (hex, named, rgb()...).
+                // Empty / nullish means "clear the override" — for
+                // consistency with set-font-size's clear-via-unset shape
+                // we also accept '' as an alias for unset.
+                const color = parsed.payload
+                if (typeof color === 'string' && color !== '') {
+                    editor.chain().focus().setColor(color).run()
+                } else {
+                    editor.chain().focus().unsetColor().run()
+                }
+                break
+            }
+            case 'unset-text-color':
+                editor.chain().focus().unsetColor().run()
+                break
+            case 'set-background-color': {
+                const bg = parsed.payload
+                if (typeof bg === 'string' && bg !== '') {
+                    editor.chain().focus().setBackgroundColor(bg).run()
+                } else {
+                    editor.chain().focus().unsetBackgroundColor().run()
+                }
+                break
+            }
+            case 'unset-background-color':
+                editor.chain().focus().unsetBackgroundColor().run()
+                break
             case 'insert-image': {
                 const { src, alt } = parsed.payload as { src: string; alt?: string }
                 editor.chain().focus().setImage({ src, alt }).run()

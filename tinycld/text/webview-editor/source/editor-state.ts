@@ -105,6 +105,26 @@ export function deriveCurrentFontFamily(editor: EditorLike | null | undefined): 
     return raw
 }
 
+// deriveCurrentTextColor / deriveCurrentBackgroundColor return the
+// textStyle.color / textStyle.backgroundColor attr at the caret, or
+// null when unset. The toolbar's color buttons use these to render
+// the active-color underline bar under their icons.
+export function deriveCurrentTextColor(editor: EditorLike | null | undefined): string | null {
+    if (!editor) return null
+    const raw = editor.getAttributes('textStyle')?.color
+    if (typeof raw !== 'string' || raw === '') return null
+    return raw
+}
+
+export function deriveCurrentBackgroundColor(
+    editor: EditorLike | null | undefined
+): string | null {
+    if (!editor) return null
+    const raw = editor.getAttributes('textStyle')?.backgroundColor
+    if (typeof raw !== 'string' || raw === '') return null
+    return raw
+}
+
 // deriveActiveIndent returns the integer indent attr of the active
 // paragraph/heading, clamped non-negative. Returns 0 when the caret
 // is not in an indentable block, which keeps canOutdent=false there

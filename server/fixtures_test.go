@@ -54,6 +54,11 @@ func setupTestApp(t *testing.T) *tests.TestApp {
 	})
 	items.Fields.Add(&core.NumberField{Name: "size"})
 	items.Fields.Add(&core.TextField{Name: "org"})
+	// mime_type is read by render_endpoint.go's mime-validation gate.
+	// Real drive_items records carry this field (defined in the drive
+	// sibling's migration); tests need it present so the render
+	// handler's docx-only check has something to compare against.
+	items.Fields.Add(&core.TextField{Name: "mime_type"})
 	if err := app.Save(items); err != nil {
 		t.Fatalf("save drive_items collection: %v", err)
 	}

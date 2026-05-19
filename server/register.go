@@ -55,6 +55,12 @@ func Register(app *pocketbase.PocketBase) {
 		OnConnect:       makeOnConnect(app, runtime),
 	})
 
+	// /api/text/render/:id — server-rendered HTML for previews +
+	// print. Lives separately from the realtime registration because
+	// it reads cold drive_item bytes, not live Y.Doc state. Mirrors
+	// calc's registerAPI exactly.
+	registerRenderAPI(app)
+
 	// Cascade-clean WAL rows when a drive_items record (text doc) is
 	// deleted. Scoped to room_kind = "text-doc"; other kinds (calc)
 	// register their own parallel hook. math.MaxInt64 as the upper

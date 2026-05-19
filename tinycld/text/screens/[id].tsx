@@ -112,7 +112,10 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     commandsRef.current = commands
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
-    const printDocument = usePrintDocument(editor)
+    // Print routes through the server's /api/text/render endpoint
+    // — no longer needs the editor handle. Print works even if the
+    // editor isn't mounted yet (e.g. from the share screen).
+    const printDocument = usePrintDocument(driveItemId)
     usePrintShortcut(printDocument)
     const fileActions = useDocumentFileActions(driveItemId)
     const orgHref = useOrgHref()

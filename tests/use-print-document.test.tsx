@@ -1,78 +1,103 @@
 // usePrintDocument is a thin orchestration hook. The reusable part —
-// pull HTML from the editor handle, wrap it via renderPrintHtml, hand
-// the document to handlePrint, capture errors — lives in the exported
-// pure async helper `printEditorDocument`. That's what we test here,
-// matching the project-wide pattern (vitest runs in `node` without
-// jsdom, so the React side isn't exercised in unit tests — see
-// calc/tests/pivot-banner.test.tsx for the same constraint).
+// fetch the rendered HTML from the server, wrap it in the print
+// envelope, hand the document to handlePrint, capture errors — lives
+// in the exported pure async helper `printRenderedDocument`. That's
+// what we test here, matching the project-wide pattern (vitest runs
+// in `node` without jsdom, so the React side isn't exercised in unit
+// tests — see calc/tests/pivot-banner.test.tsx for the same
+// constraint).
 //
 // The hook wrapper itself is one line of useCallback and doesn't
 // merit its own test.
 
-import type { EditorHandle } from '@tinycld/core/lib/editor/types'
+import type {
+    FetchRenderedHtmlOptions,
+    RenderedHtml,
+} from '@tinycld/core/file-viewer/fetch-rendered-html'
+import type { FilePreviewSource } from '@tinycld/core/file-viewer/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { printEditorDocument } from '../tinycld/text/hooks/use-print-document'
+// Import the pure body directly to avoid pulling react-native into
+// the vitest transform graph. The hook file (use-print-document.ts)
+// re-exports the same symbol from this module — see that file for
+// the rationale.
+import { printRenderedDocument } from '../tinycld/text/hooks/print-rendered-document'
 
-function makeEditor(overrides: Partial<EditorHandle> = {}): EditorHandle {
+const SAMPLE_FRAGMENT =
+    '<article class="tinycld-doc"><h1 class="tinycld-doc-h1">Hi</h1><p class="tinycld-doc-p">x</p></article>'
+
+function makeDeps(overrides: Partial<TestDeps> = {}) {
+    const handlePrint = vi.fn(async (_html: string) => {})
+    const captureException = vi.fn()
+    const fetchRenderedHtml = vi.fn(
+        async (_source: FilePreviewSource, _opts?: FetchRenderedHtmlOptions) =>
+            ({ html: SAMPLE_FRAGMENT, etag: '"abc"' }) as RenderedHtml
+    )
+    const printCss = `
+.tinycld-doc-p { margin: 0 0 0.5em 0; }
+.tinycld-doc-h1 { font-size: 18pt; }
+`
     return {
-        getHTML: async () => '<p>doc body</p>',
-        getText: async () => 'doc body',
-        setContent: () => {},
-        focus: () => {},
-        clear: () => {},
-        getSelection: async () => null,
+        handlePrint,
+        captureException,
+        fetchRenderedHtml,
+        printCss,
         ...overrides,
     }
 }
 
-function makeDeps() {
-    return {
-        handlePrint: vi.fn(async (_html: string) => {}),
-        captureException: vi.fn(),
-    }
-}
+type TestDeps = ReturnType<typeof makeDeps>
 
-let deps: ReturnType<typeof makeDeps>
+let deps: TestDeps
 beforeEach(() => {
     deps = makeDeps()
 })
 
-describe('printEditorDocument', () => {
-    it('hands the editor HTML, wrapped in a print document, to handlePrint', async () => {
-        const editor = makeEditor({ getHTML: async () => '<h1>Hi</h1><p>x</p>' })
-        await printEditorDocument(editor, deps)
+describe('printRenderedDocument', () => {
+    it('fetches the rendered HTML for the drive item and passes the envelope to handlePrint', async () => {
+        await printRenderedDocument('item-123', deps)
+        expect(deps.fetchRenderedHtml).toHaveBeenCalledTimes(1)
+        const [source, opts] = deps.fetchRenderedHtml.mock.calls[0]
+        expect(source.recordId).toBe('item-123')
+        expect(source.mimeType).toBe(
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        expect(opts).toEqual({ images: 'embed' })
+
         expect(deps.handlePrint).toHaveBeenCalledTimes(1)
         const passed = deps.handlePrint.mock.calls[0][0]
         expect(passed.startsWith('<!doctype html>')).toBe(true)
-        expect(passed).toContain('<h1>Hi</h1><p>x</p>')
-        expect(passed).toContain('class="print-document"')
+        expect(passed).toContain(SAMPLE_FRAGMENT)
     })
 
-    it('reports editor.getHTML() rejections via captureException without throwing', async () => {
-        const editor = makeEditor({
-            getHTML: async () => {
-                throw new Error('serializer crashed')
-            },
-        })
-        await expect(printEditorDocument(editor, deps)).resolves.toBeUndefined()
+    it('embeds the platform-resolved print CSS in the envelope', async () => {
+        await printRenderedDocument('item-1', deps)
+        const passed = deps.handlePrint.mock.calls[0][0]
+        // The CSS is wrapped in a <style> block inside <head>.
+        expect(passed).toMatch(/<head>[\s\S]*<style>[\s\S]*<\/style>[\s\S]*<\/head>/)
+        expect(passed).toContain('.tinycld-doc-h1 { font-size: 18pt; }')
+    })
+
+    it('reports fetchRenderedHtml rejections via captureException without throwing', async () => {
+        deps.fetchRenderedHtml.mockRejectedValueOnce(new Error('network down'))
+        await expect(printRenderedDocument('id', deps)).resolves.toBeUndefined()
         expect(deps.handlePrint).not.toHaveBeenCalled()
         expect(deps.captureException).toHaveBeenCalledTimes(1)
         const [tag, err] = deps.captureException.mock.calls[0]
         expect(tag).toBe('usePrintDocument')
-        expect((err as Error).message).toBe('serializer crashed')
+        expect((err as Error).message).toBe('network down')
     })
 
     it('reports handlePrint rejections via captureException without throwing', async () => {
         deps.handlePrint.mockRejectedValueOnce(new Error('print failed'))
-        const editor = makeEditor()
-        await expect(printEditorDocument(editor, deps)).resolves.toBeUndefined()
+        await expect(printRenderedDocument('id', deps)).resolves.toBeUndefined()
         expect(deps.captureException).toHaveBeenCalledTimes(1)
-        expect((deps.captureException.mock.calls[0][1] as Error).message).toBe('print failed')
+        expect((deps.captureException.mock.calls[0][1] as Error).message).toBe(
+            'print failed'
+        )
     })
 
-    it('produces a self-contained HTML document (no external assets)', async () => {
-        const editor = makeEditor()
-        await printEditorDocument(editor, deps)
+    it('produces a self-contained HTML document (no external assets in the CSS layer)', async () => {
+        await printRenderedDocument('id', deps)
         const passed = deps.handlePrint.mock.calls[0][0]
         expect(passed).not.toMatch(/<link\b/i)
         expect(passed).not.toMatch(/@import\b/i)

@@ -18,7 +18,16 @@ const buildDir = resolve(here, 'build')
 // from @tinycld/core/*, yjs, y-protocols, @tiptap/*, etc., all of
 // which only exist in the app shell's node_modules. Pointing esbuild
 // at that tree via nodePaths lets module resolution succeed.
-const appShellNodeModules = resolve(here, '../../../../tinycld/node_modules')
+// Worktree patch: this text/ worktree lives at
+// ~/code/tinycld/text-worktrees/server-html-render/, so the app
+// shell's node_modules sits a different number of levels up than in
+// the canonical sibling layout. Resolve via TINYCLD_APP_ROOT, which
+// the generator's build orchestrator always sets to the app shell's
+// directory; fall back to the canonical sibling path when the env
+// var isn't present (manual invocation).
+const appShellNodeModules = process.env.TINYCLD_APP_ROOT
+    ? resolve(process.env.TINYCLD_APP_ROOT, 'node_modules')
+    : resolve(here, '../../../../tinycld/node_modules')
 
 async function main() {
     const result = await bundleWebViewEditor({

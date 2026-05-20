@@ -1,14 +1,16 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import {
+    EDITOR_REACTION_TIMEOUT,
+    editorRoot,
+    openFreshTextDocument,
+    TEXT_TEST_TIMEOUT,
+} from './_menubar-helpers'
 
 // Alignment + indent v1: paragraphs (and headings) can be aligned
 // left / center / right / justify and their left-indent level can
 // be nudged up / down by one. This spec exercises the editor-side
 // commands; the DOCX round-trip is covered by Go unit tests in
 // server/translate/alignment_indent_test.go.
-//
-// NOT EXECUTED IN CI for this PR — listed for future runs once we
-// stabilise the realtime / Playwright harness for alignment-indent.
 
 test.describe('Text — Alignment & indent', () => {
     test.setTimeout(TEXT_TEST_TIMEOUT)
@@ -63,10 +65,16 @@ test.describe('Text — Alignment & indent', () => {
         await page.keyboard.type(marker)
 
         // Mod-Shift-R is bound by @tiptap/extension-text-align directly;
-        // we don't need to dispatch through the toolbar.
-        await page.keyboard.press('Meta+Shift+R')
+        // we don't need to dispatch through the toolbar. ProseMirror maps
+        // `Mod` to Cmd on macOS and Ctrl elsewhere — so the keystroke must
+        // use the platform modifier. Hardcoding Meta passed locally (macOS)
+        // but never fired on Linux CI, leaving the paragraph unaligned.
+        const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+        await page.keyboard.press(`${mod}+Shift+R`)
 
         const paragraph = editorRoot(page).locator('p', { hasText: marker }).first()
-        await expect(paragraph).toHaveAttribute('style', /text-align:\s*right/)
+        await expect(paragraph).toHaveAttribute('style', /text-align:\s*right/, {
+            timeout: EDITOR_REACTION_TIMEOUT,
+        })
     })
 })

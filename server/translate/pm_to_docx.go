@@ -118,11 +118,24 @@ func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
 	return bs, err
 }
 
+// PMJSONToDocxWithResolver is the variant the server flush uses: it
+// supplies an ImageResolver so inserted drive-file images (stored as
+// /api/files/drive_items/<id>/<file> URLs, not data: URIs) can be
+// fetched and embedded. A nil resolver behaves exactly like
+// PMJSONToDocx — drive URLs are rejected.
+func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, resolver)
+}
+
 // PMJSONToDocxWithWarnings is the warnings-aware variant of
 // PMJSONToDocx. The returned slice contains every soft-degradation
 // signal the emitter raised (e.g. an oversized image was dropped) —
 // hard errors still come back via the error return.
 func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, nil)
+}
+
+func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
 	var root PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		return nil, nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
@@ -139,6 +152,7 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 	defer numberingMu.Unlock()
 
 	em := newEmitter()
+	em.imageResolver = resolver
 	for _, child := range root.Content {
 		if err := em.emitBlock(child, 0, ""); err != nil {
 			return nil, nil, err
@@ -237,7 +251,23 @@ type emitter struct {
 	// signature drops them silently.
 	warnings   []Warning
 	warningSet map[WarningCode]struct{}
+
+	// imageResolver fetches the bytes for a drive-file image src
+	// (/api/files/drive_items/<id>/<file>). The editor inserts images as
+	// drive URLs (not data: URIs) to keep the Y.Doc small, but docx has
+	// to embed the actual bytes — so the server flush injects a resolver
+	// backed by the PocketBase filesystem. nil for non-server callers
+	// (tests, future direct callers), which then reject drive URLs the
+	// same way they always have.
+	imageResolver ImageResolver
 }
+
+// ImageResolver returns the raw bytes for an inserted drive-file image,
+// identified by the drive_items record id and the stored file name parsed
+// out of an /api/files/drive_items/<id>/<file> src. Returning an error
+// aborts the flush (the image can't be embedded, so the docx would be
+// lossy); the server's SaveCoordinator retries.
+type ImageResolver func(driveItemID, fileName string) ([]byte, error)
 
 // pageBreakMarker tracks a single page-break PM node that emit time
 // recorded; postProcessPageBreaks rewrites the marker text run into
@@ -1092,6 +1122,9 @@ func intAttr(attrs map[string]any, key string) int {
 // that risk in v1 since the only ingress is the editor's image-insert
 // flow, which constructs the header from a typed File.
 func (em *emitter) decodeAndValidateImage(src string) ([]byte, document.ImageFormat, bool, error) {
+	if driveItemID, fileName, ok := parseDriveFileSrc(src); ok {
+		return em.resolveDriveImage(src, driveItemID, fileName)
+	}
 	if strings.HasPrefix(src, "data:") {
 		mediaType, _ := parseDataURIHeader(src)
 		if mediaType != "" && !allowedImageMediaTypes[strings.ToLower(mediaType)] {
@@ -1110,6 +1143,82 @@ func (em *emitter) decodeAndValidateImage(src string) ([]byte, document.ImageFor
 		return nil, "", true, nil
 	}
 	return data, format, false, nil
+}
+
+// resolveDriveImage fetches the bytes for an inserted drive-file image
+// via em.imageResolver, infers the WordZero format from the file name's
+// extension, and applies the same size cap as the data: URI path. With
+// no resolver wired (non-server callers), a drive URL is unsupported —
+// matching decodeImageSrc's data:-only contract.
+func (em *emitter) resolveDriveImage(
+	src, driveItemID, fileName string,
+) ([]byte, document.ImageFormat, bool, error) {
+	if em.imageResolver == nil {
+		return nil, "", false, fmt.Errorf(
+			"translate: drive-file image src %q has no resolver (only data: URIs supported without one)", src)
+	}
+	format := extensionToFormat(fileName)
+	if format == "" {
+		em.addWarning(WarningUnsupportedImageType,
+			fmt.Sprintf("drive image %q has unsupported extension; dropped", fileName))
+		return nil, "", true, nil
+	}
+	data, err := em.imageResolver(driveItemID, fileName)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("translate: resolve drive image %s/%s: %w", driveItemID, fileName, err)
+	}
+	if len(data) > MaxImageBytes {
+		em.addWarning(WarningImageTooLarge,
+			fmt.Sprintf("image of %d bytes exceeded %d-byte cap and was dropped", len(data), MaxImageBytes))
+		return nil, "", true, nil
+	}
+	return data, format, false, nil
+}
+
+// parseDriveFileSrc extracts (driveItemID, fileName) from a PocketBase
+// drive-file URL of the form ".../api/files/drive_items/<id>/<file>",
+// tolerating an absolute or relative URL and any query string (e.g. a
+// stale ?token=). Returns ok=false for any other src shape.
+func parseDriveFileSrc(src string) (driveItemID, fileName string, ok bool) {
+	const marker = "/api/files/drive_items/"
+	idx := strings.Index(src, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	rest := src[idx+len(marker):]
+	if q := strings.IndexByte(rest, '?'); q >= 0 {
+		rest = rest[:q]
+	}
+	slash := strings.IndexByte(rest, '/')
+	if slash <= 0 {
+		return "", "", false
+	}
+	driveItemID = rest[:slash]
+	fileName = rest[slash+1:]
+	if driveItemID == "" || fileName == "" || strings.Contains(fileName, "/") {
+		return "", "", false
+	}
+	return driveItemID, fileName, true
+}
+
+// extensionToFormat maps a stored file name's extension to a WordZero
+// ImageFormat, reusing mediaTypeToFormat so the accepted set stays in
+// lockstep with the data: URI path.
+func extensionToFormat(fileName string) document.ImageFormat {
+	dot := strings.LastIndexByte(fileName, '.')
+	if dot < 0 {
+		return ""
+	}
+	switch strings.ToLower(fileName[dot+1:]) {
+	case "png":
+		return document.ImageFormatPNG
+	case "jpg", "jpeg":
+		return document.ImageFormatJPEG
+	case "gif":
+		return document.ImageFormatGIF
+	default:
+		return ""
+	}
 }
 
 // parseDataURIHeader returns the media type from a data: URI without

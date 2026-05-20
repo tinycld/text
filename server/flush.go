@@ -2,6 +2,7 @@ package text
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
@@ -58,7 +59,7 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 			return fmt.Errorf("text: serialize Y.Doc for %s: %w", driveItemID, err)
 		}
 
-		docxBytes, err := translate.PMJSONToDocx(pmJSON)
+		docxBytes, _, err := translate.PMJSONToDocxWithResolver(pmJSON, makeDriveImageResolver(app))
 		if err != nil {
 			return fmt.Errorf("text: PMJSONToDocx for %s: %w", driveItemID, err)
 		}
@@ -90,5 +91,44 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 			return fmt.Errorf("text: save drive_items %s: %w", driveItemID, err)
 		}
 		return nil
+	}
+}
+
+// makeDriveImageResolver returns the ImageResolver the docx emitter uses
+// to embed inserted images. The editor stores inserted images as
+// /api/files/drive_items/<id>/<file> URLs (keeping the Y.Doc small);
+// docx needs the actual bytes, so this reads them straight off the
+// drive_items record via the PocketBase filesystem. We read the record's
+// current `file` field rather than the name parsed from the URL, so an
+// image whose blob was re-uploaded after insertion still resolves to the
+// live bytes instead of 404ing on a stale name.
+func makeDriveImageResolver(app core.App) translate.ImageResolver {
+	return func(driveItemID, _ string) ([]byte, error) {
+		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
+		if err != nil {
+			return nil, fmt.Errorf("find drive_items %s: %w", driveItemID, err)
+		}
+		stored := item.GetString("file")
+		if stored == "" {
+			return nil, fmt.Errorf("drive_items %s has no file", driveItemID)
+		}
+
+		fsys, err := app.NewFilesystem()
+		if err != nil {
+			return nil, fmt.Errorf("open filesystem: %w", err)
+		}
+		defer fsys.Close()
+
+		reader, err := fsys.GetReader(item.BaseFilesPath() + "/" + stored)
+		if err != nil {
+			return nil, fmt.Errorf("read drive_items %s file %s: %w", driveItemID, stored, err)
+		}
+		defer reader.Close()
+
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return nil, fmt.Errorf("read drive_items %s bytes: %w", driveItemID, err)
+		}
+		return data, nil
 	}
 }

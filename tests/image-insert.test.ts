@@ -29,45 +29,68 @@ interface FakeDriveItem {
     itemId: string
     finalName: string
     parentId: string
+    file: string
 }
 
 function makeDeps(overrides: {
     pickImage?: () => Promise<PickedImage | null>
     upload?: UploadMutate
-    getURL?: (collectionId: string, itemId: string, finalName: string) => string
+    buildURL?: (collectionId: string, itemId: string, storedFile: string) => Promise<string>
 }) {
     const defaultResult: FakeDriveItem = {
         itemId: 'rec_123',
         finalName: 'photo.png',
         parentId: '',
+        file: 'photo_aB3xZ9k2p1.png',
     }
     const defaultUpload: UploadMutate = (_input, { onSuccess }) => onSuccess(defaultResult)
     return {
         pickImage: overrides.pickImage ?? (() => Promise.resolve(pickedPng())),
         upload: overrides.upload ?? defaultUpload,
-        getURL:
-            overrides.getURL ??
-            ((collectionId, itemId, finalName) =>
-                `/api/files/${collectionId}/${itemId}/${finalName}`),
+        buildURL:
+            overrides.buildURL ??
+            ((collectionId, itemId, storedFile) =>
+                Promise.resolve(
+                    `/api/files/${collectionId}/${itemId}/${storedFile}?token=tok`
+                )),
         captureException: vi.fn(),
     }
 }
 
 describe('handleImageInsert', () => {
-    it('uploads the picked image to drive and inserts the resulting URL', async () => {
+    it('inserts a URL built from the STORED file name, not the user-visible name', async () => {
+        // Regression: PB serves files under the stored (suffixed) file
+        // name, not the user-visible `name`. Building the persisted src
+        // from finalName produced a 404 that rendered as a broken image.
+        // buildURL must receive result.file. (The display-time ?token= is
+        // added later by ImageNodeView, not here — the persisted src stays
+        // tokenless so it's stable across users and the docx round-trip.)
         const onInsert = vi.fn()
         const upload: UploadMutate = vi.fn((_input, { onSuccess }) =>
-            onSuccess({ itemId: 'rec_abc', finalName: 'kept.png', parentId: '' })
+            onSuccess({
+                itemId: 'rec_abc',
+                finalName: 'kept.png',
+                parentId: '',
+                file: 'kept_Qz7Lm.png',
+            })
+        )
+        const buildURL = vi.fn((collectionId, itemId, storedFile) =>
+            Promise.resolve(`/api/files/${collectionId}/${itemId}/${storedFile}?token=tok`)
         )
         const deps = makeDeps({
             pickImage: () => Promise.resolve(pickedPng('kept.png')),
             upload,
+            buildURL,
         })
         await handleImageInsert(onInsert, deps)
         expect(upload).toHaveBeenCalledTimes(1)
         const [input] = (upload as ReturnType<typeof vi.fn>).mock.calls[0]
         expect(input).toMatchObject({ name: 'kept.png', mimeType: 'image/png' })
-        expect(onInsert).toHaveBeenCalledWith('/api/files/drive_items/rec_abc/kept.png')
+        // buildURL is handed the stored file, never finalName.
+        expect(buildURL).toHaveBeenCalledWith('drive_items', 'rec_abc', 'kept_Qz7Lm.png')
+        expect(onInsert).toHaveBeenCalledWith(
+            '/api/files/drive_items/rec_abc/kept_Qz7Lm.png?token=tok'
+        )
         expect(deps.captureException).not.toHaveBeenCalled()
     })
 
@@ -111,10 +134,26 @@ describe('handleImageInsert', () => {
         expect(err).toBe(boom)
     })
 
+    it('reports a buildURL failure (e.g. file-token fetch) via captureException and never inserts', async () => {
+        const boom = new Error('token fetch failed')
+        const onInsert = vi.fn()
+        const buildURL = vi.fn(() => Promise.reject(boom))
+        const deps = makeDeps({ buildURL })
+        await handleImageInsert(onInsert, deps)
+        // buildURL resolves on a microtask after handleImageInsert returns;
+        // flush the queue so the rejection is observed.
+        await new Promise(r => setTimeout(r, 0))
+        expect(onInsert).not.toHaveBeenCalled()
+        expect(deps.captureException).toHaveBeenCalledTimes(1)
+        const [tag, err] = deps.captureException.mock.calls[0]
+        expect(tag).toBe('text.toolbarImageUpload')
+        expect(err).toBe(boom)
+    })
+
     it('forwards the picked body / name / mimeType to the drive uploader unchanged', async () => {
         const onInsert = vi.fn()
         const upload: UploadMutate = vi.fn((_input, { onSuccess }) =>
-            onSuccess({ itemId: 'x', finalName: 'x', parentId: '' })
+            onSuccess({ itemId: 'x', finalName: 'x', parentId: '', file: 'x_sfx.jpg' })
         )
         const body = { size: 99, type: 'image/jpeg' } as unknown as Blob
         const deps = makeDeps({

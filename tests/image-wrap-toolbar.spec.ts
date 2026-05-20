@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import {
+    EDITOR_REACTION_TIMEOUT,
+    editorRoot,
+    openFreshTextDocument,
+    TEXT_TEST_TIMEOUT,
+} from './_menubar-helpers'
 
 // Image wrap toolbar v1: clicking a selected image surfaces a row of
 // four mode buttons (inline / left / right / break) above the image.
@@ -15,14 +20,16 @@ import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar
 // directions of the parser/emitter pair more thoroughly than a single
 // Playwright run can reach.
 
-// 4×3 PNG so the wrapper has a visible box for the toolbar to anchor
-// above. Larger than the resize spec's 1×2 because we're not testing
-// drag — we want a click target that doesn't collapse to a sliver.
-const PNG_4x3_BASE64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFElEQVR42mP8z8DwnwEJMI4qogIAfAQDAcXgQ4MAAAAASUVORK5CYII='
+// 64×48 PNG so the wrapper has a real, clickable box for the toolbar
+// to anchor above and for the image to be selectable without the resize
+// handles (anchored at the edges) intercepting the center click. RGBA
+// (color-type 6) so Chromium decodes it — the persist test reloads and
+// re-asserts the image renders, which needs decodable bytes.
+const PNG_64x48_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAYAAAChS3wfAAAAeklEQVR4nO3QMREAIBDAsJeIHCTiCmRkoEP2Xmftc382OkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAO0BPDK1w3stbUwAAAAASUVORK5CYII='
 
 function makePngBuffer(): Buffer {
-    return Buffer.from(PNG_4x3_BASE64, 'base64')
+    return Buffer.from(PNG_64x48_BASE64, 'base64')
 }
 
 test.describe('Text — Image wrap toolbar', () => {
@@ -47,11 +54,19 @@ test.describe('Text — Image wrap toolbar', () => {
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
         await expect(inserted).toBeVisible({ timeout: 30_000 })
 
+        // The image renders inside the React NodeView's wrapper span. The
+        // NodeView mounts a beat after the raw <img> first paints, so wait
+        // for the wrapper itself before interacting — it's the only stable
+        // host for both the data-wrap attribute and the toolbar. There's a
+        // single image in this doc, so the first wrapper is ours.
+        const wrapper = editorRoot(page).locator('[data-node-view-wrapper]').first()
+        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+
         // Selecting the image flips the NodeView's `selected` prop and
         // mounts the toolbar + resize handles.
         await inserted.click()
         const toolbar = editorRoot(page).locator('[data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
 
         // All four mode buttons render in order.
         await expect(toolbar.locator('[data-image-wrap-mode]')).toHaveCount(4)
@@ -59,38 +74,45 @@ test.describe('Text — Image wrap toolbar', () => {
             await expect(toolbar.locator(`[data-image-wrap-mode="${mode}"]`)).toBeVisible()
         }
 
-        const wrapper = editorRoot(page)
-            .locator('[data-node-view-wrapper]')
-            .filter({ has: inserted })
-            .first()
+        // Applying a wrap mode calls updateAttributes, which replaces the
+        // image node and so clears the NodeSelection — the toolbar (gated
+        // on `selected`) unmounts after each click. Re-select the image
+        // before each button press so the toolbar is present to click,
+        // exactly as a user would re-click to keep adjusting the image.
+        async function clickWrapMode(mode: string) {
+            await inserted.click()
+            const btn = toolbar.locator(`[data-image-wrap-mode="${mode}"]`)
+            await expect(btn).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await btn.click()
+        }
 
         // Click each non-inline button and assert the attribute lands.
         for (const mode of ['left', 'right', 'break'] as const) {
-            await toolbar.locator(`[data-image-wrap-mode="${mode}"]`).click()
-            // Yjs / PM transactions are sync within a single click, so
-            // the data attribute should be present immediately. Use a
-            // short retry to absorb any layout flush.
-            await expect(wrapper).toHaveAttribute('data-wrap', mode, { timeout: 2_000 })
-            // The active button paints with the primary color background.
-            // We assert aria-pressed rather than computed style so the
-            // test isn't tied to the exact theme color values.
-            await expect(toolbar.locator(`[data-image-wrap-mode="${mode}"]`)).toHaveAttribute(
-                'aria-pressed',
-                'true'
-            )
+            await clickWrapMode(mode)
+            // The PM transaction is synchronous, but the React NodeView
+            // re-render that paints `data-wrap` is not — and under
+            // parallel-worker contention that microtask can be starved
+            // for several seconds. Wait the shared reaction budget rather
+            // than assuming same-tick paint.
+            await expect(wrapper).toHaveAttribute('data-wrap', mode, {
+                timeout: EDITOR_REACTION_TIMEOUT,
+            })
         }
 
         // Click inline — the wrapper should LOSE the data-wrap attribute
         // entirely (inline mode = absence-of-attribute).
-        await toolbar.locator('[data-image-wrap-mode="inline"]').click()
-        await expect(wrapper).not.toHaveAttribute('data-wrap', /.*/, { timeout: 2_000 })
-        await expect(toolbar.locator('[data-image-wrap-mode="inline"]')).toHaveAttribute(
-            'aria-pressed',
-            'true'
-        )
+        await clickWrapMode('inline')
+        await expect(wrapper).not.toHaveAttribute('data-wrap', /.*/, {
+            timeout: EDITOR_REACTION_TIMEOUT,
+        })
     })
 
     test('wrap mode persists through reload (Yjs round-trip)', async ({ page }) => {
+        // Upload an image, set a wrap, then reload and re-bootstrap the
+        // whole editor from the server Y.Doc — two full editor boots in
+        // one test. Give it headroom over the default budget.
+        test.setTimeout(180_000)
+
         await openFreshTextDocument(page, 'image-wrap-persist')
         await editorRoot(page).click()
         await page.keyboard.press('End')
@@ -106,26 +128,39 @@ test.describe('Text — Image wrap toolbar', () => {
 
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
         await expect(inserted).toBeVisible({ timeout: 30_000 })
+        // Wait for the NodeView wrapper (single image → first wrapper) so
+        // the toolbar is mountable, then select + apply break.
+        const wrapper = editorRoot(page).locator('[data-node-view-wrapper]').first()
+        await expect(wrapper).toBeVisible({ timeout: 30_000 })
         await inserted.click()
-        await editorRoot(page).locator('[data-image-wrap-mode="break"]').click()
+        const breakBtn = editorRoot(page).locator('[data-image-wrap-mode="break"]')
+        await expect(breakBtn).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await breakBtn.click()
+        await expect(wrapper).toHaveAttribute('data-wrap', 'break', {
+            timeout: EDITOR_REACTION_TIMEOUT,
+        })
 
-        const wrapper = editorRoot(page)
-            .locator('[data-node-view-wrapper]')
-            .filter({ has: inserted })
-            .first()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'break', { timeout: 2_000 })
+        // Wait past the broker's flush debounce before reloading. The
+        // image insert AND the wrap attr both need to reach the server's
+        // Y.Doc, or the reload rehydrates a doc with no image at all.
+        // This matches the persist tests in text-document.spec.ts; without
+        // it the reload races the flush and the image is simply absent.
+        await page.waitForTimeout(6_000)
 
-        // Force a reload — the doc must hydrate from the server's Y.Doc
-        // state and end up back at wrap=break. If the schema's parseHTML
-        // whitelist or the PM-side attr serialization regressed, the
-        // attribute would arrive missing or 'inline' on this round-trip.
+        // Force a reload — the doc must hydrate from the server's persisted
+        // state and end up back at wrap=break. On flush the server embeds
+        // the inserted drive-file image's bytes into the .docx, so on
+        // reload it round-trips back as a data: URI (the canonical stored
+        // form for every image, same as the fixture's own images) — NOT a
+        // drive URL. So we anchor on the wrapper carrying data-wrap=break
+        // (the fixture images have no wrap) rather than on the src scheme.
+        // If the schema's parseHTML whitelist or the PM-side attr
+        // serialization regressed, the attribute would arrive missing or
+        // 'inline' on this round-trip.
         await page.reload()
-        const reloaded = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
-        await expect(reloaded).toBeVisible({ timeout: 30_000 })
-        const reloadedWrapper = editorRoot(page)
-            .locator('[data-node-view-wrapper]')
-            .filter({ has: reloaded })
-            .first()
-        await expect(reloadedWrapper).toHaveAttribute('data-wrap', 'break', { timeout: 5_000 })
+        await editorRoot(page).waitFor({ timeout: 30_000 })
+        const reloadedWrapper = editorRoot(page).locator('[data-node-view-wrapper][data-wrap="break"]')
+        await expect(reloadedWrapper).toHaveCount(1, { timeout: 30_000 })
+        await expect(reloadedWrapper.locator('img')).toBeVisible({ timeout: 30_000 })
     })
 })

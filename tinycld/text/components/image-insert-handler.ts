@@ -23,7 +23,12 @@ export type UploadMutate = (input: CreateDriveItemInput, options: UploadMutateOp
 interface HandleImageInsertDeps {
     pickImage: () => Promise<PickedImage | null>
     upload: UploadMutate
-    getURL: (collectionId: string, itemId: string, finalName: string) => string
+    // Builds the file URL the editor inserts. Receives the STORED file
+    // name (result.file), not the user-visible name — PB serves files at
+    // /api/files/<col>/<id>/<storedFile>. Async because drive_items is a
+    // protected collection, so the URL needs a short-lived ?token=, which
+    // requires a network round-trip to fetch.
+    buildURL: (collectionId: string, itemId: string, storedFile: string) => Promise<string>
     captureException: (tag: string, err: unknown) => void
 }
 
@@ -53,8 +58,9 @@ export async function handleImageInsert(
         },
         {
             onSuccess: (result) => {
-                const url = deps.getURL('drive_items', result.itemId, result.finalName)
-                onInsert(url)
+                deps.buildURL('drive_items', result.itemId, result.file)
+                    .then(onInsert)
+                    .catch((err) => deps.captureException('text.toolbarImageUpload', err))
             },
             onError: (err) => deps.captureException('text.toolbarImageUpload', err),
         }

@@ -53,11 +53,29 @@ export function useImageInsert(onInsert: (url: string) => void): () => void {
         void handleImageInsert(onInsert, {
             pickImage,
             upload: createDriveItem.mutate,
-            getURL: (collectionId, itemId, finalName) =>
-                pb.files.getURL({ collectionId, id: itemId }, finalName),
+            buildURL: buildInsertedImageURL,
             captureException,
         })
     }, [onInsert, createDriveItem.mutate])
+}
+
+// Builds the URL the editor STORES in the document for an inserted image.
+// Deliberately tokenless and built from the STORED file name (not the
+// user-visible `name`, which PB suffixes): the src is persisted into the
+// Y.Doc and round-tripped through docx, so it must be stable and
+// shareable across users — a per-user, ~2-minute file token baked in
+// here would expire and leak one user's token to everyone. The protected
+// collection still needs a token to actually fetch the bytes; that's
+// appended fresh at render time by ImageNodeView (web) via
+// withFileToken(), and on the server the flush resolves the bytes
+// directly off the drive_items record. Shared by the toolbar/menubar
+// path and the paste/drop path.
+export function buildInsertedImageURL(
+    collectionId: string,
+    itemId: string,
+    storedFile: string
+): Promise<string> {
+    return Promise.resolve(pb.files.getURL({ collectionId, id: itemId }, storedFile))
 }
 
 export async function pickImage(): Promise<PickedImage | null> {

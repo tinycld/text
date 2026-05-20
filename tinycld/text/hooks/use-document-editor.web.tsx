@@ -4,7 +4,6 @@ import type {
     EditorToolbarState,
 } from '@tinycld/core/lib/editor/types'
 import { captureException } from '@tinycld/core/lib/errors'
-import { pb } from '@tinycld/core/lib/pocketbase'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { Extension } from '@tiptap/core'
@@ -26,6 +25,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { View } from 'react-native'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
+import { buildInsertedImageURL } from '../components/ImageInsertButton'
 import { ImageNodeView } from '../components/ImageNodeView.web'
 import { applyCellBorders } from '../lib/apply-cell-borders'
 import { applyCellShading } from '../lib/apply-cell-shading'
@@ -210,11 +210,9 @@ function uploadAndInsertImage(
         },
         {
             onSuccess: result => {
-                const url = pb.files.getURL(
-                    { collectionId: 'drive_items', id: result.itemId },
-                    result.finalName
-                )
-                onInserted(url)
+                buildInsertedImageURL('drive_items', result.itemId, result.file)
+                    .then(onInserted)
+                    .catch(err => captureException('text.pasteImageUpload', err))
             },
             onError: err => captureException('text.pasteImageUpload', err),
         }

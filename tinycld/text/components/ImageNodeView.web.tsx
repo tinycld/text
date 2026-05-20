@@ -1,3 +1,4 @@
+import { useFileToken } from '@tinycld/core/file-viewer/use-authed-file-url'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { useRef, useState } from 'react'
@@ -42,6 +43,17 @@ interface DragState {
     lastSize: { width: number; height: number } | null
 }
 
+// Appends a PocketBase file token to a tokenless drive-file URL so the
+// browser can fetch the bytes of a protected drive_items image. Returns
+// the src unchanged for data: URIs, non-drive URLs, URLs that already
+// carry a token, or when no token is available yet.
+function withFileToken(src: string, token: string | undefined): string {
+    if (!token) return src
+    if (!src.includes('/api/files/drive_items/')) return src
+    if (src.includes('token=')) return src
+    return `${src}${src.includes('?') ? '&' : '?'}token=${token}`
+}
+
 export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
     const { node, updateAttributes, selected, editor } = props
     const primaryColor = useThemeColor('primary')
@@ -55,6 +67,13 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
     const [liveSize, setLiveSize] = useState<{ width: number; height: number } | null>(null)
 
     const src = (node.attrs.src as string | null) ?? ''
+    // The stored src for an inserted image is a tokenless drive-file URL
+    // (see buildInsertedImageURL). drive_items is protected, so the
+    // browser <img> needs a short-lived ?token= to fetch the bytes. We
+    // attach a fresh one here at render time; data: URIs (docx imports)
+    // and already-tokened URLs pass through untouched.
+    const { data: fileToken } = useFileToken()
+    const displaySrc = withFileToken(src, fileToken)
     const alt = (node.attrs.alt as string | null) ?? ''
     const title = (node.attrs.title as string | null) ?? ''
     const wrap = (node.attrs.wrap as string | null) ?? null
@@ -236,7 +255,7 @@ export function ImageNodeView(props: ReactNodeViewProps<HTMLSpanElement>) {
         <NodeViewWrapper as="span" style={wrapperStyle} data-wrap={wrap ?? undefined}>
             <img
                 ref={imgRef}
-                src={src}
+                src={displaySrc}
                 alt={alt || undefined}
                 title={title || undefined}
                 style={imgStyle}

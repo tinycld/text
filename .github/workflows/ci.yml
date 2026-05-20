@@ -89,21 +89,29 @@ jobs:
           go-version-file: tinycld/server/go.mod
           cache-dependency-path: tinycld/server/go.sum
 
-      # text/server/go.mod has `replace tinycld.org/core =>
-      # ../../tinycld/packages/@tinycld/core/server`, so core source must
-      # exist at that path before `go test` can resolve imports. We run the
-      # link step to mirror the layout the other jobs use.
+      # text/server/go.mod no longer carries a `replace tinycld.org/core`
+      # directive (it conflicted with the app server's own core replace in
+      # the Docker deploy). Core is wired through the generated go.work
+      # workspace instead, exactly like the local dev layout and mail/drive.
+      # The link step runs the generator, which writes tinycld/server/go.work
+      # with `use (. <core> ../../text/server)` — so we must run `go test`
+      # from tinycld/server (where go.work lives), targeting the text module,
+      # not standalone from text/server (which can't resolve core).
       - name: Install tinycld deps
         working-directory: tinycld
         run: npm ci
 
-      - name: Link text into tinycld app shell
+      - name: Link text into tinycld app shell (generates server/go.work)
         working-directory: tinycld
         run: npm run packages:link ../text
 
+      # no_ui build tag: PB v0.37+ panics on duplicate route registration
+      # when an OnServe handler binds a fixed pattern across the multiple
+      # test scenarios that share an app, so the admin UI routes are skipped
+      # in tests (the shipped binary still builds without the tag).
       - name: Run Go server tests
-        working-directory: text/server
-        run: go test ./...
+        working-directory: tinycld/server
+        run: go test -tags no_ui tinycld.org/packages/text/...
 
   e2e:
     name: Playwright e2e

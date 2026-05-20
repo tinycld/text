@@ -1,23 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
-import {
-    login,
-    ORG_SLUG,
-    TEST_USER_EMAIL,
-    TEST_USER_PASSWORD,
-} from '../../../../tests/e2e/helpers'
+import { EDITOR_REACTION_TIMEOUT, openTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
 
-// Bootstrap (docx parse + Y.Doc seed + realtime SyncReply + Tiptap mount)
-// can take ~30s under parallel-worker contention; mirror text-document.spec.ts.
-const TEST_TIMEOUT = 120_000
-
-const PB_URL = 'http://127.0.0.1:7200'
-
-const DOCX_MIME =
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-
-const FEATURE_DOC_HEADING = 'Sample Document'
+const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 // Hex color the Heading 1 run carries in feature-test.docx. The translator
 // reads <w:color w:val="C00000"> into a textStyle mark; TextStyle+Color
@@ -25,108 +9,8 @@ const FEATURE_DOC_HEADING = 'Sample Document'
 // on the inline <span>.
 const HEADING1_RED_RGB = 'rgb(192, 0, 0)'
 
-interface OrgContext {
-    orgId: string
-    userOrgId: string
-    userId: string
-}
-
-let cachedAuthToken: string | null = null
-let cachedOrgContext: OrgContext | null = null
-
-async function authAsTestUser(): Promise<string> {
-    if (cachedAuthToken) return cachedAuthToken
-    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: TEST_USER_EMAIL, password: TEST_USER_PASSWORD }),
-    })
-    if (!res.ok) {
-        throw new Error(`PB auth failed: ${res.status} ${await res.text()}`)
-    }
-    const { token } = (await res.json()) as { token: string }
-    cachedAuthToken = token
-    return token
-}
-
-async function resolveOrgContext(token: string): Promise<OrgContext> {
-    if (cachedOrgContext) return cachedOrgContext
-    const me = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, {
-        method: 'POST',
-        headers: { Authorization: token },
-    })
-    const meBody = (await me.json()) as { record?: { id: string } }
-    const userId = meBody.record?.id
-    if (!userId) throw new Error('auth-refresh returned no user record')
-
-    const orgs = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: token } }
-    )
-    const orgItems = (await orgs.json()) as { items: { id: string }[] }
-    if (!orgItems.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgItems.items[0].id
-
-    const userOrgs = await fetch(
-        `${PB_URL}/api/collections/user_org/records?filter=${encodeURIComponent(
-            `org='${orgId}' && user='${userId}'`
-        )}`,
-        { headers: { Authorization: token } }
-    )
-    const userOrgItems = (await userOrgs.json()) as { items: { id: string }[] }
-    if (!userOrgItems.items[0]) throw new Error(`user_org for ${ORG_SLUG} not found`)
-    cachedOrgContext = { orgId, userOrgId: userOrgItems.items[0].id, userId }
-    return cachedOrgContext
-}
-
-async function uploadDocxAsDriveItem(name: string): Promise<string> {
-    const token = await authAsTestUser()
-    const ctx = await resolveOrgContext(token)
-    const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
-    const bytes = readFileSync(fixturePath)
-    const form = new FormData()
-    form.append('org', ctx.orgId)
-    form.append('name', name)
-    form.append('is_folder', 'false')
-    form.append('mime_type', DOCX_MIME)
-    form.append('parent', '')
-    form.append('created_by', ctx.userOrgId)
-    form.append('size', String(bytes.length))
-    form.append(
-        'file',
-        new Blob([new Uint8Array(bytes)], { type: DOCX_MIME }),
-        name
-    )
-    const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
-        method: 'POST',
-        headers: { Authorization: token },
-        body: form,
-    })
-    if (!res.ok) {
-        throw new Error(`Upload drive_item failed: ${res.status} ${await res.text()}`)
-    }
-    const body = (await res.json()) as { id: string }
-    return body.id
-}
-
-function editorRoot(page: Page) {
-    return page.locator('.tinycld-document-editor .ProseMirror')
-}
-
 async function openFixture(page: Page): Promise<string> {
-    // Drive's collection treats (org, parent, name) as unique; parallel
-    // workers in the same millisecond would otherwise collide on Date.now().
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const itemId = await uploadDocxAsDriveItem(`fidelity-${unique}.docx`)
-    await login(page)
-    await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
-    await expect(editorRoot(page)).toBeVisible({ timeout: 60_000 })
-    // Bootstrap is asynchronous; the H1 lands once the Y.Doc has been
-    // seeded and the Tiptap binding catches up.
-    await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-        timeout: 30_000,
-    })
-    return itemId
+    return openTextDocument(page, 'fidelity')
 }
 
 // domSnapshot reads what the user actually sees — rendered HTML in the
@@ -160,7 +44,7 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
 
         const headings = Array.from(
             pmDom.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
-        ).map((h) => ({ tag: h.tagName, text: (h.textContent ?? '').slice(0, 80) }))
+        ).map(h => ({ tag: h.tagName, text: (h.textContent ?? '').slice(0, 80) }))
 
         // Only collect top-level (un-nested) ordered lists. The fixture's
         // structure puts both numbered runs at the same depth (the bullet
@@ -168,8 +52,8 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
         // inside another <li> is a different concept and shouldn't enter
         // the "did the outline list resume" assertion.
         const orderedLists = Array.from(pmDom.querySelectorAll<HTMLOListElement>('ol'))
-            .filter((ol) => !ol.parentElement?.closest('li'))
-            .map((ol) => {
+            .filter(ol => !ol.parentElement?.closest('li'))
+            .map(ol => {
                 // `start` defaults to 1 when omitted (HTMLOListElement.start
                 // exposes the effective value), so read the live property
                 // — not getAttribute — to mirror what the browser renders.
@@ -177,7 +61,7 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
                 return {
                     start: ol.start,
                     firstItem: (items[0]?.textContent ?? '').trim().slice(0, 80),
-                    itemTexts: items.map((li) => (li.textContent ?? '').trim().slice(0, 80)),
+                    itemTexts: items.map(li => (li.textContent ?? '').trim().slice(0, 80)),
                 }
             })
 
@@ -190,7 +74,7 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
         const sampleDocColors: string[] = []
         for (const h of Array.from(pmDom.querySelectorAll<HTMLElement>('h1, h2'))) {
             if (!(h.textContent ?? '').includes('Sample Document')) continue
-            const spans = Array.from(h.querySelectorAll<HTMLElement>('*')).filter((n) =>
+            const spans = Array.from(h.querySelectorAll<HTMLElement>('*')).filter(n =>
                 (n.textContent ?? '').includes('Sample Document')
             )
             const sources = spans.length > 0 ? spans : [h]
@@ -205,27 +89,22 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
         // and the import preserves the .docx column widths. Reading
         // the rendered offsetWidth captures exactly what the user
         // sees (regardless of how those widths got there).
-        const tables = Array.from(pmDom.querySelectorAll<HTMLTableElement>('table')).map(
-            (t) => {
-                const headerRow = t.querySelector('tr')
-                const headerTexts = headerRow
-                    ? Array.from(headerRow.querySelectorAll<HTMLElement>('td, th')).map(
-                          (c) => (c.textContent ?? '').trim().slice(0, 40)
-                      )
-                    : []
-                const cells = Array.from(t.querySelectorAll<HTMLTableRowElement>('tr')).map(
-                    (row) =>
-                        Array.from(row.querySelectorAll<HTMLTableCellElement>('td, th')).map(
-                            (c) => ({
-                                colspan: c.colSpan,
-                                rowspan: c.rowSpan,
-                                text: (c.textContent ?? '').trim().slice(0, 40),
-                            })
-                        )
-                )
-                return { width: t.offsetWidth, firstHeaderTexts: headerTexts, cells }
-            }
-        )
+        const tables = Array.from(pmDom.querySelectorAll<HTMLTableElement>('table')).map(t => {
+            const headerRow = t.querySelector('tr')
+            const headerTexts = headerRow
+                ? Array.from(headerRow.querySelectorAll<HTMLElement>('td, th')).map(c =>
+                      (c.textContent ?? '').trim().slice(0, 40)
+                  )
+                : []
+            const cells = Array.from(t.querySelectorAll<HTMLTableRowElement>('tr')).map(row =>
+                Array.from(row.querySelectorAll<HTMLTableCellElement>('td, th')).map(c => ({
+                    colspan: c.colSpan,
+                    rowspan: c.rowSpan,
+                    text: (c.textContent ?? '').trim().slice(0, 40),
+                }))
+            )
+            return { width: t.offsetWidth, firstHeaderTexts: headerTexts, cells }
+        })
 
         const editorWidth = pmDom.offsetWidth
 
@@ -246,10 +125,8 @@ test.describe('Text — .docx fidelity', () => {
         await openFixture(page)
         const { headings } = await domSnapshot(page)
 
-        const byText = new Map(headings.map((h) => [h.text.trim(), h.tag]))
-        expect(byText.get('Sample Document'), 'Sample Document should render as H1').toBe(
-            'H1'
-        )
+        const byText = new Map(headings.map(h => [h.text.trim(), h.tag]))
+        expect(byText.get('Sample Document'), 'Sample Document should render as H1').toBe('H1')
         expect(byText.get('Headings')).toBe('H2')
         expect(byText.get('Lists')).toBe('H2')
         expect(byText.get('Links')).toBe('H2')
@@ -283,10 +160,7 @@ test.describe('Text — .docx fidelity', () => {
 
         // Exactly one top-level ordered list — the bullets are nested,
         // not a sibling, and the second numbered half was merged in.
-        expect(
-            orderedLists,
-            'expected a single merged top-level <ol> (1–6)'
-        ).toHaveLength(1)
+        expect(orderedLists, 'expected a single merged top-level <ol> (1–6)').toHaveLength(1)
 
         const outline = orderedLists[0]
         expect(outline.start, 'merged list starts at 1 (no resumption)').toBe(1)
@@ -325,10 +199,8 @@ test.describe('Text — .docx fidelity', () => {
         await openFixture(page)
         const { tables, editorWidth } = await domSnapshot(page)
 
-        expect(tables.length, 'expected both fixture tables to render').toBeGreaterThanOrEqual(
-            2
-        )
-        const simple = tables.find((t) => t.firstHeaderTexts.includes('Screen Reader'))
+        expect(tables.length, 'expected both fixture tables to render').toBeGreaterThanOrEqual(2)
+        const simple = tables.find(t => t.firstHeaderTexts.includes('Screen Reader'))
         expect(simple, 'expected the "Screen Reader" simple table').toBeTruthy()
         // 3771 dxa ≈ 251 px at our 1-dxa-per-15-px conversion. Allow
         // a small TableView/cell-padding fudge factor on either side.
@@ -340,7 +212,7 @@ test.describe('Text — .docx fidelity', () => {
             editorWidth * 0.6
         )
 
-        const complex = tables.find((t) => t.firstHeaderTexts.includes('May 2012'))
+        const complex = tables.find(t => t.firstHeaderTexts.includes('May 2012'))
         expect(complex, 'expected the merged-header complex table').toBeTruthy()
         // 9461 dxa ≈ 631 px. Same fudge factor.
         expect(complex?.width).toBeGreaterThan(580)
@@ -382,11 +254,11 @@ test.describe('Text — .docx fidelity', () => {
         // duplicated. That's the bug this test guards against.
         await openFixture(page)
         const { tables } = await domSnapshot(page)
-        const complex = tables.find((t) => t.firstHeaderTexts.includes('May 2012'))
+        const complex = tables.find(t => t.firstHeaderTexts.includes('May 2012'))
         expect(complex, 'expected the merged-header complex table').toBeTruthy()
         const row0 = complex?.cells[0] ?? []
-        const may = row0.find((c) => c.text === 'May 2012')
-        const sept = row0.find((c) => c.text.includes('September 2010'))
+        const may = row0.find(c => c.text === 'May 2012')
+        const sept = row0.find(c => c.text.includes('September 2010'))
         expect(may, 'expected a "May 2012" cell in row 0').toBeTruthy()
         expect(sept, 'expected a "September 2010" cell in row 0').toBeTruthy()
         expect(may?.colspan, 'May 2012 header should span 2 columns').toBe(2)
@@ -408,9 +280,7 @@ test.describe('Text — .docx fidelity', () => {
         // computed color does.
         await openFixture(page)
         const { sampleDocColors } = await domSnapshot(page)
-        expect(sampleDocColors.length, 'expected a colored Sample Document run').toBeGreaterThan(
-            0
-        )
+        expect(sampleDocColors.length, 'expected a colored Sample Document run').toBeGreaterThan(0)
         for (const c of sampleDocColors) {
             expect(c, 'Sample Document should paint as imported red').toBe(HEADING1_RED_RGB)
         }
@@ -470,9 +340,7 @@ test.describe('Text — .docx fidelity', () => {
             }
         })
 
-        expect(layout.found, 'fixture should contain at least one left-wrapped image').toBe(
-            true
-        )
+        expect(layout.found, 'fixture should contain at least one left-wrapped image').toBe(true)
         if (!layout.found) return
         // The wrapper's box must match the rendered <img>'s box within a
         // sub-pixel rounding tolerance. Under the regression the wrapper
@@ -502,9 +370,7 @@ test.describe('Text — .docx fidelity', () => {
         }
     })
 
-    test('flipping the fixture image to wrap=right pushes text to its left', async ({
-        page,
-    }) => {
+    test('flipping the fixture image to wrap=right pushes text to its left', async ({ page }) => {
         // The fixture ships with wrap=left images; we re-use one by
         // flipping it via the wrap toolbar to verify the right-side
         // float renders correctly without needing a new docx fixture.
@@ -512,17 +378,27 @@ test.describe('Text — .docx fidelity', () => {
         // way a user click would, so this also incidentally exercises
         // the schema update path.
         await openFixture(page)
-        const wrapper = page.locator(
-            '.ProseMirror [data-node-view-wrapper][data-wrap="left"]'
-        ).first()
+        // Anchor the wrapper as "the first node-view wrapper that contains
+        // an <img>", NOT as `[data-wrap="left"]`. The fixture has two
+        // left-floated images; a `[data-wrap="left"]` locator would
+        // re-resolve to the *other* (still-left) image the instant we flip
+        // this one, so the data-wrap assertion could never pass. This
+        // wrapper locator stays pinned to the same node across the change.
+        const wrapper = page
+            .locator('.ProseMirror [data-node-view-wrapper]')
+            .filter({ has: page.locator('img') })
+            .first()
         await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'left')
 
         // Click the image inside the wrapper to surface the toolbar.
         await wrapper.locator('img').click()
         const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         await toolbar.locator('[data-image-wrap-mode="right"]').click()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'right', { timeout: 2_000 })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'right', {
+            timeout: EDITOR_REACTION_TIMEOUT,
+        })
 
         const layout = await page.evaluate(() => {
             const w = document.querySelector<HTMLElement>(
@@ -581,15 +457,23 @@ test.describe('Text — .docx fidelity', () => {
         // in the same paragraph (if any survives the layout) must be
         // either fully above or fully below the image's bounding box.
         await openFixture(page)
-        const wrapper = page.locator(
-            '.ProseMirror [data-node-view-wrapper][data-wrap="left"]'
-        ).first()
+        // Anchor on the first wrapper that contains an <img>, not on
+        // `[data-wrap="left"]` — see the wrap=right test for why a
+        // data-wrap-bound locator can't survive its own attribute flip
+        // when the fixture has more than one left-floated image.
+        const wrapper = page
+            .locator('.ProseMirror [data-node-view-wrapper]')
+            .filter({ has: page.locator('img') })
+            .first()
         await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'left')
         await wrapper.locator('img').click()
         const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: 5_000 })
+        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         await toolbar.locator('[data-image-wrap-mode="break"]').click()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'break', { timeout: 2_000 })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'break', {
+            timeout: EDITOR_REACTION_TIMEOUT,
+        })
 
         const layout = await page.evaluate(() => {
             const w = document.querySelector<HTMLElement>(

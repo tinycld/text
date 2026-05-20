@@ -46,9 +46,7 @@ test.describe('Text — Slash menu', () => {
         await expect(menu.getByText('Code block', { exact: true })).not.toBeVisible()
     })
 
-    test('pressing Enter applies the selected entry and removes the trigger', async ({
-        page,
-    }) => {
+    test('pressing Enter applies the selected entry and removes the trigger', async ({ page }) => {
         await openFreshTextDocument(page, 'slash-enter')
         await editorRoot(page).click()
         await page.keyboard.press('End')

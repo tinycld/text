@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+    EDITOR_REACTION_TIMEOUT,
     editorRoot,
     openFreshTextDocument,
     openMenubarMenu,
@@ -21,17 +22,13 @@ test.describe('Text — Markdown paste', () => {
         await expect(item).toBeEnabled()
     })
 
-    test('Paste as Markdown inserts structured content from the clipboard', async ({
-        page,
-    }) => {
+    test('Paste as Markdown inserts structured content from the clipboard', async ({ page }) => {
         await openFreshTextDocument(page, 'md-paste-insert')
 
         // Clipboard read/write needs explicit permission grants under
         // headless Chromium. Both directions are needed: writeText to
         // seed the clipboard, readText so the menu handler can drain it.
-        await page
-            .context()
-            .grantPermissions(['clipboard-read', 'clipboard-write'])
+        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
 
         // Focus the editor first so the subsequent writeText runs in a
         // page with a user-gesture-equivalent context (Playwright's
@@ -41,29 +38,28 @@ test.describe('Text — Markdown paste', () => {
         await page.keyboard.press('Enter')
 
         const MD = '# Hello from MD\n\n- one\n- two\n\n**bold word**\n'
-        await page.evaluate(async (text) => {
+        await page.evaluate(async text => {
             await navigator.clipboard.writeText(text)
         }, MD)
 
         await openMenubarMenu(page, 'Edit')
-        await page
-            .getByRole('menuitem', { name: 'Paste as Markdown', exact: true })
-            .click()
+        await page.getByRole('menuitem', { name: 'Paste as Markdown', exact: true }).click()
 
         // Assert the parsed Markdown landed as live PM nodes inside the
         // editor: heading → <h1>, list → <ul><li>, **bold word** → <strong>.
         const h1 = editorRoot(page).locator('h1', { hasText: 'Hello from MD' }).first()
         await expect(h1).toBeVisible({ timeout: 15_000 })
 
-        const ul = editorRoot(page).locator('ul').filter({
-            has: page.locator('li', { hasText: 'one' }),
-        }).first()
-        await expect(ul).toBeVisible({ timeout: 15_000 })
-        await expect(ul.locator('li')).toHaveCount(2, { timeout: 5_000 })
-
-        const strong = editorRoot(page)
-            .locator('strong', { hasText: 'bold word' })
+        const ul = editorRoot(page)
+            .locator('ul')
+            .filter({
+                has: page.locator('li', { hasText: 'one' }),
+            })
             .first()
-        await expect(strong).toBeVisible({ timeout: 5_000 })
+        await expect(ul).toBeVisible({ timeout: 15_000 })
+        await expect(ul.locator('li')).toHaveCount(2, { timeout: EDITOR_REACTION_TIMEOUT })
+
+        const strong = editorRoot(page).locator('strong', { hasText: 'bold word' }).first()
+        await expect(strong).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
     })
 })

@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { ORG_SLUG } from '../../../../tests/e2e/helpers'
 import {
-    TEXT_TEST_TIMEOUT,
+    EDITOR_REACTION_TIMEOUT,
     editorRoot,
     openFreshTextDocument,
     openMenubarMenu,
+    TEXT_TEST_TIMEOUT,
 } from './_menubar-helpers'
 
 // Each spec opens its own fresh document — destructive items
@@ -73,9 +74,9 @@ test.describe('Text — Menubar', () => {
             // confirms the prompt → store → folder-picker wiring all the
             // way through. The copy itself fires when the user picks a
             // folder, which is drive's concern, not text's.
-            await expect(
-                page.getByText(/Copy "Copied Document" to/).first()
-            ).toBeVisible({ timeout: 15_000 })
+            await expect(page.getByText(/Copy "Copied Document" to/).first()).toBeVisible({
+                timeout: 15_000,
+            })
         })
     })
 
@@ -182,12 +183,10 @@ test.describe('Text — Menubar', () => {
             // Tiptap renders Bold as <strong>. Find the marker inside
             // a <strong> element to confirm the mark applied.
             const strongMarker = editorRoot(page).locator('strong', { hasText: marker })
-            await expect(strongMarker).toBeVisible({ timeout: 5_000 })
+            await expect(strongMarker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         })
 
-        test('Paragraph styles > Heading 2 promotes the current line to h2', async ({
-            page,
-        }) => {
+        test('Paragraph styles > Heading 2 promotes the current line to h2', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-h2')
             await editorRoot(page).click()
             await page.keyboard.press('End')
@@ -202,12 +201,10 @@ test.describe('Text — Menubar', () => {
 
             // Marker should now sit inside an <h2>.
             const h2Marker = editorRoot(page).locator('h2', { hasText: marker })
-            await expect(h2Marker).toBeVisible({ timeout: 5_000 })
+            await expect(h2Marker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         })
 
-        test('Bullets & numbering > Bulleted list wraps the line in <ul><li>', async ({
-            page,
-        }) => {
+        test('Bullets & numbering > Bulleted list wraps the line in <ul><li>', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-bullets')
             await editorRoot(page).click()
             await page.keyboard.press('End')
@@ -221,12 +218,10 @@ test.describe('Text — Menubar', () => {
             await page.getByRole('menuitem', { name: 'Bulleted list' }).click()
 
             const liMarker = editorRoot(page).locator('ul li', { hasText: marker })
-            await expect(liMarker).toBeVisible({ timeout: 5_000 })
+            await expect(liMarker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         })
 
-        test('Table > row ops are disabled outside a table, enabled inside', async ({
-            page,
-        }) => {
+        test('Table > row ops are disabled outside a table, enabled inside', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-table-ops')
 
             // Caret in the H1 = not in a table. Format > Table > Insert
@@ -273,15 +268,9 @@ test.describe('Text — Menubar', () => {
             // package's own topic-index drawer. The cross-package hub
             // moved off the menu — it's reachable from inside the
             // drawer via the "Read all tinycld help" link.
-            await expect(
-                page.getByRole('menuitem', { name: /Search help/ })
-            ).toBeVisible()
-            await expect(
-                page.getByRole('menuitem', { name: 'Keyboard shortcuts' })
-            ).toBeVisible()
-            await expect(
-                page.getByRole('menuitem', { name: 'Browse text help' })
-            ).toBeVisible()
+            await expect(page.getByRole('menuitem', { name: /Search help/ })).toBeVisible()
+            await expect(page.getByRole('menuitem', { name: 'Keyboard shortcuts' })).toBeVisible()
+            await expect(page.getByRole('menuitem', { name: 'Browse text help' })).toBeVisible()
         })
     })
 })

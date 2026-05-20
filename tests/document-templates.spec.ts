@@ -60,7 +60,7 @@ test.describe('Text — Document templates picker', () => {
 })
 
 async function expectRoutedToNewDoc(page: Page) {
-    await page.waitForURL((url) => /\/text\/[A-Za-z0-9]+$/.test(url.pathname), {
+    await page.waitForURL(url => /\/text\/[A-Za-z0-9]+$/.test(url.pathname), {
         timeout: TEST_TIMEOUT,
     })
 }

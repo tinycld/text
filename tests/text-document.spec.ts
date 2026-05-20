@@ -1,121 +1,17 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
+import { login, ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../../../tests/e2e/helpers'
 import {
-    login,
-    ORG_SLUG,
-    TEST_USER_EMAIL,
-    TEST_USER_PASSWORD,
-} from '../../../../tests/e2e/helpers'
+    EDITOR_READY_TIMEOUT,
+    editorRoot,
+    FEATURE_DOC_HEADING,
+    PB_URL,
+    TEXT_TEST_TIMEOUT,
+    uniqueDocName,
+    uploadDocxAsDriveItem,
+    waitForEditor,
+} from './_menubar-helpers'
 
-// Realtime sync + .docx parsing on first open + Y.Doc init takes longer
-// than the default 30s, especially under parallel-worker contention.
-const TEST_TIMEOUT = 120_000
-
-// PB sits behind dev.ts's proxy on port 7200; /api/* routes through to
-// PocketBase transparently. Mirrors drive's tests/helpers.ts.
-const PB_URL = 'http://127.0.0.1:7200'
-
-const DOCX_MIME =
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-
-// "Sample Document" is the H1 in tests/assets/feature-test.docx — see
-// tests/assets/feature-test.expected.json. We assert this string is
-// rendered after the realtime room boots so the Open-from-drive flow
-// has clearly traversed: REST upload → drive_items.file → server
-// bootstrap parses docx → seeds Y.Doc → SyncReply → Tiptap renders.
-const FEATURE_DOC_HEADING = 'Sample Document'
-
-interface OrgContext {
-    orgId: string
-    userOrgId: string
-    userId: string
-}
-
-let cachedAuthToken: string | null = null
-let cachedOrgContext: OrgContext | null = null
-
-async function authAsTestUser(): Promise<string> {
-    if (cachedAuthToken) return cachedAuthToken
-    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: TEST_USER_EMAIL, password: TEST_USER_PASSWORD }),
-    })
-    if (!res.ok) {
-        throw new Error(`PB auth failed: ${res.status} ${await res.text()}`)
-    }
-    const { token } = (await res.json()) as { token: string }
-    cachedAuthToken = token
-    return token
-}
-
-async function resolveOrgContext(token: string): Promise<OrgContext> {
-    if (cachedOrgContext) return cachedOrgContext
-    const me = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, {
-        method: 'POST',
-        headers: { Authorization: token },
-    })
-    const meBody = (await me.json()) as { record?: { id: string } }
-    const userId = meBody.record?.id
-    if (!userId) throw new Error('auth-refresh returned no user record')
-
-    const orgs = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: token } }
-    )
-    const orgItems = (await orgs.json()) as { items: { id: string }[] }
-    if (!orgItems.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgItems.items[0].id
-
-    const userOrgs = await fetch(
-        `${PB_URL}/api/collections/user_org/records?filter=${encodeURIComponent(
-            `org='${orgId}' && user='${userId}'`
-        )}`,
-        { headers: { Authorization: token } }
-    )
-    const userOrgItems = (await userOrgs.json()) as { items: { id: string }[] }
-    if (!userOrgItems.items[0]) throw new Error(`user_org for ${ORG_SLUG} not found`)
-    cachedOrgContext = { orgId, userOrgId: userOrgItems.items[0].id, userId }
-    return cachedOrgContext
-}
-
-// uploadDocxAsDriveItem POSTs the fixture .docx as a drive_items
-// FormData create. The server's drive create-hook auto-creates the
-// owner share, so the test user can then open the doc at
-// /a/<org>/text/<id> and the bootstrap closure parses the docx into
-// the Y.Doc. Returns the new drive_items.id.
-async function uploadDocxAsDriveItem(name: string): Promise<string> {
-    const token = await authAsTestUser()
-    const ctx = await resolveOrgContext(token)
-    const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
-    const bytes = readFileSync(fixturePath)
-    const form = new FormData()
-    form.append('org', ctx.orgId)
-    form.append('name', name)
-    form.append('is_folder', 'false')
-    form.append('mime_type', DOCX_MIME)
-    form.append('parent', '')
-    form.append('created_by', ctx.userOrgId)
-    form.append('size', String(bytes.length))
-    form.append(
-        'file',
-        // FormData accepts a Blob; cast to satisfy TS since Node typings
-        // for Blob and Buffer don't quite line up.
-        new Blob([new Uint8Array(bytes)], { type: DOCX_MIME }),
-        name
-    )
-    const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
-        method: 'POST',
-        headers: { Authorization: token },
-        body: form,
-    })
-    if (!res.ok) {
-        throw new Error(`Upload drive_item failed: ${res.status} ${await res.text()}`)
-    }
-    const body = (await res.json()) as { id: string }
-    return body.id
-}
+const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 interface SecondUser {
     id: string
@@ -220,18 +116,6 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.waitForURL(/\/a\//, { timeout: 15_000 })
 }
 
-// editorRoot is the contenteditable host Tiptap mounts. The View around
-// EditorContent carries the `tinycld-document-editor` class so we can
-// target it cheaply; the contenteditable lives at `.ProseMirror` inside
-// it (a Tiptap-defined class we don't control but can rely on).
-function editorRoot(page: Page) {
-    return page.locator('.tinycld-document-editor .ProseMirror')
-}
-
-async function waitForEditor(page: Page, timeout = 60_000): Promise<void> {
-    await expect(editorRoot(page)).toBeVisible({ timeout })
-}
-
 test.describe('Text — Document editor', () => {
     test.setTimeout(TEST_TIMEOUT)
 
@@ -243,7 +127,7 @@ test.describe('Text — Document editor', () => {
         // assertion is "the bootstrap parses a real .docx and seeds the
         // Y.Doc end to end". The REST upload exercises the same hook
         // path drive's UploadButton would.
-        const itemId = await uploadDocxAsDriveItem(`feature-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('feature'))
 
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
@@ -251,15 +135,19 @@ test.describe('Text — Document editor', () => {
         await waitForEditor(page)
         // The fixture's H1 should land in the editor after the bootstrap
         // parses + seeds + the Tiptap binding catches up.
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
     })
 
     test('edit and persist: typed text survives reload', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`persist-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('persist'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Type a unique marker the reload will look for. Use the suffix
         // to keep it unique across parallel runs / re-runs.
@@ -276,15 +164,17 @@ test.describe('Text — Document editor', () => {
 
         await page.reload()
         await waitForEditor(page)
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(marker)).toBeVisible({ timeout: EDITOR_READY_TIMEOUT })
     })
 
     test('round-trip integrity: bold + heading + bullet list survive reload', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`roundtrip-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('roundtrip'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Move to a fresh paragraph at the end and apply each formatting
         // feature in sequence. Marker strings let us locate them after
@@ -322,13 +212,13 @@ test.describe('Text — Document editor', () => {
         // Each marker should be present in the rendered DOM. We don't
         // assert *which* tag wraps it — the broker round-trip is what's
         // under test here, not the exact DOM structure.
-        await expect(page.getByText(boldMarker)).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(boldMarker)).toBeVisible({ timeout: EDITOR_READY_TIMEOUT })
         await expect(page.getByText(h2Marker)).toBeVisible()
         await expect(page.getByText(listMarker)).toBeVisible()
     })
 
     test('presence avatars: second user appears in first user view', async ({ browser }) => {
-        const itemId = await uploadDocxAsDriveItem(`presence-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('presence'))
         const userB = await createSecondUser()
         await shareDriveItemWith(itemId, userB)
 
@@ -351,7 +241,7 @@ test.describe('Text — Document editor', () => {
             // aria-label on web. The "+N" overflow badge has no aria
             // role/label so a getByLabel match is unambiguous.
             await expect(pageA.getByLabel(/Text Tester/).first()).toBeVisible({
-                timeout: 30_000,
+                timeout: EDITOR_READY_TIMEOUT,
             })
         } finally {
             await ctxA.close()
@@ -360,7 +250,7 @@ test.describe('Text — Document editor', () => {
     })
 
     test('remote edits: typing in user A appears in user B', async ({ browser }) => {
-        const itemId = await uploadDocxAsDriveItem(`remote-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('remote'))
         const userB = await createSecondUser()
         await shareDriveItemWith(itemId, userB)
 
@@ -374,14 +264,14 @@ test.describe('Text — Document editor', () => {
             await pageA.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(pageA)
             await expect(pageA.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: 30_000,
+                timeout: EDITOR_READY_TIMEOUT,
             })
 
             await loginAs(pageB, userB.email, userB.password)
             await pageB.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(pageB)
             await expect(pageB.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: 30_000,
+                timeout: EDITOR_READY_TIMEOUT,
             })
 
             // A types a unique marker; B should observe it via the
@@ -402,28 +292,22 @@ test.describe('Text — Document editor', () => {
         }
     })
 
-    test.skip(
-        'import warning banner: tracked-changes .docx surfaces a banner',
-        async () => {
-            // Requires a user-provided fixture .docx with tracked
-            // changes (Word's Review → Track Changes mode). Authoring
-            // that fixture is out of scope for the v1 spec landing —
-            // ImportWarningBanner already has unit coverage in
-            // tests/import-warning-banner.test.tsx; what's missing is an
-            // end-to-end fixture that triggers the
-            // translate.DocxToPMJSON warning path.
-        }
-    )
+    test.skip('import warning banner: tracked-changes .docx surfaces a banner', async () => {
+        // Requires a user-provided fixture .docx with tracked
+        // changes (Word's Review → Track Changes mode). Authoring
+        // that fixture is out of scope for the v1 spec landing —
+        // ImportWarningBanner already has unit coverage in
+        // tests/import-warning-banner.test.tsx; what's missing is an
+        // end-to-end fixture that triggers the
+        // translate.DocxToPMJSON warning path.
+    })
 
-    test.skip(
-        'save failure indicator: SaveStatusIndicator flips to "Save failed"',
-        async () => {
-            // Requires a server-side test hook to deterministically
-            // force a flush failure (e.g. inject a write error in the
-            // text broker's save pipeline). Adding the hook is a v2
-            // refactor; for v1 the SaveStatusIndicator is unit-tested
-            // in core's editor suite and the production path is
-            // exercised by every passing edit-and-persist run above.
-        }
-    )
+    test.skip('save failure indicator: SaveStatusIndicator flips to "Save failed"', async () => {
+        // Requires a server-side test hook to deterministically
+        // force a flush failure (e.g. inject a write error in the
+        // text broker's save pipeline). Adding the hook is a v2
+        // refactor; for v1 the SaveStatusIndicator is unit-tested
+        // in core's editor suite and the production path is
+        // exercised by every passing edit-and-persist run above.
+    })
 })

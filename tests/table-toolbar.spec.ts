@@ -1,114 +1,16 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
+import { login, ORG_SLUG } from '../../../../tests/e2e/helpers'
 import {
-    login,
-    ORG_SLUG,
-    TEST_USER_EMAIL,
-    TEST_USER_PASSWORD,
-} from '../../../../tests/e2e/helpers'
+    EDITOR_READY_TIMEOUT,
+    editorRoot,
+    FEATURE_DOC_HEADING,
+    TEXT_TEST_TIMEOUT,
+    uniqueDocName,
+    uploadDocxAsDriveItem,
+    waitForEditor,
+} from './_menubar-helpers'
 
-// Mirrors text-document.spec.ts. Realtime + .docx + Y.Doc bootstrap
-// takes ~30s under parallel-worker contention; raise the per-spec
-// timeout so flake budget on slower laptops doesn't bite.
-const TEST_TIMEOUT = 120_000
-
-const PB_URL = 'http://127.0.0.1:7200'
-const DOCX_MIME =
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-const FEATURE_DOC_HEADING = 'Sample Document'
-
-interface OrgContext {
-    orgId: string
-    userOrgId: string
-    userId: string
-}
-
-let cachedAuthToken: string | null = null
-let cachedOrgContext: OrgContext | null = null
-
-async function authAsTestUser(): Promise<string> {
-    if (cachedAuthToken) return cachedAuthToken
-    const res = await fetch(`${PB_URL}/api/collections/users/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: TEST_USER_EMAIL, password: TEST_USER_PASSWORD }),
-    })
-    if (!res.ok) {
-        throw new Error(`PB auth failed: ${res.status} ${await res.text()}`)
-    }
-    const { token } = (await res.json()) as { token: string }
-    cachedAuthToken = token
-    return token
-}
-
-async function resolveOrgContext(token: string): Promise<OrgContext> {
-    if (cachedOrgContext) return cachedOrgContext
-    const me = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, {
-        method: 'POST',
-        headers: { Authorization: token },
-    })
-    const meBody = (await me.json()) as { record?: { id: string } }
-    const userId = meBody.record?.id
-    if (!userId) throw new Error('auth-refresh returned no user record')
-
-    const orgs = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: token } }
-    )
-    const orgItems = (await orgs.json()) as { items: { id: string }[] }
-    if (!orgItems.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgItems.items[0].id
-
-    const userOrgs = await fetch(
-        `${PB_URL}/api/collections/user_org/records?filter=${encodeURIComponent(
-            `org='${orgId}' && user='${userId}'`
-        )}`,
-        { headers: { Authorization: token } }
-    )
-    const userOrgItems = (await userOrgs.json()) as { items: { id: string }[] }
-    if (!userOrgItems.items[0]) throw new Error(`user_org for ${ORG_SLUG} not found`)
-    cachedOrgContext = { orgId, userOrgId: userOrgItems.items[0].id, userId }
-    return cachedOrgContext
-}
-
-async function uploadDocxAsDriveItem(name: string): Promise<string> {
-    const token = await authAsTestUser()
-    const ctx = await resolveOrgContext(token)
-    const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
-    const bytes = readFileSync(fixturePath)
-    const form = new FormData()
-    form.append('org', ctx.orgId)
-    form.append('name', name)
-    form.append('is_folder', 'false')
-    form.append('mime_type', DOCX_MIME)
-    form.append('parent', '')
-    form.append('created_by', ctx.userOrgId)
-    form.append('size', String(bytes.length))
-    form.append(
-        'file',
-        new Blob([new Uint8Array(bytes)], { type: DOCX_MIME }),
-        name
-    )
-    const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
-        method: 'POST',
-        headers: { Authorization: token },
-        body: form,
-    })
-    if (!res.ok) {
-        throw new Error(`Upload drive_item failed: ${res.status} ${await res.text()}`)
-    }
-    const body = (await res.json()) as { id: string }
-    return body.id
-}
-
-function editorRoot(page: Page) {
-    return page.locator('.tinycld-document-editor .ProseMirror')
-}
-
-async function waitForEditor(page: Page, timeout = 60_000): Promise<void> {
-    await expect(editorRoot(page)).toBeVisible({ timeout })
-}
+const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 // Locate the freshly-inserted table by its total cell count. We can't
 // rely on document position — `editorRoot.click()` parks the caret
@@ -120,9 +22,7 @@ async function findInsertedTable(page: Page, expectedCells: number) {
     // Wait for ProseMirror reconciliation by retrying the index lookup
     // through Playwright's auto-retry on expect.toHaveCount above.
     const tables = editorRoot(page).locator('table')
-    const counts = await tables.evaluateAll(
-        ts => ts.map(t => t.querySelectorAll('th,td').length)
-    )
+    const counts = await tables.evaluateAll(ts => ts.map(t => t.querySelectorAll('th,td').length))
     const idx = counts.indexOf(expectedCells)
     if (idx < 0) {
         throw new Error(
@@ -143,11 +43,13 @@ test.describe('Text — Table toolbar', () => {
     test.setTimeout(TEST_TIMEOUT)
 
     test('not in a table: popover shows grid picker, no row/col options', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`table-picker-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-picker'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Put the caret in a paragraph that is NOT inside a table — the
         // H1 at the top of the fixture is a safe anchor.
@@ -167,18 +69,22 @@ test.describe('Text — Table toolbar', () => {
     })
 
     test('inserting a 2x2 grid produces a 2x2 table in the doc', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`table-insert-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-insert'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
         // The fixture's tables (Simple + Complex) render asynchronously
         // through the bootstrap → Y.Doc → Tiptap pipeline. Wait for the
         // "Complex Table" h3 to ensure both tables are present before
         // we snapshot the pre-insert count; otherwise the `before` count
         // races the second table and we can pick the wrong .nth() index
         // after our insert.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // The fixture already contains a few tables. Count them up
         // front so we can assert that the click adds exactly one new
@@ -210,16 +116,20 @@ test.describe('Text — Table toolbar', () => {
     })
 
     test('in a table: popover shows row/col options, no grid picker', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`table-ops-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-ops'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         // First: insert a table so we have one to land the caret in.
@@ -248,16 +158,20 @@ test.describe('Text — Table toolbar', () => {
     })
 
     test('add row below grows the table by one row', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`table-add-row-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-add-row'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         await editorRoot(page).click()
@@ -283,11 +197,13 @@ test.describe('Text — Table toolbar', () => {
     })
 
     test('cell borders button is disabled outside a table and enabled inside', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`borders-disabled-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('borders-disabled'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Outside any table — borders button should be disabled.
         await editorRoot(page).click()
@@ -306,16 +222,20 @@ test.describe('Text — Table toolbar', () => {
     })
 
     test('apply "All" border preset writes data-borders to cells', async ({ page }) => {
-        const itemId = await uploadDocxAsDriveItem(`borders-apply-${Date.now()}.docx`)
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('borders-apply'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         await editorRoot(page).click()

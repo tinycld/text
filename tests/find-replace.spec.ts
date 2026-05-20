@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
 
 // E2E for the Cmd+F find/replace bar. Each scenario opens its own
 // document so the replace-all spec doesn't poison the others.

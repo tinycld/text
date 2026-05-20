@@ -22,9 +22,7 @@ test.describe('Text — Markdown export', () => {
         await expect(item).toBeEnabled()
     })
 
-    test('Download (.md) triggers a .md file download with markdown content', async ({
-        page,
-    }) => {
+    test('Download (.md) triggers a .md file download with markdown content', async ({ page }) => {
         await openFreshTextDocument(page, 'md-export-trigger')
 
         const downloadPromise = page.waitForEvent('download')
@@ -42,10 +40,7 @@ test.describe('Text — Markdown export', () => {
         // ATX heading at any level the importer chose (h1..h6). The
         // exporter emits one `#` per heading level then a space then
         // the text on its own line.
-        const headingRegex = new RegExp(
-            `^#{1,6} ${FEATURE_DOC_HEADING}$`,
-            'm'
-        )
+        const headingRegex = new RegExp(`^#{1,6} ${FEATURE_DOC_HEADING}$`, 'm')
         expect(content).toMatch(headingRegex)
     })
 
@@ -69,10 +64,7 @@ test.describe('Text — Markdown export', () => {
         expect(download.suggestedFilename()).toMatch(/\.md$/)
         const path = await download.path()
         const content = path ? await readFile(path, 'utf8') : ''
-        const headingRegex = new RegExp(
-            `^#{1,6} ${FEATURE_DOC_HEADING}$`,
-            'm'
-        )
+        const headingRegex = new RegExp(`^#{1,6} ${FEATURE_DOC_HEADING}$`, 'm')
         expect(content).toMatch(headingRegex)
         expect(content).toContain(marker)
     })

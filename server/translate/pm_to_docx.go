@@ -932,8 +932,24 @@ func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode)
 	}
 	for _, child := range cell.Content {
 		if child.Type != NodeTypeParagraph {
-			// v1 schema forbids non-paragraph block content in a cell.
-			return fmt.Errorf("translate: tableCell content must be paragraph, got %q", child.Type)
+			// The v1 .docx exporter can't represent block content other
+			// than paragraphs inside a cell (e.g. a nested table or a
+			// list). Rather than fail the whole conversion — which would
+			// strand the document's realtime saves in an infinite retry
+			// loop — flatten the child's text into a plain paragraph so
+			// the visible content survives, and record a warning. Cells
+			// with no extractable text are dropped silently.
+			text := collectNodeText(child)
+			if text != "" {
+				para, err := tbl.AddCellParagraph(row, col, "")
+				if err != nil {
+					return fmt.Errorf("translate: add cell para: %w", err)
+				}
+				para.AddFormattedText(text, &document.TextFormat{})
+			}
+			em.addWarning(WarningCellContentFlattened,
+				fmt.Sprintf("table cell %q content flattened to plain text", child.Type))
+			continue
 		}
 		para, err := tbl.AddCellParagraph(row, col, "")
 		if err != nil {
@@ -965,6 +981,26 @@ func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode)
 		}
 	}
 	return nil
+}
+
+// collectNodeText walks a PM subtree and concatenates the text of every
+// descendant text node, separating the contributions of distinct block
+// children with a single space so e.g. a nested table's cells don't run
+// together into one unreadable word. Inline siblings within one block
+// are joined without a separator (they're already contiguous text). Used
+// to salvage the visible content of cell children the v1 exporter can't
+// represent structurally.
+func collectNodeText(node PMNode) string {
+	if node.Type == NodeTypeText {
+		return node.Text
+	}
+	var parts []string
+	for _, child := range node.Content {
+		if t := collectNodeText(child); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // emitImageBlock embeds a block-level image. v1 supports data: URIs
@@ -1275,7 +1311,7 @@ func bgColorCloseToken(n int) string {
 //
 //   - (hex, "", true)    — a hex value (literal or normalized from rgb()/rgba())
 //   - ("",  raw, false)  — a backgroundColor was set but could not be
-//                           normalized (caller should record a warning)
+//     normalized (caller should record a warning)
 //   - ("",  "",  false)  — no backgroundColor on any textStyle mark
 //
 // OOXML's <w:shd w:fill="…"> only accepts hex, so anything we can't

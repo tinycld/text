@@ -744,3 +744,76 @@ func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
 		t.Errorf("endnote reference missing after round-trip")
 	}
 }
+
+// TestPMJSONToDocx_NestedTableInCellFlattened verifies that a table
+// cell containing block content the v1 exporter can't represent (here,
+// a nested table) no longer fails the whole conversion. Instead the
+// inner text is flattened into the cell and a WarningCellContentFlattened
+// is surfaced. Regression test for the production infinite-retry loop
+// caused by `tableCell content must be paragraph, got "table"`.
+func TestPMJSONToDocx_NestedTableInCellFlattened(t *testing.T) {
+	innerTable := PMNode{
+		Type: NodeTypeTable,
+		Content: []PMNode{
+			{
+				Type: NodeTypeTableRow,
+				Content: []PMNode{
+					{Type: NodeTypeTableCell, Content: []PMNode{
+						{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: "inner-a"}}},
+					}},
+					{Type: NodeTypeTableCell, Content: []PMNode{
+						{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: "inner-b"}}},
+					}},
+				},
+			},
+		},
+	}
+	original := PMNode{
+		Type: NodeTypeDoc,
+		Content: []PMNode{
+			{
+				Type: NodeTypeTable,
+				Content: []PMNode{
+					{
+						Type: NodeTypeTableRow,
+						Content: []PMNode{
+							{Type: NodeTypeTableCell, Content: []PMNode{
+								{Type: NodeTypeParagraph, Content: []PMNode{{Type: NodeTypeText, Text: "outer"}}},
+								innerTable,
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	originalJSON, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	docxBytes, warnings, err := PMJSONToDocxWithWarnings(originalJSON)
+	if err != nil {
+		t.Fatalf("PMJSONToDocxWithWarnings should degrade, not error: %v", err)
+	}
+	if len(docxBytes) < 100 {
+		t.Fatalf("docx too small (%d bytes); probably empty", len(docxBytes))
+	}
+
+	var sawFlatten bool
+	for _, w := range warnings {
+		if w.Code == WarningCellContentFlattened {
+			sawFlatten = true
+		}
+	}
+	if !sawFlatten {
+		t.Fatalf("expected WarningCellContentFlattened, got %+v", warnings)
+	}
+
+	body := string(readDocxPart(t, docxBytes, "word/document.xml"))
+	for _, want := range []string{"outer", "inner-a", "inner-b"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("flattened cell text %q missing from document.xml", want)
+		}
+	}
+}

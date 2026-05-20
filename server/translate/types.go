@@ -170,4 +170,11 @@ const (
 	// the run gets emitted without a background. The HTML render
 	// preserves the original color; the .docx loses it.
 	WarningBackgroundColorLost WarningCode = "backgroundColorLost"
+	// WarningCellContentFlattened is emitted when a table cell holds
+	// block content the v1 .docx exporter can't represent natively
+	// (e.g. a nested table or a list). Rather than fail the whole
+	// conversion, the exporter flattens that child's text into a
+	// plain paragraph inside the cell so the visible content survives.
+	// Structure (nested rows, list bullets) is lost in the .docx.
+	WarningCellContentFlattened WarningCode = "cellContentFlattened"
 )

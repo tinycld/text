@@ -1,8 +1,8 @@
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { describe, expect, it, vi } from 'vitest'
 import {
-    type ContextMenuItemId,
     buildDocumentContextMenu,
+    type ContextMenuItemId,
 } from '../tinycld/text/components/document-context-menu-items'
 
 function makeToolbarState(over: Partial<EditorToolbarState> = {}): EditorToolbarState {
@@ -51,9 +51,7 @@ function makeCommands(): EditorCommands {
     }
 }
 
-function collectIds(
-    groups: ReturnType<typeof buildDocumentContextMenu>
-): ContextMenuItemId[] {
+function collectIds(groups: ReturnType<typeof buildDocumentContextMenu>): ContextMenuItemId[] {
     return groups.flatMap(g => g.rows.map(r => r.id))
 }
 

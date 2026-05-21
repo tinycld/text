@@ -66,7 +66,12 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
                 <ChevronDown size={12} color={muted} />
             </Pressable>
 
-            <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+            <Modal
+                transparent
+                animationType="fade"
+                visible={open}
+                onRequestClose={() => setOpen(false)}
+            >
                 <Pressable
                     className="flex-1 items-center justify-center bg-black/30"
                     onPress={() => setOpen(false)}

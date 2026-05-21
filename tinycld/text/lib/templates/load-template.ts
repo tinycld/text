@@ -41,7 +41,10 @@ function decodeBase64ToBytes(b64: string): Uint8Array {
     }
     // Node fallback (vitest, RN dev builds with a Buffer polyfill).
     type BufferLike = {
-        from: (data: string, enc: string) => {
+        from: (
+            data: string,
+            enc: string
+        ) => {
             length: number
             readUInt8: (i: number) => number
         }

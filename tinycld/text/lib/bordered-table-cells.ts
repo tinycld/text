@@ -38,16 +38,15 @@ import { normalizeHexColor } from './cell-shading'
 // schema identical on both sides, which matters: a doc seeded by one
 // must be readable by the other, and Y.Doc collab requires identical
 // schemas at every peer.
-function extendWithBorders<T extends typeof TableCell | typeof TableHeader>(
-    extension: T
-): T {
+function extendWithBorders<T extends typeof TableCell | typeof TableHeader>(extension: T): T {
     return extension.extend({
         addAttributes() {
             return {
                 ...this.parent?.(),
                 borders: {
                     default: null,
-                    parseHTML: (el: HTMLElement) => parseBordersAttr(el.getAttribute('data-borders')),
+                    parseHTML: (el: HTMLElement) =>
+                        parseBordersAttr(el.getAttribute('data-borders')),
                     renderHTML: (attrs: { borders?: CellBorders | null }) => {
                         if (bordersAreEmpty(attrs.borders)) return {}
                         const inline = bordersToInlineStyleString(attrs.borders)

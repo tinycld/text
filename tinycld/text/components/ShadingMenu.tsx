@@ -46,13 +46,7 @@ export function ShadingMenu({ isOpen, onClose, commands }: ShadingMenuProps) {
     )
 }
 
-function ShadingSwatch({
-    option,
-    onPress,
-}: {
-    option: CellShadingOption
-    onPress: () => void
-}) {
+function ShadingSwatch({ option, onPress }: { option: CellShadingOption; onPress: () => void }) {
     const border = useThemeColor('border')
     const mutedFg = useThemeColor('muted-foreground')
     return (

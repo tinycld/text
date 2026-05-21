@@ -14,9 +14,7 @@ import { useFindReplaceStateStore } from './stores/find-replace-state-store'
 // resends.
 type PostMessage = (message: EditorMessage) => boolean
 
-export function makeNativeFindReplaceController(
-    postMessage: PostMessage
-): FindReplaceController {
+export function makeNativeFindReplaceController(postMessage: PostMessage): FindReplaceController {
     return {
         getState: () => {
             const s = useFindReplaceStateStore.getState()

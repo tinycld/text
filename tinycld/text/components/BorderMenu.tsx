@@ -2,12 +2,12 @@ import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
     Grid3x3,
+    type LucideIcon,
     Minus,
     Plus,
     Square,
     SquareDashed,
     SquareDot,
-    type LucideIcon,
 } from 'lucide-react-native'
 import { useState } from 'react'
 import { Modal, Platform, Pressable, Text, TextInput, View } from 'react-native'
@@ -133,9 +133,7 @@ export function BorderMenu({ isOpen, onClose, commands }: BorderMenuProps) {
                             />
                         </View>
                         <View className="flex-1">
-                            <Text className="text-xs text-muted-foreground mb-1">
-                                Color (CSS)
-                            </Text>
+                            <Text className="text-xs text-muted-foreground mb-1">Color (CSS)</Text>
                             <TextInput
                                 value={color}
                                 onChangeText={setColor}

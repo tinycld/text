@@ -37,18 +37,12 @@ export function FormatMenu(props: MenuBarProps) {
                         <Menu.ItemTitle>Underline</Menu.ItemTitle>
                         <MenuShortcut keys="⌘U" />
                     </Menu.Item>
-                    <Menu.Item
-                        onPress={() => commands.toggleCode?.()}
-                        isDisabled={disabled}
-                    >
+                    <Menu.Item onPress={() => commands.toggleCode?.()} isDisabled={disabled}>
                         <CheckedIndicator isOn={toolbarState.isCodeActive ?? false} />
                         <Menu.ItemTitle>Inline code</Menu.ItemTitle>
                         <MenuShortcut keys="⌘`" />
                     </Menu.Item>
-                    <Menu.Item
-                        onPress={() => commands.toggleCodeBlock?.()}
-                        isDisabled={disabled}
-                    >
+                    <Menu.Item onPress={() => commands.toggleCodeBlock?.()} isDisabled={disabled}>
                         <CheckedIndicator isOn={toolbarState.isCodeBlockActive ?? false} />
                         <Menu.ItemTitle>Code block</Menu.ItemTitle>
                         <MenuShortcut keys="⌘⇧`" />
@@ -200,10 +194,7 @@ export function FormatMenu(props: MenuBarProps) {
                         <Menu.ItemTitle>Insert column right</Menu.ItemTitle>
                     </Menu.Item>
                     <Separator />
-                    <Menu.Item
-                        onPress={() => commands.deleteRow?.()}
-                        isDisabled={tableOpsDisabled}
-                    >
+                    <Menu.Item onPress={() => commands.deleteRow?.()} isDisabled={tableOpsDisabled}>
                         <Menu.ItemTitle>Delete row</Menu.ItemTitle>
                     </Menu.Item>
                     <Menu.Item

@@ -20,16 +20,16 @@ import { pb } from '@tinycld/core/lib/pocketbase'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import { colorForUser } from '../lib/color-for-user'
 import { publishUiMessage } from '../lib/anchored-overlay/ui-message-bus'
+import { colorForUser } from '../lib/color-for-user'
 import {
     dispatchFindReplaceMessage,
     makeNativeFindReplaceController,
 } from '../lib/native-find-replace-controller'
 import { useFindReplaceStateStore } from '../lib/stores/find-replace-state-store'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
-import type { ImageSelection } from '../webview-editor/source/editor-state-types'
 import { editorHtml } from '../webview-editor/build/editorHtml'
+import type { ImageSelection } from '../webview-editor/source/editor-state-types'
 import {
     createNativeCommentBridge,
     createNativeCommentBridgeState,
@@ -230,16 +230,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // lets call sites (TextCommentDrawer, the new-comment flow) check
     // `commentBridge != null` and skip / disable the action instead of
     // awaiting a Promise that never resolves.
-    const commentBridge = useMemo(
-        () => {
-            if (!result.isReady) return null
-            return createNativeCommentBridge({
-                state: commentStateRef.current,
-                postMessage: () => postMessageRef.current,
-            })
-        },
-        [result.isReady]
-    )
+    const commentBridge = useMemo(() => {
+        if (!result.isReady) return null
+        return createNativeCommentBridge({
+            state: commentStateRef.current,
+            postMessage: () => postMessageRef.current,
+        })
+    }, [result.isReady])
 
     // Native FindReplaceController. Reads observable state from the
     // host-side mirror store (use-find-replace-state-store.ts) that

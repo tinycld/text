@@ -1,4 +1,5 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
     Actionsheet,
     ActionsheetBackdrop,
@@ -6,7 +7,6 @@ import {
     ActionsheetDragIndicator,
     ActionsheetDragIndicatorWrapper,
 } from '@tinycld/core/ui/actionsheet'
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { X } from 'lucide-react-native'
 import { Platform, Pressable, Text, View } from 'react-native'
 import { IMAGE_MAX_WIDTH } from '../lib/image-resize'
@@ -15,12 +15,7 @@ import {
     type ImageSizePreset,
     resolvePresetSize,
 } from '../lib/image-size-presets'
-import {
-    IMAGE_WRAP_MODES,
-    normalizeWrap,
-    type WrapMode,
-    wrapToAttr,
-} from '../lib/image-wrap-modes'
+import { IMAGE_WRAP_MODES, normalizeWrap, type WrapMode, wrapToAttr } from '../lib/image-wrap-modes'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 
 // ImageAttrsBottomSheet — native-only bottom-sheet that opens whenever
@@ -113,11 +108,7 @@ function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands })
                     </Section>
                     <Section
                         label="Size"
-                        hint={
-                            sizeAvailable
-                                ? `Max width ${IMAGE_MAX_WIDTH}px`
-                                : 'Loading image…'
-                        }
+                        hint={sizeAvailable ? `Max width ${IMAGE_MAX_WIDTH}px` : 'Loading image…'}
                     >
                         <View className="flex-row flex-wrap gap-2">
                             {IMAGE_SIZE_PRESETS.map(preset => (
@@ -161,9 +152,7 @@ interface SectionProps {
 }
 
 function Section({ label, hint, children }: SectionProps) {
-    const hintNode = hint ? (
-        <Text className="text-xs text-muted-foreground">{hint}</Text>
-    ) : null
+    const hintNode = hint ? <Text className="text-xs text-muted-foreground">{hint}</Text> : null
     return (
         <View className="gap-2">
             <View className="flex-row items-center justify-between">
@@ -196,9 +185,7 @@ function WrapChip({ label, isActive, onPress }: ChipProps) {
             accessibilityState={{ selected: isActive }}
             onPress={onPress}
             className={`flex-1 min-w-[80px] items-center px-3 py-2.5 rounded-md border ${
-                isActive
-                    ? 'border-accent bg-accent'
-                    : 'border-border bg-background'
+                isActive ? 'border-accent bg-accent' : 'border-border bg-background'
             }`}
         >
             <Text

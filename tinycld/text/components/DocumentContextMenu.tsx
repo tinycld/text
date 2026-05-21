@@ -1,8 +1,8 @@
 import { ContextMenu } from '@tinycld/core/components/ContextMenu'
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Menu, Separator } from '@tinycld/core/ui/menu'
 import { Kbd } from '@tinycld/core/ui/Kbd'
+import { Menu, Separator } from '@tinycld/core/ui/menu'
 import type { LucideIcon } from 'lucide-react-native'
 import {
     ClipboardPaste,
@@ -20,10 +20,7 @@ import {
 } from 'lucide-react-native'
 import { Fragment, type ReactNode } from 'react'
 import { Platform, View } from 'react-native'
-import {
-    type ContextMenuItemId,
-    buildDocumentContextMenu,
-} from './document-context-menu-items'
+import { buildDocumentContextMenu, type ContextMenuItemId } from './document-context-menu-items'
 
 interface DocumentContextMenuProps {
     children: ReactNode

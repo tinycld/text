@@ -6,13 +6,7 @@
 // the picker flow.
 
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import {
-    Modal,
-    ModalBackdrop,
-    ModalBody,
-    ModalContent,
-    ModalHeader,
-} from '@tinycld/core/ui/modal'
+import { Modal, ModalBackdrop, ModalBody, ModalContent, ModalHeader } from '@tinycld/core/ui/modal'
 import { FilePlus2, FileText, Mail, ScrollText, X } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import { Pressable, Text, View } from 'react-native'

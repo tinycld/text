@@ -29,10 +29,7 @@ export function clampGridSelection(
     return { row, col }
 }
 
-export function isCellHighlighted(
-    cell: GridPickerCell,
-    selection: GridPickerCell | null
-): boolean {
+export function isCellHighlighted(cell: GridPickerCell, selection: GridPickerCell | null): boolean {
     if (!selection) return false
     return cell.row <= selection.row && cell.col <= selection.col
 }

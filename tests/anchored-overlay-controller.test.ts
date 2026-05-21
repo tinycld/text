@@ -27,15 +27,11 @@ function makeRect(over: Partial<AnchoredOverlayRect> = {}): AnchoredOverlayRect 
 
 describe('decodeUiMessage', () => {
     it('returns null for non-ui namespaces', () => {
-        expect(
-            decodeUiMessage({ namespace: 'app', type: 'init', payload: null })
-        ).toBeNull()
+        expect(decodeUiMessage({ namespace: 'app', type: 'init', payload: null })).toBeNull()
     })
 
     it('returns null for unknown ui types', () => {
-        expect(
-            decodeUiMessage({ namespace: 'ui', type: 'random', payload: null })
-        ).toBeNull()
+        expect(decodeUiMessage({ namespace: 'ui', type: 'random', payload: null })).toBeNull()
     })
 
     it('rejects show-popover without a requestId', () => {
@@ -195,7 +191,11 @@ describe('anchoredOverlayReducer', () => {
         const updated = anchoredOverlayReducer(opened, {
             type: 'update',
             requestId: 'r1',
-            payload: { items: [{ id: 'h1', label: 'Heading 1', iconName: 'Heading1' }], query: 'h', selectedIndex: 0 },
+            payload: {
+                items: [{ id: 'h1', label: 'Heading 1', iconName: 'Heading1' }],
+                query: 'h',
+                selectedIndex: 0,
+            },
         })
         expect(updated.open?.kind).toBe('slash-menu')
         expect(updated.open?.requestId).toBe('r1')

@@ -40,10 +40,7 @@ export interface FormatBridge {
 // postToNative is accepted but currently unused — the format bridge is
 // one-way (host -> WebView). Reserved for future per-command response
 // messages without forcing every call site to plumb a poster through.
-export function installFormatBridge(
-    editor: Editor,
-    _postToNative: PostToNative
-): FormatBridge {
+export function installFormatBridge(editor: Editor, _postToNative: PostToNative): FormatBridge {
     function dispatch(parsed: IncomingMessage): void {
         const t = parsed.type
         if (!t) return
@@ -108,11 +105,7 @@ export function installFormatBridge(
             }
             case 'insert-table': {
                 const { rows, cols } = parsed.payload as { rows: number; cols: number }
-                editor
-                    .chain()
-                    .focus()
-                    .insertTable({ rows, cols, withHeaderRow: true })
-                    .run()
+                editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
                 break
             }
             case 'add-row-before':
@@ -245,12 +238,7 @@ export function installFormatBridge(
                 if (payload === null || typeof payload !== 'object') break
                 const next: Record<string, unknown> = {}
                 const wrap = (payload as { wrap?: unknown }).wrap
-                if (
-                    wrap === 'left' ||
-                    wrap === 'right' ||
-                    wrap === 'break' ||
-                    wrap === null
-                ) {
+                if (wrap === 'left' || wrap === 'right' || wrap === 'break' || wrap === null) {
                     next.wrap = wrap
                 }
                 const width = (payload as { width?: unknown }).width

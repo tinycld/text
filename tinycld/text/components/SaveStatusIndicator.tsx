@@ -27,9 +27,7 @@ export function SaveStatusIndicator({ status, isConnected }: SaveStatusIndicator
         return (
             <View className="flex-row items-center gap-1.5 px-2 py-1 rounded-full">
                 <CloudOff size={12} color={mutedColor} />
-                <Text className="text-xs text-muted-foreground">
-                    {saveStatusLabel.offline}
-                </Text>
+                <Text className="text-xs text-muted-foreground">{saveStatusLabel.offline}</Text>
             </View>
         )
     }
@@ -38,9 +36,7 @@ export function SaveStatusIndicator({ status, isConnected }: SaveStatusIndicator
         return (
             <View className="flex-row items-center gap-1.5 px-2 py-1 rounded-full">
                 <Check size={12} color={successColor} />
-                <Text className="text-xs text-muted-foreground">
-                    {saveStatusLabel.saved}
-                </Text>
+                <Text className="text-xs text-muted-foreground">{saveStatusLabel.saved}</Text>
             </View>
         )
     }

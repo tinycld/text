@@ -10,11 +10,10 @@
 // of typedServerHello/typedServerSlot (room == null, pre-handshake)
 // is locked in use-text-document.test.tsx.
 
-import { Awareness } from 'y-protocols/awareness'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
-
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Awareness } from 'y-protocols/awareness'
+import * as Y from 'yjs'
 
 const captureExceptionMock = vi.fn()
 vi.mock('@tinycld/core/lib/errors', () => ({
@@ -29,10 +28,7 @@ import {
     typedServerSlot,
 } from '../tinycld/text/hooks/useTextRoom'
 
-function makeRoom(opts: {
-    serverHello?: unknown
-    serverSlot?: unknown
-}): RealtimeRoomHandle {
+function makeRoom(opts: { serverHello?: unknown; serverSlot?: unknown }): RealtimeRoomHandle {
     const yDoc = new Y.Doc()
     const awareness = new Awareness(yDoc)
     return {
@@ -119,9 +115,7 @@ describe('typedServerHello with zod validation', () => {
     })
 
     it('falls back to defaults and reports to captureException for garbage payloads', () => {
-        const hello = typedServerHello(
-            makeRoom({ serverHello: { totallyWrong: 'shape' } })
-        )
+        const hello = typedServerHello(makeRoom({ serverHello: { totallyWrong: 'shape' } }))
         expect(hello).toEqual({ readOnly: false, importWarnings: [] })
         expect(captureExceptionMock).toHaveBeenCalledOnce()
         const [tag] = captureExceptionMock.mock.calls[0]
@@ -136,17 +130,13 @@ describe('typedServerHello with zod validation', () => {
 
 describe('typedServerSlot with zod validation', () => {
     it('returns the parsed payload verbatim for a valid slot', () => {
-        const slot = typedServerSlot(
-            makeRoom({ serverSlot: { saveStatus: 'failed' } })
-        )
+        const slot = typedServerSlot(makeRoom({ serverSlot: { saveStatus: 'failed' } }))
         expect(slot.saveStatus).toBe('failed')
         expect(captureExceptionMock).not.toHaveBeenCalled()
     })
 
     it('falls back to ok and reports to captureException for garbage payloads', () => {
-        const slot = typedServerSlot(
-            makeRoom({ serverSlot: { saveStatus: 'maybe?' } })
-        )
+        const slot = typedServerSlot(makeRoom({ serverSlot: { saveStatus: 'maybe?' } }))
         expect(slot).toEqual({ saveStatus: 'ok' })
         expect(captureExceptionMock).toHaveBeenCalledOnce()
         const [tag] = captureExceptionMock.mock.calls[0]

@@ -50,9 +50,7 @@ export interface SlashMenuOptions {
 // can't ride JSON) and `run` (a host-side closure that lives only in
 // the WebView). The host echoes `id` back in popover-result; the
 // bridge looks the command up in SLASH_MENU_COMMANDS to invoke run().
-export function serializeSlashMenuItems(
-    items: SlashMenuCommand[]
-): SerializedSlashMenuItem[] {
+export function serializeSlashMenuItems(items: SlashMenuCommand[]): SerializedSlashMenuItem[] {
     return items.map(cmd => ({ id: cmd.id, label: cmd.label, iconName: cmd.iconName }))
 }
 

@@ -41,11 +41,9 @@ function makeFakeEditor(initial: {
 }
 
 function patchPluginKey() {
-    return vi
-        .spyOn(findReplacePluginKey, 'getState')
-        .mockImplementation((state: unknown) => {
-            return (state as { _pluginState?: unknown })._pluginState as never
-        })
+    return vi.spyOn(findReplacePluginKey, 'getState').mockImplementation((state: unknown) => {
+        return (state as { _pluginState?: unknown })._pluginState as never
+    })
 }
 
 // --- getState --------------------------------------------------------

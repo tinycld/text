@@ -1,5 +1,5 @@
+import { CellSelection, selectedRect, type TableMap } from '@tiptap/pm/tables'
 import type { Editor } from '@tiptap/react'
-import { CellSelection, selectedRect, TableMap } from '@tiptap/pm/tables'
 import { normalizeHexColor } from './cell-shading'
 
 // applyCellShading walks the current selection's cells and sets the

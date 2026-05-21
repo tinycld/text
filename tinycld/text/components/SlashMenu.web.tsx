@@ -49,7 +49,7 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
 // for .measure() / .postMessage(); the web mount accepts the same
 // prop signature and ignores it so the screen-level mount is
 // platform-agnostic.
-export function SlashMenu({}: { webViewRef?: React.RefObject<unknown> | null } = {}) {
+export function SlashMenu(_props: { webViewRef?: React.RefObject<unknown> | null } = {}) {
     // webViewRef accepted for cross-platform parity; the web variant
     // renders via portals so it has no use for the ref.
     const isOpen = useSlashMenuStore(s => s.isOpen)
@@ -96,14 +96,16 @@ export function SlashMenu({}: { webViewRef?: React.RefObject<unknown> | null } =
             accessibilityRole="menu"
             accessibilityLabel="Slash menu"
             {...containerDomProps}
-            style={{
-                position: 'fixed',
-                top: position.top,
-                left: position.left,
-                width: POPOVER_WIDTH_PX,
-                maxHeight: POPOVER_HEIGHT_ESTIMATE_PX,
-                zIndex: 1000,
-            } as object}
+            style={
+                {
+                    position: 'fixed',
+                    top: position.top,
+                    left: position.left,
+                    width: POPOVER_WIDTH_PX,
+                    maxHeight: POPOVER_HEIGHT_ESTIMATE_PX,
+                    zIndex: 1000,
+                } as object
+            }
             className="rounded-lg border border-border bg-background py-1 overflow-hidden shadow-lg"
         >
             <View style={{ maxHeight: POPOVER_HEIGHT_ESTIMATE_PX, overflowY: 'auto' } as object}>

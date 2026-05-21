@@ -9,7 +9,7 @@
 // constraint and min-size floor apply identically across the
 // resize-handle and preset-button paths.
 
-import { clampImageSize, type ClampedSize } from './image-resize'
+import { type ClampedSize, clampImageSize } from './image-resize'
 
 export interface ImageSizePreset {
     id: 'small' | 'medium' | 'large' | 'original'

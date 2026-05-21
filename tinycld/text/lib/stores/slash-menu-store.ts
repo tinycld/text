@@ -33,7 +33,11 @@ interface SlashMenuState {
         anchor: SlashMenuAnchor | null
         onSelect: (cmd: SlashMenuCommand) => void
     }) => void
-    update: (args: { items: SlashMenuCommand[]; query: string; anchor: SlashMenuAnchor | null }) => void
+    update: (args: {
+        items: SlashMenuCommand[]
+        query: string
+        anchor: SlashMenuAnchor | null
+    }) => void
     close: () => void
     setSelectedIndex: (index: number) => void
     moveSelection: (delta: number) => void

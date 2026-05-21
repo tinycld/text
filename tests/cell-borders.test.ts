@@ -6,8 +6,8 @@ import {
     type CellBorder,
     type CellBorders,
     DEFAULT_BORDER,
-    edgesForPreset,
     EMPTY_BORDERS,
+    edgesForPreset,
     parseBordersAttr,
 } from '../tinycld/text/lib/cell-borders'
 
@@ -42,7 +42,7 @@ describe('edgesForPreset', () => {
         })
     })
 
-    it("inner corner cell → only the edges that border another cell", () => {
+    it('inner corner cell → only the edges that border another cell', () => {
         const out = edgesForPreset('inner', { row: 0, col: 0 }, range, solidEdge)
         expect(out).toEqual({ right: solidEdge, bottom: solidEdge })
     })

@@ -116,9 +116,7 @@ export function deriveCurrentTextColor(editor: EditorLike | null | undefined): s
     return raw
 }
 
-export function deriveCurrentBackgroundColor(
-    editor: EditorLike | null | undefined
-): string | null {
+export function deriveCurrentBackgroundColor(editor: EditorLike | null | undefined): string | null {
     if (!editor) return null
     const raw = editor.getAttributes('textStyle')?.backgroundColor
     if (typeof raw !== 'string' || raw === '') return null
@@ -149,9 +147,7 @@ export function deriveActiveIndent(editor: EditorLike | null | undefined): numbe
 // (or "Paragraph" when null). Kept as a named helper so it's reusable
 // across the WebView Editor and the web variant, and trivially unit-
 // testable against an EditorLike stub.
-export function deriveActiveHeadingLevel(
-    editor: EditorLike | null | undefined
-): number | null {
+export function deriveActiveHeadingLevel(editor: EditorLike | null | undefined): number | null {
     if (!editor) return null
     for (let level = 1; level <= 6; level++) {
         if (editor.isActive('heading', { level })) return level
@@ -189,6 +185,7 @@ export interface EditorWithState {
 // `@tiptap/*` modules at the top of this file — those crash at module
 // evaluation on native.
 import type { ImageSelection } from './editor-state-types'
+
 export type { ImageSelection }
 
 // Narrow an unknown attribute value into the legal wrap-mode literals

@@ -68,13 +68,11 @@ export function useDocumentComments(
         [driveItemId]
     )
 
-    const [orphanedCommentIds, setOrphanedCommentIds] = useState<Set<string>>(
-        () => new Set()
-    )
+    const [orphanedCommentIds, setOrphanedCommentIds] = useState<Set<string>>(() => new Set())
 
     useEffect(() => {
         setOrphanedCommentIds(new Set())
-    }, [driveItemId])
+    }, [])
 
     useEffect(() => {
         if (!commentBridge) return
@@ -95,8 +93,7 @@ export function useDocumentComments(
         for (const [commentId, group] of byCommentId) {
             threadsByCommentId.set(commentId, buildThreads(group))
         }
-        const getThread = (commentId: string) =>
-            threadsByCommentId.get(commentId) ?? []
+        const getThread = (commentId: string) => threadsByCommentId.get(commentId) ?? []
         return {
             rows: typedRows,
             threadsByCommentId,

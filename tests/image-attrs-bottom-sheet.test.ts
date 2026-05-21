@@ -63,11 +63,7 @@ describe('resolvePresetSize', () => {
         // The preset fraction multiplies natural dimensions; clampImageSize
         // keeps both axes consistent with the 4:3 aspect ratio. 50% of
         // 800x600 = 400x300, well under IMAGE_MAX_WIDTH.
-        const result = resolvePresetSize(
-            { id: 'medium', label: 'M', fraction: 0.5 },
-            800,
-            600
-        )
+        const result = resolvePresetSize({ id: 'medium', label: 'M', fraction: 0.5 }, 800, 600)
         expect(result).toEqual({ width: 400, height: 300 })
     })
 
@@ -89,11 +85,7 @@ describe('resolvePresetSize', () => {
         // A 60x40 natural at 33% would scale to ~20x13, below the
         // editor's 32px minimum. clampImageSize bumps the smaller axis
         // up to MIN_SIZE and scales the other to match the ratio.
-        const result = resolvePresetSize(
-            { id: 'small', label: 'S', fraction: 0.33 },
-            60,
-            40
-        )
+        const result = resolvePresetSize({ id: 'small', label: 'S', fraction: 0.33 }, 60, 40)
         expect(result).not.toBeNull()
         if (result) {
             expect(Math.min(result.width, result.height)).toBeGreaterThanOrEqual(IMAGE_MIN_SIZE)
@@ -103,11 +95,7 @@ describe('resolvePresetSize', () => {
     })
 
     it('returns integers for all preset paths', () => {
-        const result = resolvePresetSize(
-            { id: 'small', label: 'S', fraction: 0.33 },
-            777,
-            513
-        )
+        const result = resolvePresetSize({ id: 'small', label: 'S', fraction: 0.33 }, 777, 513)
         expect(result).not.toBeNull()
         if (result) {
             expect(Number.isInteger(result.width)).toBe(true)

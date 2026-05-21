@@ -2,13 +2,7 @@ import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Menu, Separator } from '@tinycld/core/ui/menu'
 import { useState } from 'react'
-import {
-    type GestureResponderEvent,
-    Platform,
-    Pressable,
-    Text,
-    View,
-} from 'react-native'
+import { type GestureResponderEvent, Platform, Pressable, Text, View } from 'react-native'
 import {
     cellAtPosition,
     clampGridSelection,
@@ -242,9 +236,7 @@ function TableGridPicker({
                             key={`${cell.row}-${cell.col}`}
                             accessibilityRole="button"
                             accessibilityLabel={`${cell.row} by ${cell.col} table`}
-                            onHoverIn={
-                                Platform.OS === 'web' ? () => setHovered(cell) : undefined
-                            }
+                            onHoverIn={Platform.OS === 'web' ? () => setHovered(cell) : undefined}
                             onPress={() => onInsert(cell)}
                             style={{
                                 position: 'absolute',

@@ -23,7 +23,7 @@ describe('CELL_SHADING_PALETTE', () => {
         expect(yellow?.value).toBe('#FFFF00')
     })
 
-    it("pins the palette so additions/removals require updating the test (palette is user-visible and round-trips through Word)", () => {
+    it('pins the palette so additions/removals require updating the test (palette is user-visible and round-trips through Word)', () => {
         // If you add a color, update this list AND the docstring on
         // cell-shading.ts. Removing a color is a breaking change for
         // any document already using it — those cells will still

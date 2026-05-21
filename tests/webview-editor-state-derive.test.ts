@@ -88,7 +88,7 @@ describe('deriveCurrentFontSize', () => {
         expect(deriveCurrentFontSize(null)).toBeNull()
     })
 
-    it("returns null when textStyle.fontSize is absent (document default)", () => {
+    it('returns null when textStyle.fontSize is absent (document default)', () => {
         const editor = fakeEditor({ textStyle: {} })
         expect(deriveCurrentFontSize(editor)).toBeNull()
     })
@@ -108,7 +108,7 @@ describe('deriveCurrentFontSize', () => {
         expect(deriveCurrentFontSize(editor)).toBe(15)
     })
 
-    it("returns null for non-string fontSize attrs (defensive)", () => {
+    it('returns null for non-string fontSize attrs (defensive)', () => {
         const editor = fakeEditor({ textStyle: { fontSize: 16 } })
         expect(deriveCurrentFontSize(editor)).toBeNull()
     })
@@ -133,7 +133,7 @@ describe('deriveCurrentFontFamily', () => {
         expect(deriveCurrentFontFamily(editor)).toBeNull()
     })
 
-    it("returns the family name string verbatim when present", () => {
+    it('returns the family name string verbatim when present', () => {
         const editor = fakeEditor({ textStyle: { fontFamily: 'Georgia, serif' } })
         expect(deriveCurrentFontFamily(editor)).toBe('Georgia, serif')
     })
@@ -143,7 +143,7 @@ describe('deriveCurrentFontFamily', () => {
         expect(deriveCurrentFontFamily(editor)).toBeNull()
     })
 
-    it("returns null for non-string fontFamily attrs (defensive)", () => {
+    it('returns null for non-string fontFamily attrs (defensive)', () => {
         const editor = fakeEditor({ textStyle: { fontFamily: 123 } })
         expect(deriveCurrentFontFamily(editor)).toBeNull()
     })

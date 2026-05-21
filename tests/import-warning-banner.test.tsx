@@ -17,15 +17,13 @@
 import { describe, expect, it } from 'vitest'
 import {
     formatImportWarning,
-    importWarningTitle,
     type ImportWarning,
+    importWarningTitle,
 } from '../tinycld/text/components/import-warning-format'
 
 describe('formatImportWarning', () => {
     it('returns just the code when detail is absent', () => {
-        expect(formatImportWarning({ code: 'unsupported-feature' })).toBe(
-            'unsupported-feature'
-        )
+        expect(formatImportWarning({ code: 'unsupported-feature' })).toBe('unsupported-feature')
     })
 
     it('appends the detail with a colon when present', () => {
@@ -43,9 +41,7 @@ describe('formatImportWarning', () => {
         // But defensively the formatter must handle "" as "no detail"
         // anyway — otherwise the banner would render "code: " with a
         // dangling colon.
-        expect(
-            formatImportWarning({ code: 'comments', detail: '' })
-        ).toBe('comments')
+        expect(formatImportWarning({ code: 'comments', detail: '' })).toBe('comments')
     })
 
     it('preserves whitespace and punctuation in the detail verbatim', () => {

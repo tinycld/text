@@ -78,9 +78,7 @@ function LinkPopoverContents({ initialUrl, onCancel, onInsert }: LinkPopoverCont
                     onPress={onCancel}
                     className="px-3 py-1.5 rounded-md bg-surface-secondary"
                     hitSlop={
-                        Platform.OS === 'web'
-                            ? undefined
-                            : { top: 6, bottom: 6, left: 4, right: 4 }
+                        Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
                     }
                 >
                     <Text className="text-sm text-foreground">Cancel</Text>
@@ -91,9 +89,7 @@ function LinkPopoverContents({ initialUrl, onCancel, onInsert }: LinkPopoverCont
                     onPress={() => onInsert(url.trim())}
                     className="px-3 py-1.5 rounded-md bg-accent"
                     hitSlop={
-                        Platform.OS === 'web'
-                            ? undefined
-                            : { top: 6, bottom: 6, left: 4, right: 4 }
+                        Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
                     }
                 >
                     <Text className="text-sm font-medium text-accent-foreground">Insert</Text>

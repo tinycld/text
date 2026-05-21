@@ -46,7 +46,8 @@ export function createWebCommentBridge(opts: WebCommentBridgeOptions): DocumentC
             // doc. The Promise wrapping keeps the interface uniform
             // with native, which round-trips through the WebView
             // message bus.
-            const storage = (tiptapEditor.storage as unknown as Record<string, unknown>)['tinycldComment'] as
+            const storage = (tiptapEditor.storage as unknown as Record<string, unknown>)
+                .tinycldComment as
                 | { findComment?: (id: string) => { from: number; to: number } | null }
                 | undefined
             const range = storage?.findComment?.(commentId) ?? null

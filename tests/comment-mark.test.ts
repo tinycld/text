@@ -18,7 +18,7 @@ interface FakeNode {
 
 function fakeDoc(nodes: Array<{ marks: FakeMark[] }>): Parameters<typeof snapshotCommentIds>[0] {
     return {
-        descendants(visit: (node: FakeNode, pos: number) => boolean | void) {
+        descendants(visit: (node: FakeNode, pos: number) => boolean | undefined) {
             let pos = 0
             for (const n of nodes) {
                 visit({ nodeSize: 1, marks: n.marks }, pos)

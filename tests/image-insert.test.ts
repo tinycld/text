@@ -50,9 +50,7 @@ function makeDeps(overrides: {
         buildURL:
             overrides.buildURL ??
             ((collectionId, itemId, storedFile) =>
-                Promise.resolve(
-                    `/api/files/${collectionId}/${itemId}/${storedFile}?token=tok`
-                )),
+                Promise.resolve(`/api/files/${collectionId}/${itemId}/${storedFile}?token=tok`)),
         captureException: vi.fn(),
     }
 }
@@ -157,8 +155,7 @@ describe('handleImageInsert', () => {
         )
         const body = { size: 99, type: 'image/jpeg' } as unknown as Blob
         const deps = makeDeps({
-            pickImage: () =>
-                Promise.resolve({ body, name: 'scan.jpg', mimeType: 'image/jpeg' }),
+            pickImage: () => Promise.resolve({ body, name: 'scan.jpg', mimeType: 'image/jpeg' }),
             upload,
         })
         await handleImageInsert(onInsert, deps)

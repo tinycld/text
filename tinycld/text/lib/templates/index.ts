@@ -29,7 +29,7 @@ export interface TextTemplate {
 // The picker renders this list in order, so blank goes first so users
 // who just want an empty doc don't have to scan past three styled
 // templates first.
-export const TEXT_TEMPLATES: ReadonlyArray<TextTemplate> = [
+export const TEXT_TEMPLATES: readonly TextTemplate[] = [
     {
         id: 'blank',
         name: 'Blank',

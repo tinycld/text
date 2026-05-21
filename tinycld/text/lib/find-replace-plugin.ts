@@ -1,5 +1,5 @@
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 // A small in-package find/replace plugin. There is no Tiptap search
@@ -79,7 +79,10 @@ export function findReplacePlugin(): Plugin<FindReplacePluginState> {
                 }
                 if (tr.docChanged && prev.query) {
                     const matches = collectMatches(tr.doc, prev.query)
-                    const currentIndex = Math.min(prev.currentIndex, Math.max(matches.length - 1, 0))
+                    const currentIndex = Math.min(
+                        prev.currentIndex,
+                        Math.max(matches.length - 1, 0)
+                    )
                     return { ...prev, matches, currentIndex }
                 }
                 return prev

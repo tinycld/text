@@ -59,10 +59,7 @@ describe('groupCommentsByKey for text', () => {
     it('keeps unrelated rows separate when their comment_ids differ', () => {
         // Two roots on the same doc but at different anchors —
         // these are two threads, not one.
-        const rows = [
-            row({ id: 'r1', comment_id: 'cm1' }),
-            row({ id: 'r2', comment_id: 'cm2' }),
-        ]
+        const rows = [row({ id: 'r1', comment_id: 'cm1' }), row({ id: 'r2', comment_id: 'cm2' })]
         const grouped = groupCommentsByKey(rows, r => r.comment_id)
         expect(grouped.get('cm1')).toHaveLength(1)
         expect(grouped.get('cm2')).toHaveLength(1)

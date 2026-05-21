@@ -49,8 +49,7 @@ export function OpenCommentsDrawerButton({
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
             : {}
 
-    const accessibilityLabel =
-        openCount > 0 ? `Comments (${openCount} open)` : 'Comments'
+    const accessibilityLabel = openCount > 0 ? `Comments (${openCount} open)` : 'Comments'
 
     return (
         <Pressable

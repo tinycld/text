@@ -1,13 +1,13 @@
+import { CellSelection, selectedRect, type TableMap } from '@tiptap/pm/tables'
 import type { Editor } from '@tiptap/react'
-import { CellSelection, selectedRect, TableMap } from '@tiptap/pm/tables'
 import {
     type CellBorder,
     type CellBorderPreset,
     type CellBorders,
     type CellRange,
     DEFAULT_BORDER,
-    edgesForPreset,
     EMPTY_BORDERS,
+    edgesForPreset,
 } from './cell-borders'
 
 export interface ApplyBordersOptions {

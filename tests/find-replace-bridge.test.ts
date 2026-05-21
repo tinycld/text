@@ -123,11 +123,9 @@ function makeFakeEditor(initialState: {
 // Patch findReplacePluginKey.getState so it reads our fake state's
 // `_pluginState` instead of walking a real ProseMirror plugin map.
 function patchPluginKey() {
-    return vi
-        .spyOn(findReplacePluginKey, 'getState')
-        .mockImplementation((state: unknown) => {
-            return (state as { _pluginState?: unknown })._pluginState as never
-        })
+    return vi.spyOn(findReplacePluginKey, 'getState').mockImplementation((state: unknown) => {
+        return (state as { _pluginState?: unknown })._pluginState as never
+    })
 }
 
 // Build a poster recorder.
@@ -235,7 +233,11 @@ describe('installFindReplaceBridge — incoming host -> WebView messages', () =>
             const poster = makePoster()
             const bridge = installFindReplaceBridge(fake.editor, poster.post)
             fake.dispatched.length = 0
-            postFromHost({ namespace: 'find-replace', type: 'set-query', payload: { query: 'foo' } })
+            postFromHost({
+                namespace: 'find-replace',
+                type: 'set-query',
+                payload: { query: 'foo' },
+            })
             expect(fake.dispatched).toHaveLength(1)
             expect(fake.dispatched[0].meta).toEqual({ setQuery: 'foo' })
             bridge.destroy()

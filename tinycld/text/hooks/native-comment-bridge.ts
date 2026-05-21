@@ -70,10 +70,7 @@ export interface NativeCommentBridgeOptions {
 // state's subscriber sets / pending-request maps. Extracted out of the
 // hook for direct testing — the hook's onCommentMessage closure is
 // just a thin wrapper that hands `msg` over to this function.
-export function dispatchCommentMessage(
-    state: NativeCommentBridgeState,
-    msg: EditorMessage
-): void {
+export function dispatchCommentMessage(state: NativeCommentBridgeState, msg: EditorMessage): void {
     if (msg.type === 'tap') {
         const { commentId } = (msg.payload ?? {}) as { commentId?: string }
         if (!commentId) return
@@ -119,9 +116,10 @@ export function dispatchCommentMessage(
 // Useful for log output in development when investigating why a
 // round-trip didn't complete (e.g. a focusComment call that timed out
 // versus one that's still pending). Not load-bearing — read-only.
-export function getPendingCounts(
-    state: NativeCommentBridgeState
-): { selectionPending: number; focusPending: number } {
+export function getPendingCounts(state: NativeCommentBridgeState): {
+    selectionPending: number
+    focusPending: number
+} {
     return {
         selectionPending: state.selectionPending.size,
         focusPending: state.focusPending.size,
@@ -166,9 +164,8 @@ export function createNativeCommentBridge(
                 state.focusPending.set(requestId, { resolve, timeout })
                 const poster = postMessage()
                 const sent =
-                    poster?.(
-                        makeMessage('comment', 'focus-request', { commentId }, requestId)
-                    ) ?? false
+                    poster?.(makeMessage('comment', 'focus-request', { commentId }, requestId)) ??
+                    false
                 if (sent !== true) {
                     // WebView not mounted yet — fail closed so the
                     // caller can fall back. Drop the resolver so the
@@ -190,8 +187,7 @@ export function createNativeCommentBridge(
                 state.selectionPending.set(requestId, { resolve, timeout })
                 const poster = postMessage()
                 const sent =
-                    poster?.(makeMessage('comment', 'selection-request', null, requestId)) ??
-                    false
+                    poster?.(makeMessage('comment', 'selection-request', null, requestId)) ?? false
                 if (sent !== true) {
                     state.selectionPending.delete(requestId)
                     clearTimeout(timeout)

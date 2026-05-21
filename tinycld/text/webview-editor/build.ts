@@ -24,8 +24,7 @@ const buildDir = resolve(here, 'build')
 // docker build layout (/app/ is the app shell, packages are baked under
 // /app/packages/<scope>/<pkg>/). Fall back to the legacy relative path for
 // folks running this script standalone outside the generator.
-const appShellRoot =
-    process.env.TINYCLD_APP_ROOT ?? resolve(here, '../../../../tinycld')
+const appShellRoot = process.env.TINYCLD_APP_ROOT ?? resolve(here, '../../../../tinycld')
 const appShellNodeModules = resolve(appShellRoot, 'node_modules')
 
 async function main() {

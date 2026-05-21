@@ -314,9 +314,7 @@ function EditorMounted({ init }: EditorMountedProps) {
             const imageMsg = JSON.stringify({
                 namespace: 'ui',
                 type: 'selection-changed',
-                payload: imageSel
-                    ? { kind: 'image', image: imageSel }
-                    : { kind: 'none' },
+                payload: imageSel ? { kind: 'image', image: imageSel } : { kind: 'none' },
             })
             if (imageMsg !== lastImageSerialized) {
                 lastImageSerialized = imageMsg

@@ -36,7 +36,7 @@ export function TextPreview({ source }: PreviewProps) {
     // The server returns an empty `<article class="tinycld-text">` wrapper
     // for an empty / missing file. Show a "nothing to display" affordance
     // rather than an apparently-broken empty iframe.
-    if (!data || !data.html || !data.html.includes('tinycld-text-')) {
+    if (!data?.html?.includes('tinycld-text-')) {
         return (
             <View className="flex-1 items-center justify-center">
                 <Text className="text-sm text-muted-foreground">Document is empty.</Text>

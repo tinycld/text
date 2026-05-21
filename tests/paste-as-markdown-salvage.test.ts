@@ -9,8 +9,8 @@
 // the salvage helpers touch) so the test doesn't need to spin up a
 // real ProseMirror instance.
 
-import { describe, expect, it } from 'vitest'
 import type { Editor as TiptapEditor } from '@tiptap/react'
+import { describe, expect, it } from 'vitest'
 import {
     insertBlocksSequentially,
     insertPlaintext,
@@ -58,9 +58,7 @@ function makeStubEditor(rule: RejectRule = {}): {
             const node = pendingNode as { type?: string } | null
             const type = node?.type
             const rejected =
-                rule.rejectTypes !== undefined &&
-                type !== undefined &&
-                rule.rejectTypes.has(type)
+                rule.rejectTypes !== undefined && type !== undefined && rule.rejectTypes.has(type)
             if (rejected && rule.throwOnReject) {
                 pendingNode = null
                 throw new RangeError(`Invalid collection of marks for node text: ${type}`)
@@ -77,7 +75,15 @@ function makeStubEditor(rule: RejectRule = {}): {
     }
 
     const editor = {
-        state: { doc: { content: { get size() { return docSize } } } },
+        state: {
+            doc: {
+                content: {
+                    get size() {
+                        return docSize
+                    },
+                },
+            },
+        },
         chain: () => chain,
     } as unknown as TiptapEditor
 
@@ -135,9 +141,9 @@ describe('insertBlocksSequentially', () => {
         expect(result).toEqual({ succeeded: 2, salvaged: 1, failed: 0 })
         // Salvaged call lands a paragraph carrying the original source.
         const salvageCall = calls.find(
-            c => (c.node as { type: string }).type === 'paragraph' && /two/.test(
-                ((c.node as { content?: [{ text?: string }] }).content?.[0]?.text ?? '')
-            )
+            c =>
+                (c.node as { type: string }).type === 'paragraph' &&
+                /two/.test((c.node as { content?: [{ text?: string }] }).content?.[0]?.text ?? '')
         )
         expect(salvageCall).toBeDefined()
     })
@@ -150,9 +156,7 @@ describe('insertBlocksSequentially', () => {
             rejectTypes: new Set(['heading']),
             throwOnReject: true,
         })
-        const result = insertBlocksSequentially(editor, [
-            makeBlock('heading', '# broken'),
-        ])
+        const result = insertBlocksSequentially(editor, [makeBlock('heading', '# broken')])
         expect(result).toEqual({ succeeded: 0, salvaged: 1, failed: 0 })
     })
 
@@ -160,9 +164,7 @@ describe('insertBlocksSequentially', () => {
         const { editor } = makeStubEditor({
             rejectTypes: new Set(['heading', 'paragraph']),
         })
-        const result = insertBlocksSequentially(editor, [
-            makeBlock('heading', '# x'),
-        ])
+        const result = insertBlocksSequentially(editor, [makeBlock('heading', '# x')])
         expect(result).toEqual({ succeeded: 0, salvaged: 0, failed: 1 })
     })
 

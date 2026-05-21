@@ -13,12 +13,7 @@
 //     `w:color="auto"` for the default — we represent that as null so
 //     a serialized cell with no explicit color falls through to the
 //     editor's themed border color.
-export type CellBorderStyle =
-    | 'none'
-    | 'solid'
-    | 'dashed'
-    | 'dotted'
-    | 'double'
+export type CellBorderStyle = 'none' | 'solid' | 'dashed' | 'dotted' | 'double'
 
 export interface CellBorder {
     style: CellBorderStyle
@@ -168,9 +163,7 @@ export function bordersToInlineStyle(
 // renderHTML attribute mapper — TipTap accepts a `style` string on the
 // HTMLAttributes returned by an attribute's renderHTML, which it
 // merges onto the rendered DOM element.
-export function bordersToInlineStyleString(
-    borders: CellBorders | null | undefined
-): string {
+export function bordersToInlineStyleString(borders: CellBorders | null | undefined): string {
     const obj = bordersToInlineStyle(borders)
     if (Object.keys(obj).length === 0) return ''
     return Object.entries(obj)

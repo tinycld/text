@@ -16,9 +16,7 @@ describe('editor-content-styles: code block + inline code', () => {
         // the mark. Anchor the rule by its monospace font-family
         // declaration, which is the load-bearing visual signal.
         expect(EDITOR_CONTENT_STYLES).toContain('.ProseMirror code')
-        const codeRuleMatch = EDITOR_CONTENT_STYLES.match(
-            /\.ProseMirror code\s*\{[^}]*\}/m
-        )
+        const codeRuleMatch = EDITOR_CONTENT_STYLES.match(/\.ProseMirror code\s*\{[^}]*\}/m)
         expect(codeRuleMatch).not.toBeNull()
         if (codeRuleMatch) {
             expect(codeRuleMatch[0]).toContain('monospace')
@@ -40,9 +38,7 @@ describe('editor-content-styles: code block + inline code', () => {
         // lines to wrap inside the 680px-wide editor canvas. Without it
         // long lines would force horizontal scroll, which feels broken
         // on first-time use.
-        const blockRule = EDITOR_CONTENT_STYLES.match(
-            /\.ProseMirror pre code\s*\{[^}]*\}/m
-        )
+        const blockRule = EDITOR_CONTENT_STYLES.match(/\.ProseMirror pre code\s*\{[^}]*\}/m)
         expect(blockRule).not.toBeNull()
         if (blockRule) {
             expect(blockRule[0]).toContain('pre-wrap')

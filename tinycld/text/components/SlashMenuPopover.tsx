@@ -1,8 +1,8 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 import type { AnchoredOverlayProps } from '../lib/anchored-overlay/anchored-overlay-controller'
-import { resolveSlashMenuIcon } from '../lib/editor/slash-menu-icon-lookup'
 import type { SerializedSlashMenuItem } from '../lib/editor/slash-menu'
+import { resolveSlashMenuIcon } from '../lib/editor/slash-menu-icon-lookup'
 
 // Payload the bridge render strategy puts on every show-popover /
 // popover-update message. Mirrors SlashMenu.web.tsx's store shape but

@@ -36,9 +36,7 @@ export function NewCommentButton({ canStart, isOpen, onPress }: NewCommentButton
             {...webProps}
             className="rounded-md p-1.5"
             style={{ opacity: isDisabled ? 0.4 : 1 }}
-            hitSlop={
-                Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
-            }
+            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
         >
             <MessageSquarePlus size={16} color={isOpen ? activeColor : iconColor} />
         </Pressable>

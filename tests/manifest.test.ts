@@ -35,9 +35,7 @@ interface PackageJson {
     exports: Record<string, string>
 }
 
-const pkg: PackageJson = JSON.parse(
-    readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf-8')
-)
+const pkg: PackageJson = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf-8'))
 
 /**
  * Resolve a manifest subpath (e.g. 'screens', 'sidebar') through the
@@ -117,7 +115,7 @@ describe('text manifest server module', () => {
 })
 
 describe('text manifest directories on disk', () => {
-    it("resolves routes.directory through the exports map to a real directory", () => {
+    it('resolves routes.directory through the exports map to a real directory', () => {
         const sub = manifest.routes?.directory
         expect(sub).toBeDefined()
         const fsPath = resolveSubpath(sub!)

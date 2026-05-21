@@ -1,11 +1,6 @@
 import { AlignJustify, RotateCcw, Rows3, WrapText } from 'lucide-react-native'
 import type { ComponentType } from 'react'
-import {
-    IMAGE_WRAP_MODES,
-    normalizeWrap,
-    type WrapMode,
-    wrapToAttr,
-} from '../lib/image-wrap-modes'
+import { IMAGE_WRAP_MODES, normalizeWrap, type WrapMode, wrapToAttr } from '../lib/image-wrap-modes'
 
 // ImageWrapToolbar renders a row of four icon buttons above a selected
 // image — one per wrap mode (inline / left / right / break). Mounts as
@@ -131,11 +126,7 @@ export function ImageWrapToolbar({
                 />
             ))}
             <ToolbarDivider color={mutedColor} />
-            <ResetSizeButton
-                onPress={onReset}
-                disabled={!canReset}
-                mutedColor={mutedColor}
-            />
+            <ResetSizeButton onPress={onReset} disabled={!canReset} mutedColor={mutedColor} />
         </div>
     )
 }

@@ -203,9 +203,7 @@ export function markdownToPMBlocks(markdown: string): MarkdownBlock[] {
         const subBlocks = subDoc.content ?? []
         const map = token.map ?? null
         const source =
-            map !== null && map.length === 2
-                ? lines.slice(map[0], map[1]).join('\n')
-                : ''
+            map !== null && map.length === 2 ? lines.slice(map[0], map[1]).join('\n') : ''
         for (const block of subBlocks) out.push({ block, source })
         i = endTokenIndex + 1
     }

@@ -12,8 +12,8 @@
 // comment side. The hook wires them to the WebView's onMessage and
 // to useWebViewEditor's postMessage; everything else is just refs.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     createNativeCommentBridge,
     createNativeCommentBridgeState,

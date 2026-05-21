@@ -15,7 +15,7 @@
 // HTMLElement/HTMLImageElement classes installed on globalThis so
 // the helper's instanceof checks pass in a plain-node test env.
 
-import { Node, Schema } from '@tiptap/pm/model'
+import { type Node, Schema } from '@tiptap/pm/model'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {

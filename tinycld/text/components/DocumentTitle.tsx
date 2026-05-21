@@ -9,11 +9,7 @@ import {
     View,
 } from 'react-native'
 import { useRenameDocument } from '../hooks/use-rename-document'
-import {
-    EMPTY_NAME_ERROR,
-    RENAME_FAILED_ERROR,
-    resolveCommit,
-} from './document-title-edit'
+import { EMPTY_NAME_ERROR, RENAME_FAILED_ERROR, resolveCommit } from './document-title-edit'
 
 interface DocumentTitleProps {
     documentId: string

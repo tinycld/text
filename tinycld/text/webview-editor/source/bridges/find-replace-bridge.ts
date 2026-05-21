@@ -1,9 +1,9 @@
 import type { Editor } from '@tiptap/react'
 import {
     clearFind,
+    type FindReplaceEditor,
     findNext,
     findPrev,
-    type FindReplaceEditor,
     findReplacePluginKey,
     replaceAll,
     replaceCurrent,

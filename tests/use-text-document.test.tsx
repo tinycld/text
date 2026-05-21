@@ -13,14 +13,11 @@
 // flicker false-positive UI (no red "save failed" while the room is
 // still establishing, no read-only lockout before the hello arrives).
 
-import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
-import { Awareness } from 'y-protocols/awareness'
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
-import {
-    typedServerHello,
-    typedServerSlot,
-} from '../tinycld/text/hooks/useTextRoom'
+import { describe, expect, it } from 'vitest'
+import { Awareness } from 'y-protocols/awareness'
+import * as Y from 'yjs'
+import { typedServerHello, typedServerSlot } from '../tinycld/text/hooks/useTextRoom'
 
 function makeRoom(opts: {
     serverHello?: unknown
@@ -103,7 +100,7 @@ describe('typedServerSlot', () => {
         expect(typedServerSlot(room).saveStatus).toBe('ok')
     })
 
-    it("preserves the slot when the room is disconnected (saveStatus reflects last known server state, not connection)", () => {
+    it('preserves the slot when the room is disconnected (saveStatus reflects last known server state, not connection)', () => {
         // SaveStatusIndicator is responsible for layering its own
         // 'syncing' state on top of saveStatus when isConnected is
         // false — the typed-narrowing helper just exposes the slot

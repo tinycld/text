@@ -6,6 +6,7 @@ import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native
 import { cssFamily, FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
 
 export { FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
+
 // cssFamily is the render-side helper that pairs a stored bare family name
 // with its generic fallback. Storage on the textStyle mark is bare ("Georgia")
 // so that the DOCX <w:rFonts w:ascii> attr is a single resolvable name —
@@ -22,7 +23,7 @@ const DEFAULT_LABEL = 'Default'
 // Pre-computed map for fast lookup in the trigger label. Falls back to
 // "Default" rendering when the active family isn't in the curated set
 // — that's possible if a Word import carried in an unknown name.
-const OPTION_BY_NAME = new Map(FONT_FAMILY_OPTIONS.map(o => [o.name, o]))
+const _OPTION_BY_NAME = new Map(FONT_FAMILY_OPTIONS.map(o => [o.name, o]))
 
 export function FontFamilyPicker({
     currentFamily,

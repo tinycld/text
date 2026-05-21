@@ -9,7 +9,6 @@ import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog
 import { router, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
-import { NewCommentButton } from '../components/comments/NewCommentButton'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
 import { TextCommentDrawer } from '../components/comments/TextCommentDrawer'
 import { DocumentContextMenu } from '../components/DocumentContextMenu'
@@ -20,8 +19,8 @@ import { ImageAttrsBottomSheet } from '../components/ImageAttrsBottomSheet'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
-import { MenuBar } from '../components/menubar/MenuBar'
 import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
+import { MenuBar } from '../components/menubar/MenuBar'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { SlashMenu } from '../components/SlashMenu'
@@ -98,7 +97,6 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     }, [triggerSlashMenuImage])
     const {
         EditorComponent,
-        editor,
         commands,
         toolbarState,
         saveStatus,
@@ -239,9 +237,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 <ImageAttrsBottomSheet editable={!isReadOnly} commands={commands} />
                 <CopyToFolderDialog
                     itemId={driveItemId}
-                    onCopied={newItemId =>
-                        router.replace(orgHref('text/[id]', { id: newItemId }))
-                    }
+                    onCopied={newItemId => router.replace(orgHref('text/[id]', { id: newItemId }))}
                 />
                 <TextCommentDrawer
                     driveItemId={driveItemId}

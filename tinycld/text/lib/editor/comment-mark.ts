@@ -139,5 +139,5 @@ interface ProseNode {
 }
 
 interface ProseDoc {
-    descendants(fn: (node: ProseNode, pos: number) => boolean | void): void
+    descendants(fn: (node: ProseNode, pos: number) => boolean | undefined): void
 }

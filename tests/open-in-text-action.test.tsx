@@ -15,17 +15,14 @@
 // lucide-react-native is aliased to a Proxy stub that yields a harmless
 // component-like value for every named icon import.
 
-import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
     __resetPreviewActionRegistryForTests,
     getPreviewActionFactories,
 } from '@tinycld/core/file-viewer/preview-action-registry'
-import type {
-    FilePreviewSource,
-    PreviewActionContext,
-} from '@tinycld/core/file-viewer/types'
+import type { FilePreviewSource, PreviewActionContext } from '@tinycld/core/file-viewer/types'
 import { router } from 'expo-router'
 import { ExternalLink } from 'lucide-react-native'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     buildOpenInTextAction,
     // The side-effect import registers the factory; this re-export
@@ -38,8 +35,7 @@ function makeSource(overrides: Partial<FilePreviewSource>): FilePreviewSource {
         recordId: 'drive_item_abc',
         fileName: 'doc.docx',
         displayName: 'doc',
-        mimeType:
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         size: 1024,
         ...overrides,
     }
@@ -73,19 +69,13 @@ describe('buildOpenInTextAction', () => {
         expect(action.icon).toBe(ExternalLink)
     })
 
-    it("isApplicable returns true ONLY for the DOCX MIME type", () => {
+    it('isApplicable returns true ONLY for the DOCX MIME type', () => {
         const action = buildOpenInTextAction(stubOrgHref as never)
         expect(action.isApplicable).toBeDefined()
         expect(action.isApplicable!(makeSource({}))).toBe(true)
-        expect(
-            action.isApplicable!(makeSource({ mimeType: 'application/pdf' }))
-        ).toBe(false)
-        expect(
-            action.isApplicable!(makeSource({ mimeType: 'image/png' }))
-        ).toBe(false)
-        expect(
-            action.isApplicable!(makeSource({ mimeType: 'text/plain' }))
-        ).toBe(false)
+        expect(action.isApplicable!(makeSource({ mimeType: 'application/pdf' }))).toBe(false)
+        expect(action.isApplicable!(makeSource({ mimeType: 'image/png' }))).toBe(false)
+        expect(action.isApplicable!(makeSource({ mimeType: 'text/plain' }))).toBe(false)
         expect(action.isApplicable!(makeSource({ mimeType: '' }))).toBe(false)
     })
 

@@ -25,8 +25,9 @@ import {
 // no-ops outside the WebView (window.ReactNativeWebView is undefined
 // on the host side).
 export function defaultPostToHost(message: object) {
-    const target = (globalThis as { window?: { ReactNativeWebView?: { postMessage: (s: string) => void } } })
-        .window
+    const target = (
+        globalThis as { window?: { ReactNativeWebView?: { postMessage: (s: string) => void } } }
+    ).window
     target?.ReactNativeWebView?.postMessage(JSON.stringify(message))
 }
 
@@ -184,8 +185,7 @@ export function createSlashMenuBridgeRender(
                 }
                 if (event.key === 'ArrowUp') {
                     if (currentItems.length === 0) return false
-                    selectedIndex =
-                        (selectedIndex - 1 + currentItems.length) % currentItems.length
+                    selectedIndex = (selectedIndex - 1 + currentItems.length) % currentItems.length
                     deps.postToHost({
                         namespace: 'ui',
                         type: 'popover-update',

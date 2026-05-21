@@ -13,8 +13,8 @@
 // passing a tiny stub bridge whose webviewRef.current.postMessage is
 // a vi.fn we can assert on.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildWebViewEditorCommands } from '@tinycld/core/lib/editor/webview-editor-commands'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type PostMessageSpy = ReturnType<typeof vi.fn>
 
@@ -231,7 +231,7 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
-    it("updateImageAttrs forwards { wrap, width, height } over format/update-image-attrs", () => {
+    it('updateImageAttrs forwards { wrap, width, height } over format/update-image-attrs', () => {
         const commands = buildWebViewEditorCommands(stubBridge(postMessage))
         commands.updateImageAttrs?.({ wrap: 'left', width: 400, height: 300 })
         expect(lastPostedMessage()).toEqual({
@@ -241,7 +241,7 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
-    it("updateImageAttrs accepts a wrap-only payload (size unchanged)", () => {
+    it('updateImageAttrs accepts a wrap-only payload (size unchanged)', () => {
         const commands = buildWebViewEditorCommands(stubBridge(postMessage))
         commands.updateImageAttrs?.({ wrap: null })
         expect(lastPostedMessage()).toEqual({
@@ -251,7 +251,7 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
-    it("updateImageAttrs accepts a size-only payload (wrap unchanged)", () => {
+    it('updateImageAttrs accepts a size-only payload (wrap unchanged)', () => {
         const commands = buildWebViewEditorCommands(stubBridge(postMessage))
         commands.updateImageAttrs?.({ width: 200, height: 150 })
         expect(lastPostedMessage()).toEqual({

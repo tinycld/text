@@ -47,6 +47,6 @@ export async function printRenderedDocument(
 // Re-export the default helpers so use-print-document.ts can fill
 // them in as deps without re-importing from core.
 export {
-    defaultFetchRenderedHtml as fetchRenderedHtml,
     defaultCaptureException as captureException,
+    defaultFetchRenderedHtml as fetchRenderedHtml,
 }

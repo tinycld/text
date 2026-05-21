@@ -4,7 +4,7 @@
 // duck-typed ProseMirror doc that satisfies the descendants() shape.
 
 import { describe, expect, it } from 'vitest'
-import { collectMatches, _applyForTest } from '../tinycld/text/lib/find-replace-plugin'
+import { _applyForTest, collectMatches } from '../tinycld/text/lib/find-replace-plugin'
 
 // ProseMirror's `doc.descendants(visit)` walks every node and calls
 // `visit(node, pos)`. For matching we only care about `node.isText`

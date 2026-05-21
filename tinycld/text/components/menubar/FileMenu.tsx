@@ -34,7 +34,10 @@ export function FileMenu(props: MenuBarProps) {
 
     const downloadSource = () => {
         if (!props.sourceFile) return
-        const url = pb.files.getURL({ collectionId: 'drive_items', id: props.documentId }, props.sourceFile)
+        const url = pb.files.getURL(
+            { collectionId: 'drive_items', id: props.documentId },
+            props.sourceFile
+        )
         if (typeof window !== 'undefined') {
             window.open(url, '_blank')
         }

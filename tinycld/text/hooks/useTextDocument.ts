@@ -34,9 +34,7 @@ export function useTextDocument(
         editable: !hello.readOnly,
         driveItemId,
         onRequestInsertImage: options.onRequestInsertImage,
-        user: user
-            ? { id: user.id, name: user.name, color: colorForUser(user.id) }
-            : undefined,
+        user: user ? { id: user.id, name: user.name, color: colorForUser(user.id) } : undefined,
     })
     return {
         ...editorResult,

@@ -236,8 +236,7 @@ export function resolvePopoverPosition(input: ResolvePositionInput): {
     const anchorTopScreen = webViewOriginY + rect.top
     const anchorLeftScreen = webViewOriginX + rect.left
 
-    const wouldOverflowBottom =
-        anchorBottomScreen + gap + popoverHeightEstimate > viewportHeight
+    const wouldOverflowBottom = anchorBottomScreen + gap + popoverHeightEstimate > viewportHeight
 
     const top = wouldOverflowBottom
         ? Math.max(8, anchorTopScreen - gap - popoverHeightEstimate)

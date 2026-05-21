@@ -11,8 +11,8 @@
 // objects shaped like what TenTap's useBridgeState would yield after
 // receiving the in-WebView Editor's stateUpdate.
 
-import { describe, expect, it } from 'vitest'
 import { deriveToolbarState } from '@tinycld/core/lib/editor/derive-toolbar-state'
+import { describe, expect, it } from 'vitest'
 
 describe('deriveToolbarState — wordCount', () => {
     it('surfaces wordCount when the bridge state carries a numeric value', () => {

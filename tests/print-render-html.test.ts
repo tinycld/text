@@ -25,9 +25,7 @@ describe('text print envelope', () => {
 
     it('includes the print CSS inside a <style> block in <head>', () => {
         const html = renderPrintEnvelope(sampleFragment, buildTextPrintCssWeb())
-        expect(html).toMatch(
-            /<head>[\s\S]*<style>[\s\S]*@page[\s\S]*<\/style>[\s\S]*<\/head>/
-        )
+        expect(html).toMatch(/<head>[\s\S]*<style>[\s\S]*@page[\s\S]*<\/style>[\s\S]*<\/head>/)
     })
 
     it('embeds the server fragment verbatim', () => {

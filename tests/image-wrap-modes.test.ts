@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-    IMAGE_WRAP_MODES,
-    normalizeWrap,
-    wrapToAttr,
-} from '../tinycld/text/lib/image-wrap-modes'
+import { IMAGE_WRAP_MODES, normalizeWrap, wrapToAttr } from '../tinycld/text/lib/image-wrap-modes'
 
 // image-wrap-modes is the pure helper module that backs the wrap-mode
 // toolbar and the WrappedImage schema's parseHTML. The toolbar reads

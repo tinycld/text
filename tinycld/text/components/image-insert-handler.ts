@@ -57,12 +57,12 @@ export async function handleImageInsert(
             mimeType: picked.mimeType,
         },
         {
-            onSuccess: (result) => {
+            onSuccess: result => {
                 deps.buildURL('drive_items', result.itemId, result.file)
                     .then(onInsert)
-                    .catch((err) => deps.captureException('text.toolbarImageUpload', err))
+                    .catch(err => deps.captureException('text.toolbarImageUpload', err))
             },
-            onError: (err) => deps.captureException('text.toolbarImageUpload', err),
+            onError: err => deps.captureException('text.toolbarImageUpload', err),
         }
     )
 }

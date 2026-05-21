@@ -19,7 +19,7 @@ import { GENERATED_TEMPLATE_BYTES } from '../tinycld/text/lib/templates/template
 
 const PACKAGE_ROOT = resolve(__dirname, '..')
 
-const EXPECTED_IDS: ReadonlyArray<TemplateId> = ['blank', 'letter', 'resume', 'report']
+const EXPECTED_IDS: readonly TemplateId[] = ['blank', 'letter', 'resume', 'report']
 
 describe('text templates registry', () => {
     it('ships exactly the four expected templates in stable order', () => {

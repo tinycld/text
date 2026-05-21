@@ -200,10 +200,7 @@ describe('installFormatBridge — format namespace messages', () => {
         expect(fake.calls).toHaveLength(1)
         const updateAttrs = fake.calls[0].methods.find(m => m.name === 'updateAttributes')
         expect(updateAttrs).toBeDefined()
-        expect(updateAttrs?.args).toEqual([
-            'image',
-            { wrap: 'left', width: 200, height: 150 },
-        ])
+        expect(updateAttrs?.args).toEqual(['image', { wrap: 'left', width: 200, height: 150 }])
         bridge.destroy()
     })
 

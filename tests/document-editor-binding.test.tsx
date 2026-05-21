@@ -19,8 +19,8 @@
 // catches breakage in the pre-Tiptap data layer.
 
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
 import { Awareness } from 'y-protocols/awareness'
+import * as Y from 'yjs'
 import { colorForUser } from '../tinycld/text/lib/color-for-user'
 
 describe('Y.Doc binding shape', () => {
@@ -78,9 +78,7 @@ describe('Awareness binding shape', () => {
 describe('colorForUser', () => {
     it('is deterministic — same id always returns the same color', () => {
         expect(colorForUser('user_abc')).toBe(colorForUser('user_abc'))
-        expect(colorForUser('alice-1234567890')).toBe(
-            colorForUser('alice-1234567890')
-        )
+        expect(colorForUser('alice-1234567890')).toBe(colorForUser('alice-1234567890'))
     })
 
     it('returns a string from the fixed 16-color palette', () => {
@@ -106,15 +104,7 @@ describe('colorForUser', () => {
             '#f43f5e',
             '#64748b',
         ])
-        const samples = [
-            'a',
-            'alice',
-            'bob',
-            'user_12345',
-            'longer-user-id-with-dashes',
-            '',
-            '0',
-        ]
+        const samples = ['a', 'alice', 'bob', 'user_12345', 'longer-user-id-with-dashes', '', '0']
         for (const id of samples) {
             const color = colorForUser(id)
             expect(PALETTE.has(color), `${id} → ${color}`).toBe(true)

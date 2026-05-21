@@ -159,7 +159,9 @@ test.describe('Text — Image wrap toolbar', () => {
         // 'inline' on this round-trip.
         await page.reload()
         await editorRoot(page).waitFor({ timeout: 30_000 })
-        const reloadedWrapper = editorRoot(page).locator('[data-node-view-wrapper][data-wrap="break"]')
+        const reloadedWrapper = editorRoot(page).locator(
+            '[data-node-view-wrapper][data-wrap="break"]'
+        )
         await expect(reloadedWrapper).toHaveCount(1, { timeout: 30_000 })
         await expect(reloadedWrapper.locator('img')).toBeVisible({ timeout: 30_000 })
     })

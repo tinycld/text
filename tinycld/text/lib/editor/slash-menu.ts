@@ -1,9 +1,9 @@
 import { Extension } from '@tiptap/core'
 import Suggestion, { exitSuggestion, type SuggestionOptions } from '@tiptap/suggestion'
 import {
-    type SlashMenuCommand,
-    SLASH_MENU_COMMANDS,
     filterSlashMenuCommands,
+    SLASH_MENU_COMMANDS,
+    type SlashMenuCommand,
 } from './slash-menu-commands'
 import {
     createSlashMenuBridgeRender,
@@ -13,12 +13,12 @@ import {
 import { createSlashMenuStoreRender } from './slash-menu-render-store'
 import { type SlashMenuOptions, slashMenuPluginKey } from './slash-menu-shared'
 
+export type { SlashMenuBridgeDeps } from './slash-menu-render-bridge'
 // Re-exports kept for backward compatibility with downstream consumers
 // (SlashMenuPopover imports SerializedSlashMenuItem; tests import the
 // bridge factory + helpers). New code should import directly from the
 // strategy / shared modules.
 export { createSlashMenuBridgeRender } from './slash-menu-render-bridge'
-export type { SlashMenuBridgeDeps } from './slash-menu-render-bridge'
 export {
     type SerializedSlashMenuItem,
     type SlashMenuOptions,
@@ -47,8 +47,6 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
     },
 
     addProseMirrorPlugins() {
-        const extension = this
-
         // command runs the chosen entry. The suggestion plugin invokes
         // this via the host's response (bridge) or the store's
         // `onSelect` indirection (store) — we capture the editor +
@@ -64,7 +62,7 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
             props.run({
                 editor,
                 range,
-                openImageInsert: extension.options.openImageInsert,
+                openImageInsert: this.options.openImageInsert,
             })
         }
 
@@ -74,7 +72,7 @@ export const SlashMenu = Extension.create<SlashMenuOptions>({
         // exitSuggestion) so the bridge logic can be unit-tested
         // without needing a real WebView; here we pass the real ones.
         const render =
-            extension.options.renderStrategy === 'bridge'
+            this.options.renderStrategy === 'bridge'
                 ? createSlashMenuBridgeRender({
                       postToHost: defaultPostToHost,
                       newRequestId: defaultNewRequestId,

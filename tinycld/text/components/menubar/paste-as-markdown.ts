@@ -38,12 +38,7 @@ function plaintextParagraph(source: string) {
 function tryInsert(editor: TiptapEditor, node: InsertContent): boolean {
     try {
         const endPos = Math.max(0, editor.state.doc.content.size)
-        return editor
-            .chain()
-            .focus()
-            .setTextSelection(endPos)
-            .insertContent(node)
-            .run()
+        return editor.chain().focus().setTextSelection(endPos).insertContent(node).run()
     } catch {
         return false
     }
@@ -66,10 +61,7 @@ export function insertBlocksSequentially(
             succeeded++
             continue
         }
-        if (
-            source.length > 0 &&
-            tryInsert(editor, plaintextParagraph(source) as InsertContent)
-        ) {
+        if (source.length > 0 && tryInsert(editor, plaintextParagraph(source) as InsertContent)) {
             salvaged++
             continue
         }

@@ -496,8 +496,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             unsetTextAlign: () => tiptapEditor?.chain().focus().unsetTextAlign().run(),
             indentBlock: () => tiptapEditor?.chain().focus().indentBlock().run(),
             outdentBlock: () => tiptapEditor?.chain().focus().outdentBlock().run(),
-            setFontSize: (px: number) =>
-                tiptapEditor?.chain().focus().setFontSize(`${px}px`).run(),
+            setFontSize: (px: number) => tiptapEditor?.chain().focus().setFontSize(`${px}px`).run(),
             unsetFontSize: () => tiptapEditor?.chain().focus().unsetFontSize().run(),
             setFontFamily: (family: string) =>
                 tiptapEditor?.chain().focus().setFontFamily(family).run(),
@@ -522,8 +521,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     tiptapEditor?.chain().focus().setBackgroundColor(color).run()
                 }
             },
-            unsetBackgroundColor: () =>
-                tiptapEditor?.chain().focus().unsetBackgroundColor().run(),
+            unsetBackgroundColor: () => tiptapEditor?.chain().focus().unsetBackgroundColor().run(),
             // Imperative entry point that mirrors what ImageNodeView.web.tsx
             // does on direct user input — exists so the surface matches
             // the WebView/native variant, where the bottom sheet routes
@@ -583,9 +581,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         // a new rerender path). Undefined when the editor hasn't
         // mounted yet, matching the WebView variant's pre-stateUpdate
         // shape; the badge renders nothing in that case.
-        wordCount: tiptapEditor
-            ? countWords(tiptapEditor.state.doc.textContent)
-            : undefined,
+        wordCount: tiptapEditor ? countWords(tiptapEditor.state.doc.textContent) : undefined,
     }
 
     // findReplaceEditor is the platform-agnostic FindReplaceController

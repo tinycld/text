@@ -9,10 +9,7 @@
 // edits queue up offline — see docs/TODO.md item 5.
 
 import { describe, expect, it } from 'vitest'
-import {
-    saveStatusLabel,
-    saveStatusState,
-} from '../tinycld/text/components/save-status-state'
+import { saveStatusLabel, saveStatusState } from '../tinycld/text/components/save-status-state'
 
 describe('saveStatusState', () => {
     it('reports offline when disconnected, regardless of saveStatus', () => {

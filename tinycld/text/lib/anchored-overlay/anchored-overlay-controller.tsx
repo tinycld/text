@@ -110,7 +110,9 @@ function postUiToWebView(ref: WebViewRef, type: string, payload: unknown, reques
     const r = ref?.current as Partial<WebViewMeasurable> | null | undefined
     if (!r || typeof r.postMessage !== 'function') return
     try {
-        ;(r as WebViewMeasurable).postMessage(JSON.stringify(makeMessage('ui', type, payload, requestId)))
+        ;(r as WebViewMeasurable).postMessage(
+            JSON.stringify(makeMessage('ui', type, payload, requestId))
+        )
     } catch {
         // postMessage throws if the WebView's content world hasn't
         // initialized yet (very early in the mount, before the bridge

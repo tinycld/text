@@ -91,9 +91,7 @@ describe('printRenderedDocument', () => {
         deps.handlePrint.mockRejectedValueOnce(new Error('print failed'))
         await expect(printRenderedDocument('id', deps)).resolves.toBeUndefined()
         expect(deps.captureException).toHaveBeenCalledTimes(1)
-        expect((deps.captureException.mock.calls[0][1] as Error).message).toBe(
-            'print failed'
-        )
+        expect((deps.captureException.mock.calls[0][1] as Error).message).toBe('print failed')
     })
 
     it('produces a self-contained HTML document (no external assets in the CSS layer)', async () => {

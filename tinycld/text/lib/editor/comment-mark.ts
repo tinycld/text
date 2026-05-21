@@ -135,7 +135,7 @@ export function snapshotCommentIds(doc: ProseDoc): Set<string> {
 
 interface ProseNode {
     nodeSize: number
-    marks: Array<{ type: { name: string }; attrs: Record<string, unknown> }>
+    readonly marks: ReadonlyArray<{ type: { name: string }; attrs: Record<string, unknown> }>
 }
 
 interface ProseDoc {

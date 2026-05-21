@@ -68,7 +68,7 @@ function safeSelectedRect(state: import('@tiptap/pm/state').EditorState) {
     }
 
     const tr = state.tr.setSelection(selection)
-    const rect = selectedRect(tr)
+    const rect = selectedRect(state.apply(tr))
     if (!rect.tableStart || !rect.map || !rect.table) return null
     return {
         rect: rect as ReturnType<typeof selectedRect> & { map: TableMap },

@@ -1,24 +1,20 @@
 {
+    "extends": "../app/tsconfig.package-base.json",
     "compilerOptions": {
         "baseUrl": ".",
-        "rootDir": "..",
         "paths": {
             "~/tinycld/text/*": ["./tinycld/text/*"],
-            "@tinycld/app-generated/*": ["../tinycld/lib/generated/*"],
-            "@tinycld/core/*": ["../tinycld/packages/@tinycld/core/*"],
-            "~/*": ["../tinycld/packages/@tinycld/core/*"]
-        },
-        "strict": true,
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-        "preserveSymlinks": false,
-        "skipLibCheck": true,
-        "jsx": "react-jsx",
-        "noImplicitAny": false,
-        "noEmit": true,
-        "types": ["node", "react"],
-        "lib": ["dom", "esnext"]
+            "@tinycld/core/*": ["../core/*"],
+            "@tinycld/drive/*": ["../drive/tinycld/drive/*"],
+            "@tinycld/app-generated/*": ["../app/lib/generated/*"]
+        }
     },
-    "include": ["**/*.ts", "**/*.tsx"],
-    "exclude": ["node_modules", "server", "pb-migrations", "tests/**/*.spec.ts"]
+    "include": ["tinycld/**/*.ts", "tinycld/**/*.tsx", "../app/uniwind-types.d.ts"],
+    "exclude": [
+        "node_modules",
+        "server",
+        "pb-migrations",
+        "tests/**/*.spec.ts",
+        "tinycld/text/webview-editor/source"
+    ]
 }

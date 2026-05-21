@@ -188,7 +188,8 @@ export interface EditorWithState {
 // directly from editor-state-types so they don't transitively load the
 // `@tiptap/*` modules at the top of this file — those crash at module
 // evaluation on native.
-export type { ImageSelection } from './editor-state-types'
+import type { ImageSelection } from './editor-state-types'
+export type { ImageSelection }
 
 // Narrow an unknown attribute value into the legal wrap-mode literals
 // the WrappedImage schema accepts. Mirrors WrappedImage's parseHTML

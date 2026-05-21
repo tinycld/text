@@ -89,7 +89,7 @@ export function SlashMenu({}: { webViewRef?: React.RefObject<unknown> | null } =
         'data-tinycld-slash-menu': 'true',
         role: 'listbox',
         'aria-label': 'Slash menu',
-    }
+    } as object
 
     return createPortal(
         <View
@@ -103,7 +103,7 @@ export function SlashMenu({}: { webViewRef?: React.RefObject<unknown> | null } =
                 width: POPOVER_WIDTH_PX,
                 maxHeight: POPOVER_HEIGHT_ESTIMATE_PX,
                 zIndex: 1000,
-            }}
+            } as object}
             className="rounded-lg border border-border bg-background py-1 overflow-hidden shadow-lg"
         >
             <View style={{ maxHeight: POPOVER_HEIGHT_ESTIMATE_PX, overflowY: 'auto' } as object}>

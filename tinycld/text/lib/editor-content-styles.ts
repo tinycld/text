@@ -47,6 +47,22 @@ export const EDITOR_CONTENT_STYLES = `
 .ProseMirror p {
     margin: 0 0 0.75em 0;
 }
+/* Drop cap. The DropCap extension (lib/editor/drop-cap.ts) sets
+   data-drop-cap="true" on a paragraph; ::first-letter enlarges and
+   floats the leading glyph so the body text wraps around it over
+   roughly three lines. font-size is tuned against the 15px/1.5 body:
+   ~3.2em ≈ three line-heights tall. line-height:0.9 + the small top
+   padding keep the cap's cap-height aligned with the first text line
+   instead of riding above it. The server-render / print path uses the
+   .tinycld-text-p-drop-cap class for the same effect (print-css-web.ts,
+   pm_to_html.go). */
+.ProseMirror p[data-drop-cap='true']::first-letter {
+    float: left;
+    font-size: 3.2em;
+    line-height: 0.9;
+    font-weight: 700;
+    padding: 0.02em 0.08em 0 0;
+}
 .ProseMirror h1 {
     font-size: 2em;
     font-weight: 700;

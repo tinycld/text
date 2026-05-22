@@ -2,6 +2,9 @@ import type { Editor } from '@tiptap/react'
 import { applyCellBorders } from '../../../lib/apply-cell-borders'
 import { applyCellShading } from '../../../lib/apply-cell-shading'
 import type { CellBorder, CellBorderPreset } from '../../../lib/cell-borders'
+// Side-effect import: loads the toggleDropCap ChainedCommands
+// augmentation so the 'toggle-drop-cap' case below typechecks.
+import '../../../lib/editor/drop-cap'
 
 // Format bridge for the text WebView. Owns the dispatch of host -> WebView
 // command messages that drive TipTap chain calls. Two shapes flow
@@ -179,6 +182,9 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
                 break
             case 'outdent-block':
                 editor.chain().focus().outdentBlock().run()
+                break
+            case 'toggle-drop-cap':
+                editor.chain().focus().toggleDropCap().run()
                 break
             case 'set-font-size': {
                 const px = parsed.payload

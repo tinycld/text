@@ -26,6 +26,13 @@ body {
     orphans: 3;
     widows: 3;
 }
+.tinycld-text-p-drop-cap::first-letter {
+    float: left;
+    font-size: 3.4em;
+    line-height: 0.9;
+    font-weight: 700;
+    padding: 0.02em 0.08em 0 0;
+}
 .tinycld-text-h1, .tinycld-text-h2, .tinycld-text-h3,
 .tinycld-text-h4, .tinycld-text-h5, .tinycld-text-h6 {
     font-weight: 700;

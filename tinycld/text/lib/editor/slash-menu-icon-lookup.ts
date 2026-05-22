@@ -10,6 +10,7 @@ import {
     Minus,
     Quote,
     Table as TableIcon,
+    Type,
 } from 'lucide-react-native'
 
 // Lucide identifier → component map for the slash menu's serialized
@@ -34,6 +35,7 @@ export const SLASH_MENU_ICONS = {
     Table: TableIcon,
     Image: ImageIcon,
     Minus,
+    Type,
 } as const satisfies Record<string, LucideIcon>
 
 // The set of identifiers SLASH_MENU_ICONS knows about. Exported so

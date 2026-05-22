@@ -100,6 +100,10 @@ export function FormatMenu(props: MenuBarProps) {
                         <CheckedIndicator isOn={toolbarState.isBlockquoteActive} />
                         <Menu.ItemTitle>Blockquote</Menu.ItemTitle>
                     </Menu.Item>
+                    <Menu.Item onPress={() => commands.toggleDropCap?.()} isDisabled={disabled}>
+                        <CheckedIndicator isOn={toolbarState.isDropCapActive ?? false} />
+                        <Menu.ItemTitle>Drop cap</Menu.ItemTitle>
+                    </Menu.Item>
                 </Menu.SubContent>
             </Menu.Sub>
             <Menu.Sub>

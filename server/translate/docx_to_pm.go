@@ -376,7 +376,12 @@ func (p *docxParser) parseDocument(docXML []byte) (PMNode, error) {
 	if err != nil {
 		return PMNode{}, err
 	}
-	root.Content = renestInterruptingBulletSubLists(groupListParagraphs(flat))
+	// mergeDropCaps runs first: it folds drop-cap paragraph pairs
+	// (framePr frame + body, or the legacy flattened cap + body) into one
+	// dropCap paragraph. Drop-cap paragraphs are never list items, so
+	// running it before groupListParagraphs is safe and keeps the list
+	// grouping operating on already-merged blocks.
+	root.Content = renestInterruptingBulletSubLists(groupListParagraphs(mergeDropCaps(flat)))
 	return root, nil
 }
 
@@ -535,6 +540,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 	var numID, ilvl string
 	var textAlign string
 	var indentLevel int
+	var dropCapFrame bool
 	var runs []PMNode
 
 	for {
@@ -546,7 +552,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
-				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel); err != nil {
+				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame); err != nil {
 					return nil, err
 				}
 			case "r":
@@ -601,7 +607,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, runs), nil
+				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, runs), nil
 			}
 		}
 	}
@@ -618,7 +624,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 // intentionally do NOT carry these — Word's <w:jc> on a list item is
 // uncommon and would complicate the list round-trip; blockquote
 // formatting is owned by the wrapper.
-func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, runs []PMNode) *PMNode {
+func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, dropCapFrame bool, runs []PMNode) *PMNode {
 	// Empty paragraph (no runs) is still a valid PM paragraph node;
 	// blank lines in OOXML translate to empty PM paragraphs.
 	if numID != "" {
@@ -639,7 +645,15 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 	switch {
 	case strings.HasPrefix(pStyle, "Heading"):
 		level := headingLevel(pStyle)
-		if level < 1 || level > 6 {
+		if level == 0 {
+			// A "Heading"-prefixed style with no numeric component —
+			// e.g. Word/LibreOffice's bare "Heading" or "Heading "
+			// (the top-level document title style). Treat it as level 1
+			// rather than warning + normalizing to the smallest heading;
+			// a digitless heading is conceptually the most prominent one,
+			// not the least.
+			level = 1
+		} else if level < 1 || level > 6 {
 			p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("heading level %d outside 1-6 normalized to 6", level))
 			level = 6
 		}
@@ -667,13 +681,22 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 			Type:    NodeTypeCodeBlock,
 			Content: codeBlockChildren(runs),
 		}
-	case pStyle != "" && pStyle != "Normal" && pStyle != "ListParagraph":
+	case pStyle != "" && !isDefaultParagraphStyle(pStyle):
 		// Unknown style — fall back to plain paragraph with a warning.
 		p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("paragraph style %q normalized to default paragraph", pStyle))
 	}
 
 	attrs := map[string]any{}
 	applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+	if dropCapFrame {
+		// Native Word drop cap: this paragraph is the frame holding just
+		// the cap; the body follows in the next paragraph. Tag it with a
+		// temporary marker that mergeDropCaps (the post-pass in
+		// parseDocument) consumes — it joins this paragraph with its
+		// successor into one paragraph carrying the public `dropCap`
+		// attr. The marker is stripped there, so it never reaches PM JSON.
+		attrs["_dropCapFrame"] = true
+	}
 	if len(attrs) == 0 {
 		return &PMNode{Type: NodeTypeParagraph, Content: runs}
 	}
@@ -691,6 +714,22 @@ func applyAlignIndentAttrs(attrs map[string]any, textAlign string, indentLevel i
 	if indentLevel > 0 {
 		attrs["indent"] = float64(indentLevel)
 	}
+}
+
+// isDefaultParagraphStyle reports whether a paragraph pStyle is a
+// recognised name for "an ordinary body paragraph" — one that maps to a
+// plain PM paragraph with no special handling and no fidelity loss, so
+// no unsupported-style warning is warranted. Covers Word's "Normal" and
+// "ListParagraph" plus the body-text style names LibreOffice and other
+// exporters emit ("Body", "Body Text", "BodyText", "Default"). Matched
+// case-insensitively with spaces stripped so "Body Text" / "BodyText" /
+// "body text" all collapse to the same key.
+func isDefaultParagraphStyle(pStyle string) bool {
+	switch strings.ToLower(strings.ReplaceAll(pStyle, " ", "")) {
+	case "normal", "listparagraph", "body", "bodytext", "default", "standard":
+		return true
+	}
+	return false
 }
 
 // isCodeBlockStyle returns true for the paragraph style names we
@@ -761,7 +800,7 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 // "center", "right", or "justify" ("both" is Word's name for what PM
 // calls "justify"). Indent maps <w:ind w:left="…"/> twips through
 // twipsToIndentLevel (720 twips per level, half-inch each).
-func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int) error {
+func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -772,6 +811,20 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 			switch t.Name.Local {
 			case "pStyle":
 				*pStyle = attrValue(t, "val")
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			case "framePr":
+				// <w:framePr w:dropCap="drop|margin" .../> marks this
+				// paragraph as a drop-cap frame. Both "drop" (cap sits
+				// inside the text block) and "margin" (cap hangs in the
+				// margin) are treated the same — we render a single
+				// in-block drop-cap style. Any other / absent dropCap
+				// value leaves the flag false (a framePr without a
+				// dropCap is an ordinary text frame we don't model).
+				if v := attrValue(t, "dropCap"); v == "drop" || v == "margin" {
+					*dropCap = true
+				}
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}

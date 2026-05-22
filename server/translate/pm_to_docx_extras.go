@@ -59,6 +59,7 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	doc = rewriteNoteReferences(doc, em.footnotes, false)
 	doc = rewriteNoteReferences(doc, em.endnotes, true)
 	doc = rewritePageBreaks(doc, em.pageBreaks)
+	doc = rewriteDropCapFrames(doc, em.dropCapFrames)
 	doc = rewriteCodeMarks(doc, em.codeMarks)
 	// bgColor must run AFTER code marks: if both are present on the
 	// same run, the code rewriter strips its inner markers first,
@@ -123,6 +124,77 @@ func rewritePageBreaks(doc string, breaks []pageBreakMarker) string {
 		doc = doc[:idx] + `<w:r><w:br w:type="page"/></w:r>` + doc[idx+len(run):]
 	}
 	return doc
+}
+
+// rewriteDropCapFrames turns each drop-cap cap paragraph into a Word
+// native drop cap. The emitter planted a {{__pmdc:N}} marker run as the
+// FIRST run of the cap paragraph (see emitDropCapParagraph). For each
+// marker we:
+//  1. strip the marker run, then
+//  2. inject <w:framePr w:dropCap="drop" w:lines="3"/> into the
+//     enclosing <w:p>'s <w:pPr> (creating the pPr if absent).
+//
+// WordZero's ParagraphProperties has no framePr field, so this XML-layer
+// splice is the only way to attach it without forking the dependency.
+func rewriteDropCapFrames(doc string, frames []dropCapFrame) string {
+	for _, f := range frames {
+		run, idx := findMarkerRun(doc, f.Marker)
+		if idx < 0 {
+			continue
+		}
+		// Strip the marker run first; the paragraph open tag is at or
+		// before idx, so removing the run doesn't move it.
+		doc = doc[:idx] + doc[idx+len(run):]
+		doc = injectFramePrBefore(doc, idx)
+	}
+	return doc
+}
+
+// injectFramePrBefore finds the <w:p ...> that encloses the offset
+// `at` (scanning backwards from it) and injects a drop-cap framePr into
+// that paragraph's properties. Three pPr shapes are handled, mirroring
+// injectShd: an existing <w:pPr>…</w:pPr> (append framePr — Word wants
+// framePr early in pPr, but readers tolerate it after pStyle), a self-
+// closing <w:pPr/>, or no pPr at all (insert one right after the <w:p>
+// open tag). Returns the doc unchanged when no enclosing <w:p> is found.
+func injectFramePrBefore(doc string, at int) string {
+	const framePr = `<w:framePr w:dropCap="drop" w:lines="3"/>`
+	pOpenStart := strings.LastIndex(doc[:at], "<w:p")
+	// Guard against matching <w:pPr> / <w:pStyle> etc.: require the char
+	// after "<w:p" to be '>' or whitespace (a bare paragraph open tag).
+	for pOpenStart >= 0 {
+		after := pOpenStart + len("<w:p")
+		if after < len(doc) {
+			c := doc[after]
+			if c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+				break
+			}
+		}
+		pOpenStart = strings.LastIndex(doc[:pOpenStart], "<w:p")
+	}
+	if pOpenStart < 0 {
+		return doc
+	}
+	pOpenEnd := strings.Index(doc[pOpenStart:], ">")
+	if pOpenEnd < 0 {
+		return doc
+	}
+	pOpenEnd += pOpenStart + 1 // offset just past the <w:p ...> open tag
+
+	// Search for a pPr only within this paragraph (up to the marker
+	// offset `at`, which sits inside this same paragraph's run list).
+	region := doc[pOpenEnd:at]
+	if rel := strings.Index(region, "</w:pPr>"); rel >= 0 {
+		insertAt := pOpenEnd + rel
+		return doc[:insertAt] + framePr + doc[insertAt:]
+	}
+	if rel := strings.Index(region, "<w:pPr/>"); rel >= 0 {
+		insertAt := pOpenEnd + rel
+		return doc[:insertAt] + "<w:pPr>" + framePr + "</w:pPr>" +
+			doc[insertAt+len("<w:pPr/>"):]
+	}
+	// No pPr — insert a fresh one right after the paragraph open tag.
+	return doc[:pOpenEnd] + "<w:pPr>" + framePr + "</w:pPr>" + doc[pOpenEnd:]
 }
 
 // rewriteNoteReferences substitutes footnote / endnote marker runs

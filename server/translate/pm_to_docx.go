@@ -59,6 +59,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
@@ -170,7 +171,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -245,6 +246,16 @@ type emitter struct {
 	bgColorSpans []bgColorSpan
 	bgColorSeq   int
 
+	// dropCapFrames tracks each drop-cap paragraph we split into Word's
+	// native two-paragraph form. A PM dropCap paragraph is split into a
+	// cap paragraph (the first letter) + a body paragraph; the cap
+	// paragraph gets a marker run so the post-process pass can inject
+	// <w:framePr w:dropCap="drop" w:lines="3"/> into its <w:pPr>.
+	// WordZero's ParagraphProperties has no framePr field, so the XML
+	// post-process is the only way to attach it without forking the dep.
+	dropCapFrames   []dropCapFrame
+	dropCapFrameSeq int
+
 	// warnings accumulates soft-degradation signals raised during
 	// emission (currently: oversized / unsupported-type images dropped).
 	// Surfaced by PMJSONToDocxWithWarnings; the legacy PMJSONToDocx
@@ -273,6 +284,15 @@ type ImageResolver func(driveItemID, fileName string) ([]byte, error)
 // recorded; postProcessPageBreaks rewrites the marker text run into
 // <w:br w:type="page"/> inside the surrounding paragraph.
 type pageBreakMarker struct {
+	Marker string
+}
+
+// dropCapFrame tracks one drop-cap cap paragraph by the marker run
+// planted as its first child. rewriteDropCapFrames finds the marker,
+// walks out to the enclosing <w:p>, injects <w:framePr w:dropCap="drop"
+// w:lines="3"/> into its <w:pPr> (creating the pPr if absent), and
+// strips the marker run.
+type dropCapFrame struct {
 	Marker string
 }
 
@@ -382,9 +402,83 @@ func (em *emitter) emitParagraph(node PMNode, listLevel int, parentList string) 
 	if parentList != "" {
 		return em.emitListParagraph(node, listLevel, parentList)
 	}
+	if boolAttr(node.Attrs, "dropCap") {
+		if done, err := em.emitDropCapParagraph(node); done || err != nil {
+			return err
+		}
+		// Fell through: the paragraph carried dropCap but had no leading
+		// text to cap (e.g. starts with an image). Emit it as a normal
+		// paragraph — the drop cap is meaningless without a cap letter.
+	}
 	p := em.doc.AddParagraph("")
 	applyAlignIndent(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
+}
+
+// emitDropCapParagraph splits a PM dropCap paragraph into Word's native
+// two-paragraph drop cap: a cap paragraph holding just the first
+// character (tagged with a marker run so rewriteDropCapFrames can inject
+// <w:framePr w:dropCap="drop"/>), followed by a body paragraph holding
+// the remainder. Returns (true, nil) when it emitted the split form;
+// (false, nil) when the paragraph has no leading text character to use
+// as a cap (caller falls back to a normal paragraph).
+func (em *emitter) emitDropCapParagraph(node PMNode) (bool, error) {
+	capRun, restRuns, ok := splitFirstChar(node.Content)
+	if !ok {
+		return false, nil
+	}
+
+	// Cap paragraph: a marker run first (rewritten into the pPr framePr,
+	// then stripped), then the single cap character. The cap paragraph
+	// carries no align/indent — those belong to the body paragraph,
+	// which is the one that flows as normal text.
+	capPara := em.doc.AddParagraph("")
+	em.dropCapFrameSeq++
+	marker := dropCapToken(em.dropCapFrameSeq)
+	em.dropCapFrames = append(em.dropCapFrames, dropCapFrame{Marker: marker})
+	capPara.AddFormattedText(marker, &document.TextFormat{})
+	if err := em.emitInlineRuns(capPara, []PMNode{capRun}); err != nil {
+		return false, err
+	}
+
+	// Body paragraph: the remainder of the original runs, carrying the
+	// paragraph's align/indent attrs.
+	bodyPara := em.doc.AddParagraph("")
+	applyAlignIndent(bodyPara, node.Attrs)
+	if err := em.emitInlineRuns(bodyPara, restRuns); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// splitFirstChar splits a paragraph's inline content so the first
+// character of the first text run becomes a standalone cap run (keeping
+// that run's marks), and everything after it is the remainder. Leading
+// empty text runs are skipped. Returns ok=false when no leading text
+// character exists (the content is empty or starts with a non-text
+// node), in which case the caller emits a normal paragraph.
+func splitFirstChar(content []PMNode) (capRun PMNode, rest []PMNode, ok bool) {
+	for i, n := range content {
+		if n.Type != NodeTypeText {
+			// Leading non-text inline (image etc.) — no cap letter.
+			return PMNode{}, nil, false
+		}
+		if n.Text == "" {
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(n.Text)
+		if r == utf8.RuneError && size <= 1 {
+			continue
+		}
+		cap := PMNode{Type: NodeTypeText, Text: n.Text[:size], Marks: n.Marks}
+		rest = make([]PMNode, 0, len(content)-i)
+		if remainder := n.Text[size:]; remainder != "" {
+			rest = append(rest, PMNode{Type: NodeTypeText, Text: remainder, Marks: n.Marks})
+		}
+		rest = append(rest, content[i+1:]...)
+		return cap, rest, true
+	}
+	return PMNode{}, nil, false
 }
 
 // applyAlignIndent writes textAlign and indent attrs onto a
@@ -1399,6 +1493,7 @@ func (em *emitter) emitNoteReference(p *document.Paragraph, node PMNode, footnot
 }
 
 func pageBreakToken(n int) string { return "{{__pmpb:" + strconv.Itoa(n) + "}}" }
+func dropCapToken(n int) string   { return "{{__pmdc:" + strconv.Itoa(n) + "}}" }
 func footnoteToken(n int) string  { return "{{__pmfn:" + strconv.Itoa(n) + "}}" }
 func endnoteToken(n int) string   { return "{{__pmen:" + strconv.Itoa(n) + "}}" }
 func codeOpenToken(n int) string {

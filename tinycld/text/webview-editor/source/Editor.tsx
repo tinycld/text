@@ -19,6 +19,7 @@ import * as Y from 'yjs'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
 import { CommentMark } from '../../lib/editor/comment-mark'
+import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { countWords } from '../../lib/word-count'
@@ -207,6 +208,10 @@ function EditorMounted({ init }: EditorMountedProps) {
                 defaultAlignment: null,
             }),
             BlockIndent.configure({ types: ['paragraph', 'heading'] }),
+            // DropCap must be in the shared schema (see the TextStyle
+            // comment above) so a dropCap attr written by a web peer
+            // survives a native edit. Paragraph only.
+            DropCap.configure({ types: ['paragraph'] }),
             Placeholder.configure({
                 placeholder: init.placeholder ?? 'Start writing…',
             }),
@@ -286,6 +291,7 @@ function EditorMounted({ init }: EditorMountedProps) {
                 currentAlign: deriveCurrentAlign(editor),
                 canIndent: deriveActiveIndent(editor) < MAX_INDENT_LEVEL,
                 canOutdent: deriveActiveIndent(editor) > 0,
+                isDropCapActive: editor.isActive('paragraph', { dropCap: true }),
                 currentFontSize: deriveCurrentFontSize(editor),
                 currentFontFamily: deriveCurrentFontFamily(editor),
                 currentTextColor: deriveCurrentTextColor(editor),

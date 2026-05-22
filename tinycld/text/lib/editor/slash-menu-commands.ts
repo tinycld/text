@@ -16,6 +16,11 @@ import '@tiptap/extension-blockquote'
 import '@tiptap/extension-code-block'
 import '@tiptap/extension-table'
 import '@tiptap/extension-horizontal-rule'
+// Local extension: side-effect import loads the `declare module` that
+// adds toggleDropCap to ChainedCommands so the run() handler below
+// typechecks. The runtime extension is registered in Editor.tsx +
+// use-document-editor.web.tsx.
+import './drop-cap'
 
 // NOTE: do NOT import lucide-react-native at the top of this file.
 // SLASH_MENU_COMMANDS is consumed by the WebView's editor bundle
@@ -161,6 +166,19 @@ export const SLASH_MENU_COMMANDS: SlashMenuCommand[] = [
         iconName: 'Minus',
         run: ({ editor, range }) => {
             editor.chain().focus().deleteRange(range).setHorizontalRule().run()
+        },
+    },
+    {
+        id: 'drop-cap',
+        label: 'Drop cap',
+        keywords: ['dropcap', 'initial', 'capital', 'large letter'],
+        iconName: 'Type',
+        // Toggles the dropCap attr on the paragraph the slash trigger
+        // sits in. deleteRange removes the "/drop cap" trigger text
+        // first; toggleDropCap then flips the attr (off if the
+        // paragraph already has it — e.g. re-running the command).
+        run: ({ editor, range }) => {
+            editor.chain().focus().deleteRange(range).toggleDropCap().run()
         },
     },
 ]

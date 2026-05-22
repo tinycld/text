@@ -115,6 +115,16 @@ describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
         bridge.destroy()
     })
 
+    it('routes toggle-drop-cap to editor.chain().focus().toggleDropCap().run()', () => {
+        const fake = makeFakeEditor()
+        const bridge = installFormatBridge(fake.editor, () => undefined)
+        postFromHost({ type: 'toggle-drop-cap', payload: null })
+        expect(fake.calls).toHaveLength(1)
+        const methods = fake.calls[0].methods.map(m => m.name)
+        expect(methods).toEqual(['focus', 'toggleDropCap'])
+        bridge.destroy()
+    })
+
     it('routes toggle-heading with payload as the level (TenTap convention)', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)

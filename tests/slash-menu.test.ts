@@ -27,6 +27,7 @@ describe('SLASH_MENU_COMMANDS', () => {
             'table',
             'image',
             'horizontal-rule',
+            'drop-cap',
         ])
     })
 
@@ -46,6 +47,7 @@ describe('SLASH_MENU_COMMANDS', () => {
             table: 'Table',
             image: 'Image',
             'horizontal-rule': 'Horizontal rule',
+            'drop-cap': 'Drop cap',
         })
     })
 

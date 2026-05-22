@@ -40,6 +40,9 @@ package translate
 //   - .tinycld-text-align--right
 //   - .tinycld-text-align--justify
 //   - .tinycld-text-indent--N             where N is 1..MaxIndentLevel
+//   - .tinycld-text-p-drop-cap            paragraph with a drop cap
+//                                          (::first-letter floated; see
+//                                          print-css-web.ts)
 //
 // Inline marks (applied to <span> wrappers around text runs):
 //   - .tinycld-text-mark--bold
@@ -228,6 +231,11 @@ func (r *htmlRenderer) writeBlock(n PMNode) {
 func (r *htmlRenderer) writeParagraph(n PMNode) {
 	classes := []string{"tinycld-text-p"}
 	classes = appendAlignIndentClasses(classes, n.Attrs)
+	if boolAttr(n.Attrs, "dropCap") {
+		// Drop cap: the print / preview CSS floats ::first-letter so the
+		// body wraps around the enlarged leading glyph (print-css-web.ts).
+		classes = append(classes, "tinycld-text-p-drop-cap")
+	}
 	if wrap := paragraphFloatSide(n); wrap != "" {
 		classes = append(classes, "tinycld-text-p-with-float--"+wrap)
 	}
@@ -960,4 +968,16 @@ func intAttrOr(attrs map[string]any, key string, def int) int {
 // variant. Returns 0 for absent / non-numeric values.
 func intAttrAny(attrs map[string]any, key string) int {
 	return intAttrOr(attrs, key, 0)
+}
+
+// boolAttr returns attrs[key] when present and bool-typed; false for
+// absent / non-bool values. PM JSON encodes booleans as Go bool after
+// json.Unmarshal, so the type assertion is exact. Used for the
+// dropCap paragraph attr.
+func boolAttr(attrs map[string]any, key string) bool {
+	if attrs == nil {
+		return false
+	}
+	v, ok := attrs[key].(bool)
+	return ok && v
 }

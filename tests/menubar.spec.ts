@@ -221,6 +221,29 @@ test.describe('Text — Menubar', () => {
             await expect(liMarker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
         })
 
+        test('Bullets & numbering > Drop cap sets data-drop-cap on the paragraph', async ({
+            page,
+        }) => {
+            await openFreshTextDocument(page, 'menubar-dropcap')
+            await editorRoot(page).click()
+            await page.keyboard.press('End')
+            await page.keyboard.press('Enter')
+
+            const marker = `dropcap-${Date.now()}`
+            await page.keyboard.type(marker)
+
+            await openMenubarMenu(page, 'Format')
+            await page.getByRole('menuitem', { name: 'Bullets & numbering' }).hover()
+            await page.getByRole('menuitem', { name: 'Drop cap' }).click()
+
+            // The paragraph containing the marker should now carry the
+            // data-drop-cap attribute the DropCap extension renders.
+            const dropCapPara = editorRoot(page).locator('p[data-drop-cap="true"]', {
+                hasText: marker,
+            })
+            await expect(dropCapPara).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        })
+
         test('Table > row ops are disabled outside a table, enabled inside', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-table-ops')
 

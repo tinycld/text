@@ -32,6 +32,7 @@ import { applyCellShading } from '../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../lib/editor/block-indent'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
+import { DropCap } from '../lib/editor/drop-cap'
 import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
@@ -346,6 +347,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // commands and Cmd-]/Cmd-[ keymaps. CSS renders as
                 // padding-inline-start per level (see block-indent.ts).
                 BlockIndent.configure({ types: ['paragraph', 'heading'] }),
+                // DropCap: adds a boolean `dropCap` attr to paragraphs.
+                // CSS (editor-content-styles.ts) floats the first letter
+                // so body text wraps around it. Round-trips OOXML
+                // <w:framePr w:dropCap> via server/translate. Paragraph
+                // only — headings never carry a drop cap.
+                DropCap.configure({ types: ['paragraph'] }),
                 Placeholder.configure({ placeholder: options.placeholder ?? 'Start writing…' }),
                 // Column resize: Tiptap's TableView mounts a
                 // columnResizing plugin that draws drag handles on
@@ -496,6 +503,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             unsetTextAlign: () => tiptapEditor?.chain().focus().unsetTextAlign().run(),
             indentBlock: () => tiptapEditor?.chain().focus().indentBlock().run(),
             outdentBlock: () => tiptapEditor?.chain().focus().outdentBlock().run(),
+            toggleDropCap: () => tiptapEditor?.chain().focus().toggleDropCap().run(),
             setFontSize: (px: number) => tiptapEditor?.chain().focus().setFontSize(`${px}px`).run(),
             unsetFontSize: () => tiptapEditor?.chain().focus().unsetFontSize().run(),
             setFontFamily: (family: string) =>
@@ -569,6 +577,9 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         // value stays in sync with the caret as it moves.
         canIndent: deriveActiveIndent(tiptapEditor) < MAX_INDENT_LEVEL,
         canOutdent: deriveActiveIndent(tiptapEditor) > 0,
+        // Drop cap is a paragraph attr, not a node/mark — isActive
+        // matches the paragraph node carrying dropCap=true at the caret.
+        isDropCapActive: tiptapEditor?.isActive('paragraph', { dropCap: true }) ?? false,
         currentFontSize: deriveCurrentFontSize(tiptapEditor),
         currentFontFamily: deriveCurrentFontFamily(tiptapEditor),
         currentTextColor: deriveCurrentTextColor(tiptapEditor),

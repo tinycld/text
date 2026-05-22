@@ -86,6 +86,40 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
         send('tap', { commentId })
     }
 
+    function handleAddWithRange(payload: unknown): void {
+        const { commentId, range } = (payload ?? {}) as {
+            commentId?: string
+            range?: { from?: number; to?: number }
+        }
+        if (!commentId || !range) return
+        const from = typeof range.from === 'number' ? range.from : null
+        const to = typeof range.to === 'number' ? range.to : null
+        if (from === null || to === null) return
+        // Deliberately no `.focus()` here, unlike the bare 'add'
+        // case. add-with-range is the modal-stolen-focus path:
+        // the host opened a dialog to capture the new-comment
+        // body, then submitted. Focusing the editor would steal
+        // focus back from the dismissing modal and cause a
+        // flicker. The mark applies cleanly without editor
+        // focus.
+        editor.chain().setTextSelection({ from, to }).addComment(commentId).run()
+    }
+
+    function handleFocusRequest(requestId: string | undefined, payload: unknown): void {
+        const { commentId } = (payload ?? {}) as { commentId?: string }
+        if (!requestId || !commentId) return
+        const storage = editor.storage.tinycldComment as
+            | { findComment?: (id: string) => { from: number; to: number } | null }
+            | undefined
+        const range = storage?.findComment?.(commentId) ?? null
+        if (range) {
+            editor.chain().setTextSelection(range).scrollIntoView().focus().run()
+            send('focus-response', { found: true }, requestId)
+        } else {
+            send('focus-response', { found: false }, requestId)
+        }
+    }
+
     function onMessage(evt: MessageEvent): void {
         if (typeof evt.data !== 'string') return
         let parsed: IncomingMessage
@@ -103,22 +137,7 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
                 return
             }
             case 'add-with-range': {
-                const { commentId, range } = (parsed.payload ?? {}) as {
-                    commentId?: string
-                    range?: { from?: number; to?: number }
-                }
-                if (!commentId || !range) return
-                const from = typeof range.from === 'number' ? range.from : null
-                const to = typeof range.to === 'number' ? range.to : null
-                if (from === null || to === null) return
-                // Deliberately no `.focus()` here, unlike the bare 'add'
-                // case. add-with-range is the modal-stolen-focus path:
-                // the host opened a dialog to capture the new-comment
-                // body, then submitted. Focusing the editor would steal
-                // focus back from the dismissing modal and cause a
-                // flicker. The mark applies cleanly without editor
-                // focus.
-                editor.chain().setTextSelection({ from, to }).addComment(commentId).run()
+                handleAddWithRange(parsed.payload)
                 return
             }
             case 'remove': {
@@ -136,19 +155,7 @@ export function installCommentBridge(editor: Editor, postToNative: PostToNative)
                 return
             }
             case 'focus-request': {
-                const { requestId } = parsed
-                const { commentId } = (parsed.payload ?? {}) as { commentId?: string }
-                if (!requestId || !commentId) return
-                const storage = editor.storage.tinycldComment as
-                    | { findComment?: (id: string) => { from: number; to: number } | null }
-                    | undefined
-                const range = storage?.findComment?.(commentId) ?? null
-                if (range) {
-                    editor.chain().setTextSelection(range).scrollIntoView().focus().run()
-                    send('focus-response', { found: true }, requestId)
-                } else {
-                    send('focus-response', { found: false }, requestId)
-                }
+                handleFocusRequest(parsed.requestId, parsed.payload)
                 return
             }
         }

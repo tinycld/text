@@ -78,7 +78,11 @@ describe('drop-cap commands surface', () => {
             options: { types: ['paragraph'] },
             editor: { isActive: () => false },
         })
-        expect(Object.keys(commands).sort()).toEqual(['setDropCap', 'toggleDropCap', 'unsetDropCap'])
+        expect(Object.keys(commands).sort()).toEqual([
+            'setDropCap',
+            'toggleDropCap',
+            'unsetDropCap',
+        ])
     })
 
     it('toggleDropCap turns the attr ON when no paragraph is active', () => {
@@ -99,7 +103,10 @@ describe('drop-cap commands surface', () => {
             // isActive=false ⇒ not currently a drop cap ⇒ toggle should set true.
             editor: { isActive: () => false },
         })
-        const ok = commands.toggleDropCap()({ editor: { isActive: () => false }, commands: fakeCommands })
+        const ok = commands.toggleDropCap()({
+            editor: { isActive: () => false },
+            commands: fakeCommands,
+        })
         expect(ok).toBe(true)
         expect(updates).toEqual([{ type: 'paragraph', attrs: { dropCap: true } }])
     })
@@ -121,7 +128,10 @@ describe('drop-cap commands surface', () => {
             options: { types: ['paragraph'] },
             editor: { isActive: () => true },
         })
-        const ok = commands.toggleDropCap()({ editor: { isActive: () => true }, commands: fakeCommands })
+        const ok = commands.toggleDropCap()({
+            editor: { isActive: () => true },
+            commands: fakeCommands,
+        })
         expect(ok).toBe(true)
         expect(updates).toEqual([{ type: 'paragraph', attrs: { dropCap: false } }])
     })

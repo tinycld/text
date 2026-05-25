@@ -1,11 +1,10 @@
-import { useAuth } from '@tinycld/core/lib/auth'
 import { captureException } from '@tinycld/core/lib/errors'
+import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import {
     type RealtimeRoomHandle,
     useRealtimeRoom,
 } from '@tinycld/core/lib/realtime/use-realtime-room'
 import { z } from 'zod'
-import { colorForUser } from '../lib/color-for-user'
 
 export const serverHelloSchema = z.object({
     readOnly: z.boolean(),
@@ -75,19 +74,17 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // consumer. Picking the right approach depends on what other native
 // callers need from the native-side room's awareness.
 export function useTextRoom(driveItemId: string): RealtimeRoomHandle | null {
-    const { user } = useAuth()
-    const userId = user?.id ?? ''
-    const userName = user?.name ?? ''
+    const { identity, realtimeCredential } = useEditorMount()
+    const userId = identity.userId ?? identity.displayName
 
     return useRealtimeRoom({
         roomKind: 'text-doc',
         roomID: driveItemId,
-        initialAwareness: userId
-            ? {
-                  user: { id: userId, name: userName, color: colorForUser(userId) },
-                  cursor: null,
-              }
-            : null,
+        initialAwareness: {
+            user: { id: userId, name: identity.displayName, color: identity.color },
+            cursor: null,
+        },
+        shareSession: realtimeCredential.kind === 'shareSession' ? realtimeCredential.token : undefined,
     })
 }
 

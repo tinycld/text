@@ -1,4 +1,5 @@
 import { eq } from '@tanstack/db'
+import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import type { MentionSuggestion } from '@tinycld/core/ui/comments'
@@ -14,11 +15,15 @@ import { useMemo } from 'react'
 // notify hook would drop it anyway, but leaving the entry in the
 // popover invites accidental self-mentions.
 export function useMentionSuggestions(currentUserOrgId: string): MentionSuggestion[] {
+    const { capabilities } = useEditorMount()
     const [userOrgCollection, usersCollection] = useStore('user_org', 'users')
 
     const { data: members = [] } = useOrgLiveQuery(
-        (query, { orgId }) =>
-            query
+        (query, { orgId }) => {
+            // Guests must not enumerate the org roster — skip the query
+            // entirely (returning null runs no query) when mentions are off.
+            if (!capabilities.canMention) return null
+            return query
                 .from({ uo: userOrgCollection })
                 .join({ u: usersCollection }, ({ uo, u }) => eq(uo.user, u.id))
                 .where(({ uo }) => eq(uo.org, orgId))
@@ -26,8 +31,9 @@ export function useMentionSuggestions(currentUserOrgId: string): MentionSuggesti
                     userOrgId: uo.id,
                     displayName: u.name,
                     email: u.email,
-                })),
-        []
+                }))
+        },
+        [capabilities.canMention]
     )
 
     return useMemo(() => {

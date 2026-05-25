@@ -1,4 +1,5 @@
 import { useBaseCommentMutations } from '@tinycld/core/lib/comments'
+import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import type { TextComments } from '../types'
 
@@ -27,6 +28,7 @@ export function useCommentMutations() {
         'text_comments',
         'comment_mentions'
     )
+    const { identity } = useEditorMount()
 
     return useBaseCommentMutations<
         Omit<TextComments, 'created' | 'updated'>,
@@ -44,6 +46,11 @@ export function useCommentMutations() {
         mentions: {
             commentCollection: 'text_comments',
             insertMention: row => commentMentionsCollection.insert(row),
+        },
+        identity: {
+            userOrgId: identity.userOrgId ?? '',
+            displayName: identity.displayName,
+            email: '',
         },
     })
 }

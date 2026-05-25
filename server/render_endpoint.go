@@ -79,6 +79,15 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 	if err != nil {
 		return re.NotFoundError("drive item not found", err)
 	}
+	return writeRenderedItem(app, re, item)
+}
+
+// writeRenderedItem performs mime validation, ETag handling, and writes
+// the rendered (and sanitized) HTML for a drive_item. Shared by the
+// authenticated render endpoint and the public share-link render
+// endpoint — both arrive here after their own access check, so this
+// function performs no authorization.
+func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) error {
 	// Mime validation: the renderer's pipeline (DocxToPMJSON →
 	// PMJSONToHTML) is docx-only. Reading bytes from a PDF / image /
 	// arbitrary blob and feeding them through DocxToPMJSON would
@@ -89,7 +98,7 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 		return re.BadRequestError("not a docx", nil)
 	}
 
-	etag := renderETag(driveItemID, item.GetString("updated"))
+	etag := renderETag(item.Id, item.GetString("updated"))
 	if match := re.Request.Header.Get("If-None-Match"); match == etag {
 		re.Response.Header().Set("ETag", etag)
 		re.Response.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
@@ -102,9 +111,27 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 		images = translate.ImageModeURL
 	}
 
+	clean, err := RenderItemHTML(app, item, images)
+	if err != nil {
+		return re.InternalServerError("could not render document", err)
+	}
+
+	re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	re.Response.Header().Set("ETag", etag)
+	re.Response.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
+	_, _ = re.Response.Write([]byte(clean))
+	return nil
+}
+
+// RenderItemHTML reads a docx drive_item's bytes and returns the
+// sanitized HTML fragment. Exported so the public share-link render path
+// (registered in this package) can reuse it after validating a share
+// session — the members are separate modules, so cross-package reuse
+// goes through exported funcs here, not imports of drive.
+func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode) (string, error) {
 	docxBytes, err := readDriveItemBytes(app, item)
 	if err != nil {
-		return re.InternalServerError("could not read file", err)
+		return "", fmt.Errorf("could not read file: %w", err)
 	}
 
 	var fragment string
@@ -125,20 +152,11 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 		var renderErr error
 		fragment, _, renderErr = translate.DocxToHTML(docxBytes, opts)
 		if renderErr != nil {
-			return re.InternalServerError("could not render document", renderErr)
+			return "", renderErr
 		}
 	}
 
-	clean, err := render.Sanitize(fragment)
-	if err != nil {
-		return re.InternalServerError("could not sanitize render output", err)
-	}
-
-	re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	re.Response.Header().Set("ETag", etag)
-	re.Response.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
-	_, _ = re.Response.Write([]byte(clean))
-	return nil
+	return render.Sanitize(fragment)
 }
 
 // renderETag derives an opaque ETag for a render request. Composed

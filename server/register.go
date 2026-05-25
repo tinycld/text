@@ -8,8 +8,30 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/realtime"
+	"tinycld.org/core/sharelink"
 	"tinycld.org/packages/text/translate"
 )
+
+// authorizeAnonShare admits an anonymous editable-link visitor to a text
+// room. Re-resolves the share link (rejecting revoked/expired/downgraded
+// links at connect time) and requires an editor role bound to this exact
+// drive_item. Read-only/commentor links never reach the realtime editor.
+func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string) error {
+	if claims.ItemID != roomID {
+		return errNoShare
+	}
+	link, item, err := sharelink.ResolveLink(app, claims.ShareToken)
+	if err != nil {
+		return err
+	}
+	if item.Id != roomID {
+		return errNoShare
+	}
+	if link.GetString("role") != sharelink.RoleEditor {
+		return errNoShare
+	}
+	return nil
+}
 
 // roomKindText is the realtime roomKind name owned by this package.
 // Each connection at /api/realtime/text-doc/<drive_item_id> is gated
@@ -45,7 +67,12 @@ func Register(app *pocketbase.PocketBase) {
 	saveCoordinator.SetJournal(roomKindText, journal)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
-		Authorize:       makeAuthorize(app),
+		Authorize: makeAuthorize(app),
+		// Anonymous editable-link visitors: admit only when the share
+		// link is still live and grants edit. Mirrors calc.
+		AuthorizeShare: func(claims realtime.ShareClaims, roomID string) error {
+			return authorizeAnonShare(app, claims, roomID)
+		},
 		RuntimeProvider: runtime,
 		Journal:         journal,
 		OnRoomCreate:    saveCoordinator.OnRoomCreate,
@@ -60,6 +87,11 @@ func Register(app *pocketbase.PocketBase) {
 	// it reads cold drive_item bytes, not live Y.Doc state. Mirrors
 	// calc's registerAPI exactly.
 	registerRenderAPI(app)
+
+	// /api/text/share-render/{token} — public render for Drive's
+	// read-only share links, gated by a signed share session instead
+	// of re.Auth.
+	registerShareRenderAPI(app)
 
 	// Cascade-clean WAL rows when a drive_items record (text doc) is
 	// deleted. Scoped to room_kind = "text-doc"; other kinds (calc)
@@ -138,6 +170,13 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 // a write-side filter, this gates the editor UI only — server-side
 // rejection of viewer writes is a follow-up tracked in TODO.md.
 func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool {
+	// Anonymous share-session visitor: the editable route only admits
+	// editor-role links (enforced in AuthorizeShare), so an anon
+	// connection here is writable. Their drive has no drive_shares row,
+	// so don't run the org-member resolution below.
+	if conn.IsAnonymous() {
+		return conn.ShareRole() != sharelink.RoleEditor
+	}
 	userID := conn.AuthID()
 	if userID == "" {
 		return true

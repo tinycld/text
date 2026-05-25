@@ -1,9 +1,12 @@
 import { eq } from '@tanstack/db'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
+import { useAuth } from '@tinycld/core/lib/auth'
+import { EditorMountProvider, type EditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
+import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
@@ -31,12 +34,15 @@ import { useNewCommentFlow } from '../hooks/use-new-comment-flow'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
+import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 
 export default function TextDetail() {
     const { id } = useLocalSearchParams<{ id: string }>()
     const [driveItemsCollection] = useStore('drive_items')
+    const { user } = useAuth()
+    const { userOrgId } = useCurrentRole()
 
     const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
         (query, { orgId }) =>
@@ -49,10 +55,22 @@ export default function TextDetail() {
 
     const item = items[0]
 
+    // Build the identity for awareness before the room is opened so
+    // useTextRoom can stamp the initial awareness slot without needing
+    // EditorMountProvider (which is established later, in the return).
+    const identity: EditorMount['identity'] = {
+        kind: 'member',
+        userId: user.id,
+        userOrgId,
+        displayName: user.name,
+        color: colorForUser(user.id),
+    }
+    const realtimeCredential: EditorMount['realtimeCredential'] = { kind: 'auth' }
+
     // Open the realtime room as soon as we have a document id. The
     // server populates the doc from the source .docx before the first
     // SyncReply arrives, so the client never needs the file source.
-    const room = useTextRoom(item?.id ?? '')
+    const room = useTextRoom(item?.id ?? '', { identity, realtimeCredential })
 
     if (isItemLoading || !item) {
         return <CenteredMessage label="Loading document…" spinner />
@@ -62,13 +80,28 @@ export default function TextDetail() {
         return <CenteredMessage label="Opening…" spinner />
     }
 
+    const mount: EditorMount = {
+        itemId: item.id,
+        itemName: item.name,
+        itemFile: item.file ?? '',
+        mimeType: item.mime_type ?? '',
+        // Authed org member: full identity + all capabilities. The anon/guest
+        // mount (built on the share route) is a later task.
+        identity,
+        role: 'editor',
+        capabilities: { canEdit: true, canComment: true, canUseFileActions: true, canMention: true },
+        realtimeCredential,
+    }
+
     return (
-        <DocumentScreen
-            itemName={item.name}
-            itemFile={item.file ?? ''}
-            room={room}
-            driveItemId={item.id}
-        />
+        <EditorMountProvider value={mount}>
+            <DocumentScreen
+                itemName={item.name}
+                itemFile={item.file ?? ''}
+                room={room}
+                driveItemId={item.id}
+            />
+        </EditorMountProvider>
     )
 }
 

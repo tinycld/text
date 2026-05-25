@@ -1,5 +1,5 @@
 import { captureException } from '@tinycld/core/lib/errors'
-import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
+import type { EditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import {
     type RealtimeRoomHandle,
     useRealtimeRoom,
@@ -73,14 +73,20 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // Option 1 is cleaner but requires touching the PresenceAvatars
 // consumer. Picking the right approach depends on what other native
 // callers need from the native-side room's awareness.
-export function useTextRoom(driveItemId: string): RealtimeRoomHandle | null {
-    const { identity, realtimeCredential } = useEditorMount()
+export interface UseTextRoomOptions {
+    identity: EditorMount['identity']
+    realtimeCredential: EditorMount['realtimeCredential']
+}
+
+export function useTextRoom(driveItemId: string, { identity, realtimeCredential }: UseTextRoomOptions): RealtimeRoomHandle | null {
     const userId = identity.userId ?? identity.displayName
 
     return useRealtimeRoom({
         roomKind: 'text-doc',
         roomID: driveItemId,
         initialAwareness: {
+            // Anon visitors fall back to displayName for the awareness id; two
+            // guests with the same name share a cursor color, which is fine.
             user: { id: userId, name: identity.displayName, color: identity.color },
             cursor: null,
         },

@@ -47,6 +47,8 @@ export function useCommentMutations() {
             commentCollection: 'text_comments',
             insertMention: row => commentMentionsCollection.insert(row),
         },
+        // commentor+ roles always have userOrgId; author_name resolves from
+        // displayName so email is unused here.
         identity: {
             userOrgId: identity.userOrgId ?? '',
             displayName: identity.displayName,

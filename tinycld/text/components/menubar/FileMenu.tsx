@@ -1,21 +1,33 @@
+import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
-import { pb } from '@tinycld/core/lib/pocketbase'
 import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { router } from 'expo-router'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { PMNode } from '../../lib/markdown/types'
 import type { MenuBarProps } from './MenuBar'
 import { SaveVersionDialog } from './SaveVersionDialog'
 
+// Lazy: ShareDialogConnected → ShareDialog → use-contact-suggestions →
+// use-packages → static-registry, which reads tinycldConfig at module init.
+// Importing it eagerly from this file creates a cycle: tinycld.config.ts
+// pulls @tinycld/text/provider, the provider eagerly imports screens/[id]
+// for share-route dispatch, [id] imports this menu, and the menu would then
+// re-enter tinycld.config.ts before its exports are bound. Deferring with
+// React.lazy breaks the chain — the import doesn't fire until the user
+// actually opens the Share dialog.
+const ShareDialogConnected = lazy(() => import('@tinycld/drive/components/ShareDialogConnected'))
+
 export function FileMenu(props: MenuBarProps) {
     const orgHref = useOrgHref()
+    const { capabilities } = useEditorMount()
     const [isSaveVersionOpen, setSaveVersionOpen] = useState(false)
     const [isCopyOpen, setCopyOpen] = useState(false)
     const [isRenameOpen, setRenameOpen] = useState(false)
     const [isTrashOpen, setTrashOpen] = useState(false)
+    const [isShareOpen, setShareOpen] = useState(false)
 
     const handleCopy = (name: string) => {
         props.fileActions.makeCopy(name)
@@ -32,8 +44,15 @@ export function FileMenu(props: MenuBarProps) {
         setTrashOpen(false)
     }
 
-    const downloadSource = () => {
+    // Dynamic-imported to break a require cycle: pocketbase.ts imports the
+    // generated tinycld-config (to register collections), tinycld-config
+    // imports text/provider, the provider eagerly imports screens/[id] for
+    // share-route dispatch, and the screen pulls this menu — completing the
+    // loop if FileMenu imports pb at module scope. Pulling pb only at click
+    // time keeps the cycle open.
+    const downloadSource = async () => {
         if (!props.sourceFile) return
+        const { pb } = await import('@tinycld/core/lib/pocketbase')
         const url = pb.files.getURL(
             { collectionId: 'drive_items', id: props.documentId },
             props.sourceFile
@@ -92,6 +111,11 @@ export function FileMenu(props: MenuBarProps) {
                 <Menu.Item onPress={() => setCopyOpen(true)}>
                     <Menu.ItemTitle>Make a copy</Menu.ItemTitle>
                 </Menu.Item>
+                {capabilities.canUseFileActions && (
+                    <Menu.Item onPress={() => setShareOpen(true)}>
+                        <Menu.ItemTitle>Share</Menu.ItemTitle>
+                    </Menu.Item>
+                )}
                 <Menu.Item onPress={() => setSaveVersionOpen(true)}>
                     <Menu.ItemTitle>Save version</Menu.ItemTitle>
                 </Menu.Item>
@@ -151,6 +175,16 @@ export function FileMenu(props: MenuBarProps) {
                 confirmLabel="Move to trash"
                 isDestructive
             />
+            {capabilities.canUseFileActions && isShareOpen && (
+                <Suspense fallback={null}>
+                    <ShareDialogConnected
+                        open={isShareOpen}
+                        itemId={props.documentId}
+                        itemName={props.documentName}
+                        onClose={() => setShareOpen(false)}
+                    />
+                </Suspense>
+            )}
         </>
     )
 }

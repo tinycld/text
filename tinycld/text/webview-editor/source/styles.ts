@@ -54,28 +54,8 @@ body {
     box-sizing: border-box;
 }
 ${EDITOR_CONTENT_STYLES}
-/* CollaborationCaret styles - peers' cursors and labels */
-.collaboration-cursor__caret {
-    border-left: 2px solid;
-    border-right: 2px solid;
-    margin-left: -1px;
-    margin-right: -1px;
-    pointer-events: none;
-    position: relative;
-    word-break: normal;
-}
-.collaboration-cursor__label {
-    border-radius: 3px 3px 3px 0;
-    color: white;
-    font-size: 11px;
-    font-style: normal;
-    font-weight: 600;
-    left: -2px;
-    line-height: normal;
-    padding: 1px 4px;
-    position: absolute;
-    top: -18px;
-    user-select: none;
-    white-space: nowrap;
-}
+/* CollaborationCaret v3 styles live inside EDITOR_CONTENT_STYLES so the
+   web and WebView paths render peer cursors identically. The v2-name
+   fallback is also there for any tagged build still pinning the old
+   extension. Nothing CollaborationCaret-related belongs here. */
 `

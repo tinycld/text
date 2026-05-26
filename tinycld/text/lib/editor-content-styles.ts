@@ -334,4 +334,156 @@ export const EDITOR_CONTENT_STYLES = `
 .ProseMirror .tinycld-comment:hover {
     background-color: var(--editor-comment-highlight, rgba(250, 204, 21, 0.22));
 }
+
+/* ── Collaboration cursors (CollaborationCaret v3) ─────────────────────
+   @tiptap/extension-collaboration-caret renames the v2 classes (plural
+   "carets" + double-underscore). The extension injects:
+
+     <span class="collaboration-carets__caret" style="border-color: $color">
+         <div class="collaboration-carets__label" style="background-color: $color">
+             $userName
+         </div>
+     </span>
+
+   …and for a non-empty remote selection:
+
+     <span class="ProseMirror-yjs-selection" style="background-color: $color70">…</span>
+
+   Without these rules the caret span has no border-style so the inline
+   border-color resolves to nothing visible — and the label <div>, being
+   a block-level child of an inline span, balloons to fill the line.
+   That's the "giant green block" footgun. */
+
+/* Caret — a 2px vertical line that rides the line-height of the
+   surrounding text. The extension sets border-color (user color) inline;
+   we add the matching border-style: solid + border-width here. We
+   deliberately set ONLY the left border (v2 used both, doubling the
+   apparent thickness) and zero out the inline-box width so the line
+   doesn't push surrounding glyphs sideways. position: relative anchors
+   the absolutely-positioned label. */
+.ProseMirror .collaboration-carets__caret {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    margin-left: -1px;
+    border-left-style: solid;
+    border-left-width: 2px;
+    pointer-events: none;
+    word-break: normal;
+    box-sizing: content-box;
+    /* Letter-spacing zero keeps the 2px line from picking up word-break
+       adjustments inside justified paragraphs. */
+    letter-spacing: 0;
+}
+
+/* The label rides ABOVE the caret as a small pill, fully clear of the
+   line of text the caret sits on — so the 2px caret line itself stays
+   visible end-to-end (otherwise the label visually overlaps + hides
+   the caret, defeating the whole point of the indicator).
+
+   bottom: 100% anchors the label's bottom edge to the caret span's
+   top edge (which equals the text line's top), and a 4px margin-bottom
+   lifts the label off the line entirely. left: -2px compensates for
+   the 2px caret border so the label and caret share a vertical edge.
+
+   Background color is set inline by the extension to the user's
+   palette color; we layer typography, radius, and a soft shadow on top.
+
+   Animation: the label fades to 0 opacity ~2.5s after the caret span
+   mounts. Yjs awareness re-mounts the decoration whenever the remote
+   caret moves, so the fade restarts on every typing burst — matches
+   the Notion/Confluence pattern of "show name on activity, hide once
+   stable". Hovering the caret pauses & reverts the fade so a reader
+   can identify a stationary collaborator at will. */
+.ProseMirror .collaboration-carets__label {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    margin-bottom: 4px;
+    z-index: 20;
+    padding: 1px 6px 2px;
+    border-radius: 4px 4px 4px 0;
+    font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: 0.01em;
+    color: #fff;
+    white-space: nowrap;
+    user-select: none;
+    pointer-events: none;
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.12),
+        0 2px 6px rgba(0, 0, 0, 0.08);
+    transform-origin: 0 100%;
+    opacity: 1;
+    animation: tinycld-caret-label-fade 2.6s ease-out 2s forwards;
+}
+
+/* Bring the label back when the reader hovers within ~24px of the
+   caret. The hover surface is the caret span; widening its effective
+   hit area via padding would push surrounding text, so we let the
+   browser's default pointer hit-test the 2px line — coarse but
+   sufficient for the recovery affordance. */
+.ProseMirror .collaboration-carets__caret:hover .collaboration-carets__label {
+    animation: none;
+    opacity: 1;
+    transform: scale(1);
+}
+
+@keyframes tinycld-caret-label-fade {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    85% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-2px) scale(0.92);
+    }
+}
+
+/* Remote-user selection highlight. The extension paints a span with
+   the user color at 44% alpha (#RRGGBB70) inline — that's already the
+   right intensity. The CSS adds only a small border-radius so the run
+   edges don't look like a cut-out rectangle when the selection wraps
+   across a line break, and a hair of vertical padding so the highlight
+   nestles around descenders. */
+.ProseMirror .ProseMirror-yjs-selection {
+    border-radius: 2px;
+    padding-block: 1px;
+}
+
+/* ── Legacy CollaborationCursor (v2 class names) ───────────────────────
+   Kept verbatim so any environment still pinning the v2 extension
+   (the WebView build was at v2 for a release window) doesn't regress.
+   Safe to delete once every consumer ships v3. */
+.ProseMirror .collaboration-cursor__caret {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    margin-left: -1px;
+    border-left-style: solid;
+    border-left-width: 2px;
+    pointer-events: none;
+    word-break: normal;
+    box-sizing: content-box;
+}
+.ProseMirror .collaboration-cursor__label {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    margin-bottom: 4px;
+    z-index: 20;
+    padding: 1px 6px 2px;
+    border-radius: 4px 4px 4px 0;
+    font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #fff;
+    white-space: nowrap;
+    user-select: none;
+    pointer-events: none;
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.12),
+        0 2px 6px rgba(0, 0, 0, 0.08);
+}
 `

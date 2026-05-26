@@ -134,51 +134,51 @@ test.describe('Text — .docx fidelity', () => {
         expect(byText.get('Tables')).toBe('H2')
         expect(byText.get('Simple Tables')).toBe('H3')
         expect(byText.get('Complex Tables')).toBe('H3')
+        expect(byText.get('Dropcap')).toBe('H2')
         expect(byText.get('Columns')).toBe('H2')
 
         // Lock the per-tag counts to catch silent collapses of the
-        // hierarchy (e.g. every heading becoming an H1 again).
+        // hierarchy (e.g. every heading becoming an H1 again). The fixture
+        // has seven H2 sections (Headings, Lists, Links, Images, Tables,
+        // Dropcap, Columns) and two H3s (Simple/Complex Tables).
         await expect(page.locator('.ProseMirror h1')).toHaveCount(1)
-        await expect(page.locator('.ProseMirror h2')).toHaveCount(6)
+        await expect(page.locator('.ProseMirror h2')).toHaveCount(7)
         await expect(page.locator('.ProseMirror h3')).toHaveCount(2)
     })
 
-    test('outline list nests the interrupting bullets under item 5 (single ol 1–6)', async ({
-        page,
-    }) => {
-        // The fixture's outline is decimal 1–5 (Headings…Tables), then a
-        // nested bulleted list (Simple/Complex Tables) that Word emits as
-        // a separate list-paragraph stream, then a final numbered item
-        // (Columns). The importer's renestInterruptingBulletSubLists pass
-        // (server/translate/docx_to_pm.go) merges this into ONE ordered
-        // list of six items with the bullets nested inside item 5's
-        // <li> — matching the user's mental model of one outline with
-        // sub-bullets. The numbering then flows naturally (1–6) with no
-        // `start`-attribute resumption.
+    test('numbered outline sections import as ordered lists starting at 1', async ({ page }) => {
+        // The fixture's "Lists" section has the decimal outline
+        // Headings…Tables (one ordered list), and the Simple/Complex Tables
+        // and Columns runs each import as their own ordered list. None of
+        // them carry a `start` attribute — every list begins at 1, so the
+        // importer never emits Word-style numbering resumption. (Matches the
+        // golden server/translate output in feature-test.expected.json,
+        // which has no bulletList and three separate orderedList nodes.)
         await openFixture(page)
         const { orderedLists } = await domSnapshot(page)
 
-        // Exactly one top-level ordered list — the bullets are nested,
-        // not a sibling, and the second numbered half was merged in.
-        expect(orderedLists, 'expected a single merged top-level <ol> (1–6)').toHaveLength(1)
+        // Three top-level ordered lists, each starting at 1.
+        expect(orderedLists, 'three top-level ordered lists').toHaveLength(3)
+        for (const ol of orderedLists) {
+            expect(ol.start, 'each ordered list starts at 1 (no resumption)').toBe(1)
+        }
 
-        const outline = orderedLists[0]
-        expect(outline.start, 'merged list starts at 1 (no resumption)').toBe(1)
-        expect(outline.firstItem.startsWith('Headings')).toBe(true)
-        expect(outline.itemTexts, 'six items, Headings…Columns').toHaveLength(6)
-        expect(outline.itemTexts[5].startsWith('Columns')).toBe(true)
+        const [outline, tablesSub, columns] = orderedLists
+        expect(outline.itemTexts, 'first list: Headings…Tables').toEqual([
+            expect.stringMatching(/^Headings/),
+            expect.stringMatching(/^Lists/),
+            expect.stringMatching(/^Links/),
+            expect.stringMatching(/^Images/),
+            expect.stringMatching(/^Tables/),
+        ])
+        expect(tablesSub.itemTexts).toEqual([
+            expect.stringMatching(/^Simple Tables/),
+            expect.stringMatching(/^Complex Tables/),
+        ])
+        expect(columns.itemTexts).toEqual([expect.stringMatching(/^Columns/)])
 
-        // The interrupting bullet list is nested inside the outline's
-        // "Tables" item (#5), not at top level. Find the <ul> whose
-        // closest ancestor <li> contains "Tables".
-        const nestedBullets = page.locator('.ProseMirror li', { hasText: 'Tables' }).locator('ul')
-        await expect(nestedBullets.first()).toBeVisible()
-        await expect(
-            nestedBullets.locator('li', { hasText: 'Simple Tables' }).first()
-        ).toBeVisible()
-
-        // No top-level <ol> carries a `start` attribute — numbering is
-        // continuous, not resumed.
+        // No top-level <ol> carries a `start` attribute — numbering always
+        // begins at 1, never resumed.
         const topLevelOls = page.locator('.ProseMirror > ol, .ProseMirror ol:not(li ol)')
         const count = await topLevelOls.count()
         for (let i = 0; i < count; i++) {

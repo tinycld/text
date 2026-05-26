@@ -104,11 +104,6 @@ func Register(app *pocketbase.PocketBase) {
 	// calc's registerAPI exactly.
 	registerRenderAPI(app)
 
-	// /api/text/share-render/{token} — public render for Drive's
-	// read-only share links, gated by a signed share session instead
-	// of re.Auth.
-	registerShareRenderAPI(app)
-
 	// Cascade-clean WAL rows when a drive_items record (text doc) is
 	// deleted. Scoped to room_kind = "text-doc"; other kinds (calc)
 	// register their own parallel hook. math.MaxInt64 as the upper

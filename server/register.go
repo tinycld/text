@@ -79,7 +79,15 @@ func Register(app *pocketbase.PocketBase) {
 		OnDocUpdate:     saveCoordinator.OnDocUpdate,
 		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
 		OnEmpty:         saveCoordinator.OnRoomEmpty,
-		OnConnect:       makeOnConnect(app, runtime),
+		OnConnect: makeOnConnect(app, runtime),
+		// Server-side write gate: drop mutations from read-only
+		// connections (viewer members; anon viewers once admitted). Reads
+		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no
+		// per-frame DB. Relies on OnConnect having run first, which it
+		// always does (handshake precedes the frame read loop).
+		WritePredicate: func(c *realtime.Client, _ string) bool {
+			return !c.ReadOnly()
+		},
 	})
 
 	// /api/text/render/:id — server-rendered HTML for previews +
@@ -142,6 +150,10 @@ type importWarningJSON struct {
 func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 	return func(roomID string, conn *realtime.Client) ([]byte, error) {
 		readOnly := isReadOnlyForConn(app, roomID, conn)
+		// Cache on the connection so the broker's WritePredicate (hot
+		// path, every MsgDocUpdate) is a pure field read, not a per-frame
+		// DB query. The share/membership role can't change mid-session.
+		conn.SetReadOnly(readOnly)
 		warnings := runtime.PopImportWarnings(roomID)
 		payload := serverHelloPayload{
 			ReadOnly:       readOnly,
@@ -164,11 +176,12 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 // log and return true (deny writes) rather than silently granting
 // edit access on a transient DB error.
 //
-// Note: this is the CLIENT-side enforcement signal. The Yjs broker
-// has no per-message write predicate today, so a viewer that ignores
-// readOnly=true can still POST MsgDocUpdate frames. Until core grows
-// a write-side filter, this gates the editor UI only — server-side
-// rejection of viewer writes is a follow-up tracked in TODO.md.
+// Note: this resolves the read-only decision used for BOTH the client
+// serverHello signal (which disables the editor UI) and the cached flag
+// the broker's WritePredicate enforces. So a viewer that ignores
+// readOnly=true is still rejected server-side — its MsgDocUpdate frames
+// are dropped by the broker. The value is computed once at connect
+// (OnConnect → SetReadOnly) and not re-queried per frame.
 func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool {
 	// Anonymous share-session visitor: the editable route only admits
 	// editor-role links (enforced in AuthorizeShare), so an anon

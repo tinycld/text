@@ -81,40 +81,26 @@ describe('colorForUser', () => {
         expect(colorForUser('alice-1234567890')).toBe(colorForUser('alice-1234567890'))
     })
 
-    it('returns a string from the fixed 16-color palette', () => {
-        // The palette is closed; awareness consumers (other tabs)
-        // expect colors to fall in a known range. A regression
-        // here would break the visual contract that the cursor
-        // chip and the avatar share the same color.
-        const PALETTE = new Set([
-            '#e11d48',
-            '#f97316',
-            '#eab308',
-            '#84cc16',
-            '#22c55e',
-            '#10b981',
-            '#14b8a6',
-            '#06b6d4',
-            '#3b82f6',
-            '#6366f1',
-            '#8b5cf6',
-            '#a855f7',
-            '#d946ef',
-            '#ec4899',
-            '#f43f5e',
-            '#64748b',
-        ])
+    it('returns an hsl() string with the shared saturation/lightness contract', () => {
+        // The shared util in @tinycld/core/lib/util/color emits
+        // `hsl(<0..359>, 70%, 45%)`. Awareness consumers (other
+        // tabs) expect that exact format — a regression to a
+        // different format would break the visual contract.
         const samples = ['a', 'alice', 'bob', 'user_12345', 'longer-user-id-with-dashes', '', '0']
+        const re = /^hsl\((\d{1,3}), 70%, 45%\)$/
         for (const id of samples) {
             const color = colorForUser(id)
-            expect(PALETTE.has(color), `${id} → ${color}`).toBe(true)
+            const match = color.match(re)
+            expect(match, `${id} → ${color}`).not.toBeNull()
+            const hue = Number(match?.[1])
+            expect(hue >= 0 && hue < 360, `${id} → hue ${hue}`).toBe(true)
         }
     })
 
-    it('distributes distinct ids across the palette (not all the same color)', () => {
+    it('distributes distinct ids across the hue space (not all the same color)', () => {
         // Birthday-paradox test: 32 random-looking ids should hit
-        // at least 4 distinct palette entries. A regression to
-        // "always return PALETTE[0]" would fail here.
+        // at least 4 distinct hues. A regression to "always return
+        // the same hue" would fail here.
         const ids = Array.from({ length: 32 }, (_, i) => `user_${i}`)
         const colors = new Set(ids.map(colorForUser))
         expect(colors.size).toBeGreaterThanOrEqual(4)

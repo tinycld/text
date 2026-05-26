@@ -38,6 +38,28 @@ import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 
+export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
+    const room = useTextRoom(mount.itemId, {
+        identity: mount.identity,
+        realtimeCredential: mount.realtimeCredential,
+    })
+
+    if (room == null || !room.isReady) {
+        return <CenteredMessage label="Opening…" spinner />
+    }
+
+    return (
+        <EditorMountProvider value={mount}>
+            <DocumentScreen
+                itemName={mount.itemName}
+                itemFile={mount.itemFile}
+                room={room}
+                driveItemId={mount.itemId}
+            />
+        </EditorMountProvider>
+    )
+}
+
 export default function TextDetail() {
     const { id } = useLocalSearchParams<{ id: string }>()
     const [driveItemsCollection] = useStore('drive_items')
@@ -55,29 +77,8 @@ export default function TextDetail() {
 
     const item = items[0]
 
-    // Build the identity for awareness before the room is opened so
-    // useTextRoom can stamp the initial awareness slot without needing
-    // EditorMountProvider (which is established later, in the return).
-    const identity: EditorMount['identity'] = {
-        kind: 'member',
-        userId: user.id,
-        userOrgId,
-        displayName: user.name,
-        color: colorForUser(user.id),
-    }
-    const realtimeCredential: EditorMount['realtimeCredential'] = { kind: 'auth' }
-
-    // Open the realtime room as soon as we have a document id. The
-    // server populates the doc from the source .docx before the first
-    // SyncReply arrives, so the client never needs the file source.
-    const room = useTextRoom(item?.id ?? '', { identity, realtimeCredential })
-
     if (isItemLoading || !item) {
         return <CenteredMessage label="Loading document…" spinner />
-    }
-
-    if (room == null || !room.isReady) {
-        return <CenteredMessage label="Opening…" spinner />
     }
 
     const mount: EditorMount = {
@@ -87,7 +88,13 @@ export default function TextDetail() {
         mimeType: item.mime_type ?? '',
         // Authed org member: full identity + all capabilities. The anon/guest
         // mount (built on the share route) is a later task.
-        identity,
+        identity: {
+            kind: 'member',
+            userId: user.id,
+            userOrgId,
+            displayName: user.name,
+            color: colorForUser(user.id),
+        },
         role: 'editor',
         capabilities: {
             canEdit: true,
@@ -95,19 +102,10 @@ export default function TextDetail() {
             canUseFileActions: true,
             canMention: true,
         },
-        realtimeCredential,
+        realtimeCredential: { kind: 'auth' },
     }
 
-    return (
-        <EditorMountProvider value={mount}>
-            <DocumentScreen
-                itemName={item.name}
-                itemFile={item.file ?? ''}
-                room={room}
-                driveItemId={item.id}
-            />
-        </EditorMountProvider>
-    )
+    return <TextEditorFromMount mount={mount} />
 }
 
 interface DocumentScreenProps {

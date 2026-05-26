@@ -1,5 +1,5 @@
-import { captureException } from '@tinycld/core/lib/errors'
 import type { EditorMount } from '@tinycld/core/lib/editor/editor-mount'
+import { captureException } from '@tinycld/core/lib/errors'
 import {
     type RealtimeRoomHandle,
     useRealtimeRoom,
@@ -78,7 +78,10 @@ export interface UseTextRoomOptions {
     realtimeCredential: EditorMount['realtimeCredential']
 }
 
-export function useTextRoom(driveItemId: string, { identity, realtimeCredential }: UseTextRoomOptions): RealtimeRoomHandle | null {
+export function useTextRoom(
+    driveItemId: string,
+    { identity, realtimeCredential }: UseTextRoomOptions
+): RealtimeRoomHandle | null {
     const userId = identity.userId ?? identity.displayName
 
     return useRealtimeRoom({
@@ -90,7 +93,8 @@ export function useTextRoom(driveItemId: string, { identity, realtimeCredential 
             user: { id: userId, name: identity.displayName, color: identity.color },
             cursor: null,
         },
-        shareSession: realtimeCredential.kind === 'shareSession' ? realtimeCredential.token : undefined,
+        shareSession:
+            realtimeCredential.kind === 'shareSession' ? realtimeCredential.token : undefined,
     })
 }
 

@@ -1,7 +1,7 @@
 import { eq } from '@tanstack/db'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
 import { useAuth } from '@tinycld/core/lib/auth'
-import { EditorMountProvider, type EditorMount } from '@tinycld/core/lib/editor/editor-mount'
+import { type EditorMount, EditorMountProvider } from '@tinycld/core/lib/editor/editor-mount'
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
@@ -89,7 +89,12 @@ export default function TextDetail() {
         // mount (built on the share route) is a later task.
         identity,
         role: 'editor',
-        capabilities: { canEdit: true, canComment: true, canUseFileActions: true, canMention: true },
+        capabilities: {
+            canEdit: true,
+            canComment: true,
+            canUseFileActions: true,
+            canMention: true,
+        },
         realtimeCredential,
     }
 

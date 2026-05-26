@@ -15,7 +15,13 @@ export interface MenuBarProps {
     commands: EditorCommands
     toolbarState: EditorToolbarState
     fileActions: DocumentFileActions
+    /** Per-item gate inside each menu — e.g. greys out "Bold" when the
+     *  current selection can't accept it. Distinct from `isReadOnly`
+     *  below, which disables every top-level trigger at once. */
     disabled: boolean
+    /** Read-only viewers (anon share links) see the menu bar as a row of
+     *  greyed-out triggers — the menus exist for context but do not open. */
+    isReadOnly?: boolean
     onPrint: () => void
     onRequestInsertLink: () => void
     onInsertImage: (url: string) => void
@@ -28,7 +34,7 @@ export interface MenuBarProps {
 
 export function MenuBar(props: MenuBarProps) {
     return (
-        <CoreMenuBar>
+        <CoreMenuBar allMenusDisabled={props.isReadOnly}>
             <FileMenu {...props} />
             <EditMenu {...props} />
             <InsertMenu {...props} />

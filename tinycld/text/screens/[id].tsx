@@ -212,6 +212,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     toolbarState={toolbarState}
                     fileActions={fileActions}
                     disabled={isReadOnly}
+                    isReadOnly={isReadOnly}
                     onPrint={() => {
                         void printDocument()
                     }}

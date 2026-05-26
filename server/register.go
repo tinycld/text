@@ -12,10 +12,12 @@ import (
 	"tinycld.org/packages/text/translate"
 )
 
-// authorizeAnonShare admits an anonymous editable-link visitor to a text
-// room. Re-resolves the share link (rejecting revoked/expired/downgraded
-// links at connect time) and requires an editor role bound to this exact
-// drive_item. Read-only/commentor links never reach the realtime editor.
+// authorizeAnonShare admits an anonymous share-link visitor to a text room.
+// Re-resolves the share link (rejecting revoked/expired/downgraded links at
+// connect time) and admits any recognized share role (viewer, commentor, or
+// editor) bound to this exact drive_item. Non-editor roles are admitted
+// read-only: write enforcement is delegated to the broker's WritePredicate
+// (isReadOnlyForConn / SetReadOnly in OnConnect).
 func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string) error {
 	if claims.ItemID != roomID {
 		return errNoShare
@@ -27,7 +29,13 @@ func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string
 	if item.Id != roomID {
 		return errNoShare
 	}
-	if link.GetString("role") != sharelink.RoleEditor {
+	role := link.GetString("role")
+	switch role {
+	case sharelink.RoleViewer, sharelink.RoleCommentor, sharelink.RoleEditor:
+		// Admit — read-only enforcement for non-editor roles happens via
+		// the broker WritePredicate (isReadOnlyForConn), so viewers and
+		// commentors may open the room but cannot write.
+	default:
 		return errNoShare
 	}
 	return nil

@@ -27,6 +27,15 @@ import (
 // user content that happens to contain a key name literally — this is
 // a structural check directly against the decoded update.
 //
+// Known limitation — pure-delete payloads. y-crdt's delete_set
+// references items by (clientID, clock) and never calls doc.Get(name),
+// so a payload that only deletes entries from a protected root does
+// NOT populate Share and is admitted. This is acceptable for the
+// threat model: an attacker can erase authorship entries already
+// attributable to a clientID they impersonate, but cannot fabricate
+// false authorship. Phase 3's server-stamped re-authorship on every
+// inbound mutation re-establishes the truth on the next edit.
+//
 // Malformed input. y-crdt's ApplyUpdate logs-and-returns on bad bytes
 // rather than panicking, so garbage produces an empty probe (no root
 // keys written, nothing to reject). The validator admits such frames —
@@ -40,6 +49,12 @@ import (
 // realtime.UpdateContentValidator: (roomID string, update []byte) error.
 func validateUpdate(roomID string, update []byte) error {
 	probe := ycrdt.NewDoc(roomID+"-probe", false, nil, nil, false)
+	// Apply the same XmlElement-observer patch the production runtime uses
+	// (see runtime.go::installYXmlElementPatcher). Without it, a legitimate
+	// `default`-fragment write that triggers observer fan-out would panic
+	// during ApplyUpdate, the recover guard below would convert that into
+	// a rejection, and we'd false-reject perfectly valid frames. The
+	// patcher is necessary for correctness, not defensive cargo-cult.
 	installYXmlElementPatcher(probe)
 
 	if err := applyForProbe(probe, update); err != nil {

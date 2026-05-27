@@ -9,6 +9,7 @@ import (
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
+	"tinycld.org/core/userorg"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -65,6 +66,8 @@ const roomKindText = "text-doc"
 //     ({readOnly, importWarnings}) so the joining client can render
 //     parse warnings as a banner and (eventually) gate writes.
 func Register(app *pocketbase.PocketBase) {
+	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
+
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 	runtime.StartJanitor()

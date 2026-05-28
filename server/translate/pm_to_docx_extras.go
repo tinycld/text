@@ -113,6 +113,25 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
 		)
 	}
+	// Suggestion metadata is stashed in a custom XML part (Word ignores
+	// unknown namespaces; tinycld readers parse it back to repopulate
+	// the suggestions Y.Map). We add the part whenever the emitter saw
+	// suggestion spans OR the caller passed entries — either side alone
+	// is useful: spans without entries still publish the (w:id →
+	// suggestionId) mapping; entries without spans (degenerate but
+	// possible) keep the metadata for any future reconciliation.
+	if len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 {
+		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.suggestionEntries)
+		if err != nil {
+			return nil, fmt.Errorf("translate: build suggestions custom xml: %w", err)
+		}
+		parts["customXml/tinycld-suggestions.xml"] = xmlBytes
+		parts["[Content_Types].xml"] = ensureContentTypeOverride(
+			parts["[Content_Types].xml"],
+			"/customXml/tinycld-suggestions.xml",
+			"application/xml",
+		)
+	}
 	return rezipParts(zr, parts)
 }
 

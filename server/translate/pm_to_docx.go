@@ -125,7 +125,7 @@ func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
 // fetched and embedded. A nil resolver behaves exactly like
 // PMJSONToDocx — drive URLs are rejected.
 func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, resolver)
+	return pmJSONToDocx(pmJSON, resolver, nil)
 }
 
 // PMJSONToDocxWithWarnings is the warnings-aware variant of
@@ -133,10 +133,37 @@ func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []
 // signal the emitter raised (e.g. an oversized image was dropped) —
 // hard errors still come back via the error return.
 func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, nil)
+	return pmJSONToDocx(pmJSON, nil, nil)
 }
 
-func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
+// PMJSONToDocxWithSuggestions is PMJSONToDocxWithWarnings plus the
+// suggestion-map entries that the runtime read from the Yjs
+// 'suggestions' Y.Map. The entries carry the status / resolvedBy /
+// note metadata we want to round-trip — Word reads the <w:ins>/<w:del>
+// revisions we emit alongside; tinycld readers pick up the
+// customXml/tinycld-suggestions.xml part for the full picture.
+//
+// Pass nil for entries when the caller has no suggestion metadata to
+// round-trip — the emitter will still produce the (w:id → suggestionId)
+// mapping from whatever spans the walk encounters, just without the
+// status/resolvedBy/note metadata.
+func PMJSONToDocxWithSuggestions(pmJSON []byte, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, nil, entries)
+}
+
+// PMJSONToDocxWithResolverAndSuggestions combines the resolver and
+// suggestion-entries variants. The server flush uses this entry point:
+// it has both a drive-backed ImageResolver and the runtime-read
+// suggestion entries to thread through.
+func PMJSONToDocxWithResolverAndSuggestions(
+	pmJSON []byte,
+	resolver ImageResolver,
+	entries []SuggestionMapEntry,
+) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, resolver, entries)
+}
+
+func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
 	var root PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		return nil, nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
@@ -154,6 +181,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 
 	em := newEmitter()
 	em.imageResolver = resolver
+	em.suggestionEntries = entries
 	for _, child := range root.Content {
 		if err := em.emitBlock(child, 0, ""); err != nil {
 			return nil, nil, err
@@ -171,7 +199,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -222,6 +250,15 @@ type emitter struct {
 	commentBodies     map[string]commentBody
 	suggestionSpans   []suggestionSpan
 	suggestionSpanSeq int // monotonic w:id counter starting at 1
+	// suggestionEntries is populated from the Yjs suggestions Y.Map by
+	// the caller (PMJSONToDocxWithSuggestions /
+	// PMJSONToDocxWithResolverAndSuggestions). The post-process pass
+	// writes them into customXml/tinycld-suggestions.xml so the full
+	// status/resolvedBy/note metadata round-trips on re-import. Nil
+	// when the caller has no metadata; the (w:id → suggestionId)
+	// mapping still gets emitted from the spans collected during the
+	// walk.
+	suggestionEntries []SuggestionMapEntry
 	footnotes         []footnoteEntry
 	endnotes          []footnoteEntry
 	footnoteSeq       int

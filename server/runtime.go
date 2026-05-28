@@ -466,3 +466,77 @@ func (h *textDocHandle) Close() error {
 	h.runtime.closeDoc(h.id)
 	return nil
 }
+
+// readSuggestionsMap reads the document's `suggestions` Y.Map and
+// returns the entries as a slice — mirrors the client's
+// SuggestionsMap.list() shape. Used by the flush path to thread the
+// Yjs-resident metadata (status / resolvedBy / note) through to the
+// docx emitter, which embeds it in customXml/tinycld-suggestions.xml
+// so a re-import recovers the full state.
+//
+// Returns nil when the doc has no suggestions root (a fresh doc that's
+// never seen a suggestion) — y-crdt's GetMap auto-creates the root key
+// on access, so we have to inspect the entries to distinguish empty
+// from never-written. Entries with a missing or malformed value type
+// are skipped silently; the client's TS layer is the source of truth
+// for entry shape, and we don't want a hostile / buggy peer to poison
+// the flush.
+func readSuggestionsMap(doc *ycrdt.Doc) []translate.SuggestionMapEntry {
+	if doc == nil {
+		return nil
+	}
+	m, ok := doc.GetMap("suggestions").(*ycrdt.YMap)
+	if !ok {
+		return nil
+	}
+	entries := m.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]translate.SuggestionMapEntry, 0, len(entries))
+	for _, v := range entries {
+		raw, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, translate.SuggestionMapEntry{
+			ID:         suggestionFieldString(raw, "id"),
+			AuthorID:   suggestionFieldString(raw, "authorId"),
+			CreatedAt:  suggestionFieldInt64(raw, "createdAt"),
+			Status:     suggestionFieldString(raw, "status"),
+			ResolvedBy: suggestionFieldString(raw, "resolvedBy"),
+			ResolvedAt: suggestionFieldInt64(raw, "resolvedAt"),
+			Note:       suggestionFieldString(raw, "note"),
+		})
+	}
+	return out
+}
+
+// suggestionFieldString returns m[k] coerced to string, or "" when the
+// key is absent or the value isn't a string. JSON-decoded client maps
+// always present string fields as Go string, so a non-string here
+// implies a hostile / malformed write — we drop the field rather than
+// surface a type assertion panic up the flush chain.
+func suggestionFieldString(m map[string]any, k string) string {
+	if v, ok := m[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// suggestionFieldInt64 extracts a numeric field. JS numbers come
+// through y-crdt's ContentAny decoder as float64; we also tolerate
+// int / int64 in case a future encoder switches.
+func suggestionFieldInt64(m map[string]any, k string) int64 {
+	switch v := m[k].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	}
+	return 0
+}

@@ -30,11 +30,11 @@ export function useTextDocument(
     const { user } = useAuth()
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
-    // Fallback mode store for callers that don't yet supply their own.
-    // The screen (Phase 2a Task 7) will pass an explicit modeStore so
-    // the suggestion command layer wires up; until then this useMemo
-    // produces a stable, per-instance no-op store so the editor mounts
-    // without a missing-prop error.
+    // The screen instantiates the store and threads it through
+    // useTextDocument; until that wiring lands (Task 7), useTextDocument
+    // supplies a fallback store defaulting to editing mode — the command
+    // layer's mode-check short-circuits so no suggestion marks are
+    // written, regardless of what the user types.
     const fallbackModeStore = useMemo(() => createEditorModeStore(), [])
     const editorResult = useDocumentEditor({
         yDoc: room.doc,

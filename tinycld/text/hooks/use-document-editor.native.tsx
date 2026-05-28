@@ -28,6 +28,7 @@ import {
 } from '../lib/native-find-replace-controller'
 import { useFindReplaceStateStore } from '../lib/stores/find-replace-state-store'
 import { useImageSelectionStore } from '../lib/stores/image-selection-store'
+import type { EditorModeStore } from '../stores/editor-mode-store'
 import { editorHtml } from '../webview-editor/build/editorHtml'
 import type { ImageSelection } from '../webview-editor/source/editor-state-types'
 import {
@@ -52,6 +53,12 @@ export interface UseDocumentEditorOptions {
     // "Connecting…" forever — useTextDocument is responsible for
     // forwarding it.
     driveItemId?: string
+    // The per-document mode store. The native runtime doesn't yet
+    // consume modeStore directly — the WebView's command layer reads
+    // its mode through its own channel — but the local interface
+    // matches the .d.ts contract so callers can pass it uniformly
+    // across platforms.
+    modeStore: EditorModeStore
 }
 
 // useDocumentEditor (native) — Phase 4. The WebView contains a full

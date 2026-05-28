@@ -23,8 +23,10 @@ export interface UseDocumentEditorOptions {
     // mode + identity off this to decide whether to intercept user
     // transactions in suggesting mode. The screen instantiates the
     // store and threads it through useTextDocument; until that wiring
-    // lands, useTextDocument supplies a fallback no-op store so the
-    // editor doesn't crash.
+    // lands (Task 7), useTextDocument supplies a fallback store
+    // defaulting to editing mode — the command layer's mode-check
+    // short-circuits so no suggestion marks are written, regardless of
+    // what the user types.
     modeStore: EditorModeStore
 }
 

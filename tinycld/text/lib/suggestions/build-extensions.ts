@@ -17,7 +17,9 @@ export interface SuggestionEditorExtensionOptions {
 // implement the change-tracking schema. Both editor mounts (the inline
 // web mount in hooks/use-document-editor.web.tsx and the WebView mount
 // in webview-editor/source/Editor.tsx) MUST include these so the
-// schema is identical across platforms.
+// schema is identical across platforms. Without this parity, edits
+// authored on one platform silently drop schema-unknown content when
+// rendered on the other — there's no error, just silent data loss.
 //
 // When called with { modeStore, yDoc }, the command layer is configured
 // to intercept user transactions in suggesting mode. When called

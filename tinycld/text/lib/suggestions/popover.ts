@@ -1,26 +1,32 @@
+import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { ulid } from 'ulid'
+import { publishUiMessage, subscribeUiMessage } from '../anchored-overlay/ui-message-bus'
 import { getSuggestionDecorations } from './decorations'
 
-// SuggestionPopover (WebView side) — installs a ProseMirror click
-// handler that detects clicks landing on a suggestion decoration
-// (suggestedInsert / suggestedDelete) and posts an anchored-overlay
-// 'show-popover' message to the host via window.ReactNativeWebView.
-// The host's AnchoredOverlayController renders <SuggestionPopover />
-// as a Modal positioned over the WebView at the click rect and routes
-// Accept / Reject / Dismiss back through 'popover-result' messages.
+// SuggestionPopover — installs a ProseMirror click handler that detects
+// clicks landing on a suggestion decoration (suggestedInsert /
+// suggestedDelete) and surfaces an anchored 'show-popover' request so
+// the host renders <SuggestionPopover /> for Accept / Reject / Dismiss.
+//
+// Two delivery paths exist; the click handler picks at runtime based on
+// whether window.ReactNativeWebView is present:
+//
+//   Native (inside the TenTap WebView): post the ui.show-popover message
+//   via window.ReactNativeWebView.postMessage out to the RN host, which
+//   forwards it onto the in-process ui-message-bus. Responses come back
+//   into the WebView via window/document 'message' events.
+//
+//   Web (single JS world — the editor and host run together): publish
+//   directly onto the in-process ui-message-bus (publishUiMessage) and
+//   subscribe to it (subscribeUiMessage) for popover-result responses.
+//   There's no postMessage bridge to round-trip through.
 //
 // Architecture mirrors the slash-menu bridge render strategy (see
-// lib/editor/slash-menu-render-bridge.ts):
-//   - This module runs inside the WebView's content world.
-//   - It posts 'ui' namespace messages via window.ReactNativeWebView.
-//   - It installs a window+document 'message' listener on demand to
-//     correlate popover-result responses back to the active requestId.
-// The slash-menu has a longer-lived suggestion plugin state machine
-// (typing the trigger, navigating items, dismissing on space); the
-// suggestion popover is purely click-triggered with no in-WebView
-// state to wind down beyond the message listener.
+// lib/editor/slash-menu-render-bridge.ts) for the native path; the web
+// path is the suggestion-popover analogue of slash-menu's store-render
+// strategy (slash-menu-render-store.ts).
 
 // Plugin key — distinct from other suggestion plugins (decorations,
 // command-layer) and from the slash-menu plugin. The reducer routes
@@ -28,16 +34,34 @@ import { getSuggestionDecorations } from './decorations'
 // from confusing the popover state with the decorations state.
 const PLUGIN_KEY = new PluginKey('tinycld:suggestion-popover')
 
-// Helper to post a 'ui' namespace message out of the WebView. Mirrors
-// defaultPostToHost from slash-menu-render-bridge.ts — kept local
-// because the slash-menu helper is co-located with slash-menu state
-// and importing it here would invert the dependency direction (the
-// suggestions package would depend on the slash-menu package).
-function postToHost(message: object) {
+// Default post: prefer the WebView bridge (native), fall back to the
+// in-process bus (web). The WebView bridge is the canonical native
+// path because the message has to cross the WebView ↔ host process
+// boundary; the bus only exists in a single JS world so it works when
+// the plugin and the React host are co-located (web).
+function defaultPost(message: object) {
     const target = (
         globalThis as { window?: { ReactNativeWebView?: { postMessage: (s: string) => void } } }
     ).window
-    target?.ReactNativeWebView?.postMessage(JSON.stringify(message))
+    if (target?.ReactNativeWebView?.postMessage) {
+        target.ReactNativeWebView.postMessage(JSON.stringify(message))
+        return
+    }
+    // Web fallback. The bus carries the same EditorMessage shape the
+    // wire form encodes — cast through unknown because callsites build
+    // plain object literals (the wire shape is enforced at the type
+    // boundary by message-bus/types.ts, not here).
+    publishUiMessage(message as unknown as EditorMessage)
+}
+
+// Returns true when running inside the TenTap WebView (native). When
+// false (web), popover-result responses come via the in-process bus
+// rather than window/document 'message' events.
+function isInsideReactNativeWebView(): boolean {
+    const target = (
+        globalThis as { window?: { ReactNativeWebView?: { postMessage: (s: string) => void } } }
+    ).window
+    return typeof target?.ReactNativeWebView?.postMessage === 'function'
 }
 
 // Build the anchored-overlay rect from a DOM click event. Matches
@@ -73,16 +97,17 @@ export interface SuggestionPopoverPluginDeps {
 }
 
 export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps = {}) {
-    const post = deps.post ?? postToHost
+    const post = deps.post ?? defaultPost
     const newRequestId = deps.newRequestId ?? (() => ulid())
 
     let currentRequestId: string | null = null
 
-    // Listener for popover-result responses from the host. Filters on
-    // currentRequestId so a stale response (an older popover that has
-    // since been displaced by a newer click) doesn't crash the
-    // listener's lifecycle. The listener is installed lazily on the
-    // first click and torn down inside the plugin's destroy hook.
+    // Native-side listener for popover-result responses from the host.
+    // The host posts the message via WebView.postMessage; in the
+    // WebView's content world that surfaces as a 'message' event on
+    // window+document. Filters on currentRequestId so a stale response
+    // (an older popover that has since been displaced by a newer click)
+    // doesn't crash the lifecycle.
     const onHostMessage = (evt: MessageEvent) => {
         if (typeof evt.data !== 'string') return
         let parsed: { namespace?: string; type?: string; requestId?: string; payload?: unknown }
@@ -91,30 +116,67 @@ export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps 
         } catch {
             return
         }
+        handlePopoverResult(parsed)
+    }
+
+    // Web-side listener: the suggestion plugin lives in the same JS
+    // world as the React host, so popover-result arrives via the
+    // ui-message-bus rather than a postMessage bridge.
+    const onBusMessage = (message: EditorMessage) => {
+        handlePopoverResult({
+            namespace: message.namespace,
+            type: message.type,
+            requestId: message.requestId,
+            payload: message.payload,
+        })
+    }
+
+    // Shared response handler — both paths funnel here. For Phase 2a
+    // Task 11 the popover renders in a non-resolving state when
+    // canResolve=false; the host wrapper drives the actual resolve
+    // mutation, so we just clear our in-flight requestId.
+    const handlePopoverResult = (parsed: {
+        namespace?: string
+        type?: string
+        requestId?: string
+        payload?: unknown
+    }) => {
         if (parsed.namespace !== 'ui' || parsed.type !== 'popover-result') return
         if (!currentRequestId || parsed.requestId !== currentRequestId) return
-        // For Phase 2a Task 11 the popover renders in a non-resolving
-        // state (canResolve=false) so Accept / Reject buttons aren't
-        // shown. Task 13 wires the real resolve mutation through the
-        // payload. We currently just consume the response and clear
-        // the in-flight requestId.
         currentRequestId = null
     }
 
-    let listenerInstalled = false
+    let nativeListenerInstalled = false
+    let busUnsubscribe: (() => void) | null = null
     const ensureListener = () => {
-        if (listenerInstalled) return
+        // Web path: subscribe to the bus. The bus instance is module-
+        // global in the same JS world; both the plugin and the host's
+        // overlay mount share it.
+        if (!isInsideReactNativeWebView()) {
+            if (busUnsubscribe) return
+            busUnsubscribe = subscribeUiMessage(onBusMessage)
+            return
+        }
+        // Native path: install window+document 'message' listeners in
+        // the WebView so the host's postMessage replies surface as DOM
+        // events. iOS RN-WebView delivers to document; Android delivers
+        // to window — we listen on both for parity.
+        if (nativeListenerInstalled) return
         if (typeof window === 'undefined') return
         window.addEventListener('message', onHostMessage)
         document.addEventListener('message', onHostMessage as EventListener)
-        listenerInstalled = true
+        nativeListenerInstalled = true
     }
     const removeListener = () => {
-        if (!listenerInstalled) return
+        if (busUnsubscribe) {
+            busUnsubscribe()
+            busUnsubscribe = null
+        }
+        if (!nativeListenerInstalled) return
         if (typeof window === 'undefined') return
         window.removeEventListener('message', onHostMessage)
         document.removeEventListener('message', onHostMessage as EventListener)
-        listenerInstalled = false
+        nativeListenerInstalled = false
     }
 
     return new Plugin({

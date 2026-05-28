@@ -24,6 +24,20 @@ describe('SuggestedBlockChange extension', () => {
         expect(node.firstChild?.attrs.suggestedBlockChange).toBeNull()
     })
 
+    it('default is null when creating a paragraph node programmatically', () => {
+        const p = schema.nodes.paragraph.create({})
+        expect(p.attrs.suggestedBlockChange).toBeNull()
+    })
+
+    it('silently skips TARGET_NODE_TYPES not in the schema (no tableCell here)', () => {
+        // The test schema is getSchema([StarterKit, SuggestedBlockChange]).
+        // StarterKit doesn't ship tableCell, yet the suite setup didn't
+        // throw — meaning addGlobalAttributes tolerated tableCell's absence.
+        // This test pins that behavior so a future TipTap version tightening
+        // it would surface here loudly.
+        expect(schema.nodes.tableCell).toBeUndefined()
+    })
+
     it('parses HTML data-block-change attribute as JSON', () => {
         const payload = {
             suggestionId: 's1',

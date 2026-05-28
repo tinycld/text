@@ -52,6 +52,11 @@ export const SuggestedBlockChange = Extension.create({
                 attributes: {
                     suggestedBlockChange: {
                         default: null,
+                        // Phase 1 does not validate payload shape — the
+                        // schema accepts any JSON-parsable object as
+                        // suggestedBlockChange. Phase 2's command layer is
+                        // responsible for producing well-formed
+                        // { suggestionId, authorId, ts, before, after } payloads.
                         parseHTML: el => {
                             const raw = el.getAttribute('data-block-change')
                             if (!raw) return null

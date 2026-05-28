@@ -95,16 +95,11 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
                 for (let i = 0; i < tr.steps.length; i++) {
                     const step = tr.steps[i]
                     if (!(step instanceof ReplaceStep)) continue
-                    const replaceStep = step as ReplaceStep & {
-                        from: number
-                        to: number
-                        slice: { content: { size: number } }
-                    }
-                    const from = replaceStep.from
-                    const to = replaceStep.to
-                    const sliceSize = replaceStep.slice.content.size
+                    const { from, to, slice } = step
+                    const sliceSize = slice.content.size
                     const isInsert = from === to && sliceSize > 0
                     const isDelete = from !== to && sliceSize === 0
+                    const isReplace = from !== to && sliceSize > 0
 
                     if (isInsert) {
                         // For inserts: the step's `from` is in stepDoc
@@ -164,6 +159,74 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
                             mappedFrom,
                             mappedFrom + deletedSlice.content.size,
                             deleteMarkType.create({
+                                suggestionId,
+                                authorId: identity.userOrgId,
+                                ts: now,
+                            })
+                        )
+                        stepHadEffect = true
+                    } else if (isReplace) {
+                        // Replace: typing/pasting over a selection. PM
+                        // has already removed [from, to) and inserted
+                        // the new slice at `from` in the post-step doc.
+                        // We treat this as a delete (preserve the old
+                        // range as `suggestedDelete`) AND an insert
+                        // (mark the new range as `suggestedInsert`),
+                        // sharing the same suggestionId so they group
+                        // as one logical edit.
+                        const oldDoc = tr.docs[i]
+                        const deletedSlice = oldDoc.slice(from, to)
+
+                        // Case 2d also applies to the delete-side of a
+                        // replace: if the entire old range was the
+                        // current author's active-session insertion,
+                        // we let the delete stand and only stamp the
+                        // new content.
+                        let allOwnActiveSuggestion = deletedSlice.content.size > 0
+                        deletedSlice.content.descendants(node => {
+                            if (node.isText) {
+                                const m = node.marks.find(
+                                    mark =>
+                                        mark.type.name === 'suggestedInsert' &&
+                                        mark.attrs.suggestionId === suggestionId
+                                )
+                                if (!m) allOwnActiveSuggestion = false
+                            }
+                            return true
+                        })
+
+                        // In post-step coordinates the new slice
+                        // starts at `from` (PM has already done the
+                        // splice). Map through prior appended steps.
+                        const newContentStart = out.mapping.map(from)
+
+                        if (!allOwnActiveSuggestion) {
+                            // Restore the deleted slice BEFORE the new
+                            // content with a suggestedDelete mark, so
+                            // the document reads: [old struck][new ins].
+                            out.insert(newContentStart, deletedSlice.content)
+                            out.addMark(
+                                newContentStart,
+                                newContentStart + deletedSlice.content.size,
+                                deleteMarkType.create({
+                                    suggestionId,
+                                    authorId: identity.userOrgId,
+                                    ts: now,
+                                })
+                            )
+                        }
+
+                        // After the optional restore, `from` now maps
+                        // to the position immediately after the
+                        // restored slice — exactly the start of the
+                        // newly-inserted content. (If Case 2d applied
+                        // and we didn't insert anything, this maps to
+                        // the same position as newContentStart.)
+                        const insertStart = out.mapping.map(from)
+                        out.addMark(
+                            insertStart,
+                            insertStart + sliceSize,
+                            insertMarkType.create({
                                 suggestionId,
                                 authorId: identity.userOrgId,
                                 ts: now,

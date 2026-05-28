@@ -31,11 +31,11 @@ export interface EditorModeState {
 // asyncStorage pattern other text stores use (e.g. mail's compose
 // store) if user research shows it's needed.
 export function createEditorModeStore() {
-    return create<EditorModeState>((set) => ({
+    return create<EditorModeState>(set => ({
         mode: EDITOR_MODE_EDITING,
         identity: null,
-        setMode: (mode) => set({ mode }),
-        setIdentity: (identity) => set({ identity }),
+        setMode: mode => set({ mode }),
+        setIdentity: identity => set({ identity }),
     }))
 }
 

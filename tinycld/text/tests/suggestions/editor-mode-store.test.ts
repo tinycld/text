@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+    createEditorModeStore,
     EDITOR_MODE_EDITING,
     EDITOR_MODE_SUGGESTING,
     EDITOR_MODE_VIEWING,
-    createEditorModeStore,
 } from '~/tinycld/text/stores/editor-mode-store'
 
 describe('editor-mode-store', () => {
@@ -40,7 +40,7 @@ describe('editor-mode-store', () => {
     it('subscribes to mode changes', () => {
         const store = createEditorModeStore()
         let observed: string | null = null
-        const unsubscribe = store.subscribe((s) => {
+        const unsubscribe = store.subscribe(s => {
             observed = s.mode
         })
         store.getState().setMode(EDITOR_MODE_SUGGESTING)

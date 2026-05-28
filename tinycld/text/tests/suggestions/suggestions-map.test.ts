@@ -58,7 +58,7 @@ describe('SuggestionsMap', () => {
         map.create({ id: 's2', authorId: 'uo_bob', createdAt: 2000 })
         const list = map.list()
         expect(list).toHaveLength(2)
-        expect(list.map((s) => s.id).sort()).toEqual(['s1', 's2'])
+        expect(list.map(s => s.id).sort()).toEqual(['s1', 's2'])
     })
 
     it('observe fires on create', () => {

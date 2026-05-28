@@ -400,7 +400,12 @@ export function DocumentToolbar({
                                 />
                             </>
                         ) : null}
-                        {reviewDrawerStore && driveItemId ? (
+                        {/* Phase 2b: review drawer is web-only. The data hook walks the
+                            editor's PM doc, which is only available on the host on web;
+                            native's WebView owns the editor and would need a host-side
+                            bridge (similar to commentBridge) to surface the suggestion
+                            list. Tracked for Phase 2c. */}
+                        {Platform.OS === 'web' && reviewDrawerStore && driveItemId ? (
                             <>
                                 <Separator />
                                 <OpenReviewDrawerButton

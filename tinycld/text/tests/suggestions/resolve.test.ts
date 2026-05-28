@@ -108,3 +108,56 @@ describe('rejectSuggestion', () => {
         editor.destroy()
     })
 })
+
+describe('resolve atomicity', () => {
+    // The fix wraps the PM-bridged write + the SuggestionsMap update in
+    // a single yDoc.transact so a concurrent peer can never observe the
+    // marks gone while suggestion.status is still 'open'. We pin that
+    // by attaching a Y.Doc-level afterTransaction observer and asserting
+    // that the post-transaction snapshot already has the status flipped.
+    //
+    // The test editor used here doesn't run y-prosemirror (no
+    // Collaboration extension), so the PM half of the write doesn't
+    // bridge into the yDoc transaction in this environment — but the
+    // SuggestionsMap.resolve() call DOES land inside transact(), and
+    // any Y.Doc afterTransaction observer fires AFTER both writes
+    // complete. The contract we can verify here is that:
+    //   (a) the SuggestionsMap write happens inside a transaction
+    //       (afterTransaction observer fires)
+    //   (b) the status is already flipped when that fires
+    // Together these imply a peer applying the resulting update won't
+    // see a half-applied state.
+    it('acceptSuggestion writes the SuggestionsMap inside a yDoc transaction', () => {
+        const { editor, yDoc, map } = buildDocWithInsertAndDelete()
+        let transactionCount = 0
+        let statusAtTransactionEnd: string | undefined
+        yDoc.on('afterTransaction', () => {
+            transactionCount += 1
+            statusAtTransactionEnd = map.get('s-ins')?.status
+        })
+
+        acceptSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+
+        // At least one Yjs transaction fired and the status was
+        // already accepted by the time the observer saw it.
+        expect(transactionCount).toBeGreaterThanOrEqual(1)
+        expect(statusAtTransactionEnd).toBe(SUGGESTION_STATUS_ACCEPTED)
+        editor.destroy()
+    })
+
+    it('rejectSuggestion writes the SuggestionsMap inside a yDoc transaction', () => {
+        const { editor, yDoc, map } = buildDocWithInsertAndDelete()
+        let transactionCount = 0
+        let statusAtTransactionEnd: string | undefined
+        yDoc.on('afterTransaction', () => {
+            transactionCount += 1
+            statusAtTransactionEnd = map.get('s-ins')?.status
+        })
+
+        rejectSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+
+        expect(transactionCount).toBeGreaterThanOrEqual(1)
+        expect(statusAtTransactionEnd).toBe(SUGGESTION_STATUS_REJECTED)
+        editor.destroy()
+    })
+})

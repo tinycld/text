@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DocxToPMJSON parses .docx bytes into a ProseMirror JSON tree plus a
@@ -66,6 +67,17 @@ func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
 		footnotes: parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote"),
 		endnotes:  parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote"),
 	}
+	// Load the tinycld-suggestions custom XML part if present. Failure is
+	// non-fatal — Word-authored docx files won't carry it, and we still
+	// need to recognize <w:ins>/<w:del> in that case by synthesizing
+	// stable suggestion ids from (w:id, w:author).
+	if part, ok := parts["customXml/tinycld-suggestions.xml"]; ok {
+		entries, mapping, perr := parseSuggestionsCustomXML(part)
+		if perr == nil {
+			parser.suggestionMapping = mapping
+			parser.suggestionEntries = entries
+		}
+	}
 
 	root, err := parser.parseDocument(docXML)
 	if err != nil {
@@ -104,6 +116,18 @@ type docxParser struct {
 	openComments []string                 // commentIds currently active across the cursor
 	warnings     []Warning                // accumulated soft-degradation signals
 	warningSet   map[WarningCode]struct{} // dedupe
+	// suggestionMapping is the (w:id → suggestionId) map recovered from
+	// the tinycld customXml part. Nil when the docx came from Word (or
+	// any other producer without our custom part) — in that case the
+	// parser synthesizes a stable id from (w:id, w:author).
+	suggestionMapping map[int]string
+	// suggestionEntries is the entry metadata from the tinycld customXml
+	// part (carried for callers that want to repopulate a Yjs map).
+	suggestionEntries []SuggestionMapEntry
+	// activeSuggestions is the stack of currently-open suggestion marks.
+	// Pushed on <w:ins>/<w:del> open, popped on the matching close.
+	// flushRun applies them to every text node emitted while non-empty.
+	activeSuggestions []PMMark
 }
 
 // commentInfo captures the metadata of one entry in word/comments.xml.
@@ -127,6 +151,82 @@ func (p *docxParser) closeComment(id string) {
 			return
 		}
 	}
+}
+
+// pushSuggestion builds a suggestion mark (insert or delete) from the
+// <w:ins>/<w:del> opening tag's attributes and pushes it onto the
+// active stack. flushRun picks it up while emitting text nodes inside.
+//
+// markType is MarkTypeSuggestedInsert or MarkTypeSuggestedDelete.
+// elem is the <w:ins>/<w:del> StartElement, from which we read w:id,
+// w:author, and w:date.
+func (p *docxParser) pushSuggestion(markType string, elem xml.StartElement) {
+	mark := buildSuggestionMarkFromOOXML(p, markType, elem)
+	p.activeSuggestions = append(p.activeSuggestions, mark)
+}
+
+// popSuggestion drops the top entry of the active suggestion stack.
+// Called on </w:ins> / </w:del>. Tolerant of empty stack — a malformed
+// docx with an unbalanced close shouldn't panic the parser.
+func (p *docxParser) popSuggestion() {
+	if len(p.activeSuggestions) == 0 {
+		return
+	}
+	p.activeSuggestions = p.activeSuggestions[:len(p.activeSuggestions)-1]
+}
+
+// activeSuggestionMarks returns a defensive copy of the current
+// suggestion stack. flushRun appends the result to each text node's
+// marks slice; mirrors activeCommentMarks.
+func (p *docxParser) activeSuggestionMarks() []PMMark {
+	if len(p.activeSuggestions) == 0 {
+		return nil
+	}
+	out := make([]PMMark, len(p.activeSuggestions))
+	copy(out, p.activeSuggestions)
+	return out
+}
+
+// buildSuggestionMarkFromOOXML reads the w:id / w:author / w:date attrs
+// from a <w:ins>/<w:del> start element and builds the PM suggestion
+// mark. When the docx carries the tinycld customXml part, the parser's
+// suggestionMapping (w:id → suggestionId) is used to recover the
+// original tinycld suggestion id. When absent (Word-authored docx), a
+// stable synthesized id from (w:id, w:author) is used instead.
+func buildSuggestionMarkFromOOXML(p *docxParser, markType string, elem xml.StartElement) PMMark {
+	wID, _ := parseIntAttr(elem, "id")
+	wAuthor := attrValue(elem, "author")
+	wDate := attrValue(elem, "date")
+
+	suggestionID := p.suggestionMapping[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:%d:%s", wID, wAuthor)
+	}
+
+	return PMMark{
+		Type: markType,
+		Attrs: map[string]any{
+			"suggestionId": suggestionID,
+			"authorId":     wAuthor,
+			"ts":           float64(parseISO8601ToUnixMs(wDate)),
+		},
+	}
+}
+
+// parseISO8601ToUnixMs reverses unixMsToISO8601 — converts a w:date
+// (ISO-8601 / RFC 3339) string back to a unix-ms integer. Returns 0
+// on empty or unparseable input so the caller emits a zero ts (and
+// the round-trip stays consistent: 0 ts produces no w:date, which
+// then re-parses to 0).
+func parseISO8601ToUnixMs(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0
+	}
+	return t.UnixMilli()
 }
 
 // activeCommentMarks builds one MarkTypeComment mark per currently-open
@@ -564,16 +664,21 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 					return nil, err
 				}
 			case "ins":
-				// Tracked insertion — we accept the inserted text and warn.
-				p.addWarning(WarningTrackedChanges, "<w:ins> tracked insertions accepted as plain text")
+				// Tracked insertion / suggestion. Push a suggestedInsert
+				// mark onto the active stack so contained runs pick it
+				// up via flushRun, then walk the children as if they
+				// were direct paragraph children.
+				p.pushSuggestion(MarkTypeSuggestedInsert, t)
 				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
 					return nil, err
 				}
+				p.popSuggestion()
 			case "del":
-				p.addWarning(WarningTrackedChanges, "<w:del> tracked deletions dropped")
-				if err := skipElement(dec, t); err != nil {
+				p.pushSuggestion(MarkTypeSuggestedDelete, t)
+				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
 					return nil, err
 				}
+				p.popSuggestion()
 			case "commentRangeStart":
 				if id := attrValue(t, "id"); id != "" {
 					p.openComments = append(p.openComments, id)
@@ -949,7 +1054,12 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 					return err
 				}
 				marks = m
-			case "t":
+			case "t", "delText":
+				// <w:delText> carries text inside a <w:del> wrapper —
+				// it's read identically to <w:t>, the only difference
+				// is the element name. Recognizing both is what keeps
+				// deleted-but-preserved content surviving the docx → PM
+				// roundtrip when a suggestion-mark wrapper is present.
 				txt, err := readElementText(dec, t)
 				if err != nil {
 					return err
@@ -1050,6 +1160,10 @@ func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras [
 	// Comment marks are appended (not merged) because mergeMarks
 	// dedupes by Type — nested ranges would otherwise collapse to one.
 	combined = append(combined, p.activeCommentMarks()...)
+	// Suggestion marks (insert/delete) work the same way: layered
+	// suggestions on overlapping ranges produce one mark per layer,
+	// and mergeMarks would collapse them to one entry by Type.
+	combined = append(combined, p.activeSuggestionMarks()...)
 	for _, c := range collected {
 		switch c.Type {
 		case NodeTypeText:

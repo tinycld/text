@@ -8,6 +8,7 @@ import {
 } from '../../webview-editor/source/suggestions'
 import { SuggestionCommandLayer } from './command-layer'
 import { SuggestionDecorations } from './decorations'
+import { SuggestionPopover } from './popover'
 
 export interface SuggestionEditorExtensionOptions {
     modeStore?: EditorModeStore
@@ -36,6 +37,7 @@ export function buildSuggestionEditorExtensions(
         SuggestedDelete,
         SuggestedBlockChange,
         SuggestionDecorations,
+        SuggestionPopover,
     ]
     if (options.modeStore && options.yDoc) {
         baseExtensions.push(

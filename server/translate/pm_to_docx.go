@@ -219,11 +219,13 @@ type emitter struct {
 	// Authored comments accumulated during emission, keyed by the
 	// runtime comment id we assigned. Each entry feeds one <w:comment>
 	// in word/comments.xml on flush.
-	commentBodies map[string]commentBody
-	footnotes     []footnoteEntry
-	endnotes      []footnoteEntry
-	footnoteSeq   int
-	endnoteSeq    int
+	commentBodies     map[string]commentBody
+	suggestionSpans   []suggestionSpan
+	suggestionSpanSeq int // monotonic w:id counter starting at 1
+	footnotes         []footnoteEntry
+	endnotes          []footnoteEntry
+	footnoteSeq       int
+	endnoteSeq        int
 
 	// codeMarks tracks each inline code-marked run as an (open marker,
 	// close marker) pair. WordZero's RunProperties struct has no

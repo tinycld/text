@@ -17,27 +17,38 @@ interface SuggestionPopoverPayload {
 // body in a host-side closure that captures them. The SlashMenu host
 // mount (components/SlashMenu.tsx) builds this closure when it
 // registers the 'suggestion' kind.
+//
+// The host wrapper owns the mutation lifecycle via useResolveSuggestion
+// (see hooks/use-resolve-suggestion.ts); this component just renders
+// the buttons and forwards presses. Keeping the mutation outside makes
+// the popover unit-testable without standing up a QueryClient and
+// keeps SuggestionPopover focused on layout + a11y.
 export interface SuggestionPopoverHostProps {
     // Whether the current viewer can resolve (accept / reject)
-    // suggestions. Phase 2a Task 11 hard-codes this to false (the
-    // "pending" message renders); Task 13 wires the real value from
-    // the editor-mode store + role gate. When false, only the message
+    // suggestions. The screen-level mount sources this from
+    // useSuggestionPermissions; when false, only the pending message
     // shows and the buttons are hidden.
     canResolve: boolean
-    // Called with the clicked suggestion id when the viewer taps
-    // Accept. Phase 2a Task 11 supplies a no-op stub; Task 13 wires
-    // this to the real resolve mutation that flips suggestion state
-    // to 'accepted' and applies it to the document.
-    onAccept: (suggestionId: string) => void
+    // Called when the viewer taps Accept. The host wrapper builds this
+    // around useResolveSuggestion(suggestionId).accept and forwards
+    // any popover-result dispatch (closing the overlay) afterwards.
+    onAccept: () => void | Promise<void>
     // Symmetric counterpart to onAccept for the Reject path.
-    onReject: (suggestionId: string) => void
+    onReject: () => void | Promise<void>
+    // True while a resolve mutation is in flight. Both buttons are
+    // disabled during the pending window so the viewer can't fire a
+    // second mutation against the same suggestion while the first
+    // hasn't applied — the resolve functions are idempotent against
+    // the mark structure, but the Y.Map update double-stamps the
+    // resolution and would leak history.
+    isPending: boolean
 }
 
 // SuggestionPopover — the native body for the anchored-overlay
 // registry's 'suggestion' kind. The controller positions and frames
 // us; we render Accept / Reject buttons when the viewer can resolve,
 // or a pending message otherwise. Both branches call respond('dismiss')
-// internally so the controller closes the popover and posts
+// from the host wrapper so the controller closes the popover and posts
 // popover-result back to the WebView (which clears its currentRequestId
 // — see lib/suggestions/popover.ts).
 //
@@ -46,22 +57,12 @@ export interface SuggestionPopoverHostProps {
 // component is button presses or programmatic close from outside.
 export function SuggestionPopover({
     payload,
-    respond,
     canResolve,
     onAccept,
     onReject,
+    isPending,
 }: AnchoredOverlayProps & SuggestionPopoverHostProps) {
     const suggestionId = (payload as SuggestionPopoverPayload | null)?.suggestionId ?? ''
-
-    const handleAccept = () => {
-        onAccept(suggestionId)
-        respond('select', { resolution: 'accept', suggestionId })
-    }
-
-    const handleReject = () => {
-        onReject(suggestionId)
-        respond('select', { resolution: 'reject', suggestionId })
-    }
 
     return (
         <View
@@ -72,7 +73,10 @@ export function SuggestionPopover({
             {canResolve ? (
                 <View className="flex-row gap-2">
                     <Button
-                        onPress={handleAccept}
+                        onPress={() => {
+                            void onAccept()
+                        }}
+                        disabled={isPending || !suggestionId}
                         variant="default"
                         size="sm"
                         accessibilityLabel="Accept suggestion"
@@ -80,7 +84,10 @@ export function SuggestionPopover({
                         <ButtonText>Accept</ButtonText>
                     </Button>
                     <Button
-                        onPress={handleReject}
+                        onPress={() => {
+                            void onReject()
+                        }}
+                        disabled={isPending || !suggestionId}
                         variant="outline"
                         size="sm"
                         accessibilityLabel="Reject suggestion"

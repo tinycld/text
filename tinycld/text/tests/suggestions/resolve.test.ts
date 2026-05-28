@@ -65,8 +65,8 @@ describe('acceptSuggestion', () => {
         const { editor, yDoc, map } = buildDocWithInsertAndDelete()
         acceptSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
         let hasInsertMark = false
-        editor.state.doc.descendants((node) => {
-            if (node.marks.some((m) => m.type.name === 'suggestedInsert')) hasInsertMark = true
+        editor.state.doc.descendants(node => {
+            if (node.marks.some(m => m.type.name === 'suggestedInsert')) hasInsertMark = true
         })
         expect(hasInsertMark).toBe(false)
         expect(editor.state.doc.textContent).toContain('inserted text')
@@ -100,8 +100,8 @@ describe('rejectSuggestion', () => {
         rejectSuggestion(editor, 's-del', { resolverUserOrgId: 'uo_carol', yDoc })
         expect(editor.state.doc.textContent).toContain('deleted text')
         let hasDeleteMark = false
-        editor.state.doc.descendants((node) => {
-            if (node.marks.some((m) => m.type.name === 'suggestedDelete')) hasDeleteMark = true
+        editor.state.doc.descendants(node => {
+            if (node.marks.some(m => m.type.name === 'suggestedDelete')) hasDeleteMark = true
         })
         expect(hasDeleteMark).toBe(false)
         expect(map.get('s-del')?.status).toBe(SUGGESTION_STATUS_REJECTED)

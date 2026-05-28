@@ -164,7 +164,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     commandsRef.current = commands
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
-    const { canEdit, canSuggest } = useSuggestionPermissions(driveItemId)
+    const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
     // Print routes through the server's /api/text/render endpoint
     // — no longer needs the editor handle. Print works even if the
     // editor isn't mounted yet (e.g. from the share screen).
@@ -304,7 +304,12 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     commentBridge={commentBridge}
                 />
                 {newCommentFlow.modal}
-                <SlashMenu webViewRef={webViewRef ?? null} />
+                <SlashMenu
+                    webViewRef={webViewRef ?? null}
+                    editor={tiptapEditor ?? null}
+                    yDoc={room.doc}
+                    canResolve={canResolve}
+                />
             </View>
         </FindReplaceEditorContext.Provider>
     )

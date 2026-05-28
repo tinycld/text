@@ -48,10 +48,21 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
 // The native variant takes a `webViewRef` prop the controller needs
 // for .measure() / .postMessage(); the web mount accepts the same
 // prop signature and ignores it so the screen-level mount is
-// platform-agnostic.
-export function SlashMenu(_props: { webViewRef?: React.RefObject<unknown> | null } = {}) {
+// platform-agnostic. Same story for editor / yDoc / canResolve —
+// they're consumed only by the native suggestion-popover container.
+export function SlashMenu(
+    _props: {
+        webViewRef?: React.RefObject<unknown> | null
+        editor?: unknown
+        yDoc?: unknown
+        canResolve?: boolean
+    } = {}
+) {
     // webViewRef accepted for cross-platform parity; the web variant
-    // renders via portals so it has no use for the ref.
+    // renders via portals so it has no use for the ref. editor/yDoc/
+    // canResolve are consumed only by the native suggestion-popover
+    // wrapper — on web the suggestion plugin's postToHost call no-ops
+    // because there's no ReactNativeWebView bridge.
     const isOpen = useSlashMenuStore(s => s.isOpen)
     const items = useSlashMenuStore(s => s.items)
     const anchor = useSlashMenuStore(s => s.anchor)

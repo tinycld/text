@@ -22,7 +22,7 @@ function collectRanges(editor: Editor, markName: string, suggestionId: string): 
     editor.state.doc.descendants((node, pos) => {
         if (!node.isText) return
         const m = node.marks.find(
-            (m) => m.type.name === markName && m.attrs.suggestionId === suggestionId
+            m => m.type.name === markName && m.attrs.suggestionId === suggestionId
         )
         if (m) {
             ranges.push({ from: pos, to: pos + node.nodeSize })

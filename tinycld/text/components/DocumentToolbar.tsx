@@ -33,6 +33,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
 import type { EditorModeStore } from '../stores/editor-mode-store'
+import type { ReviewDrawerStore } from '../stores/review-drawer-store'
 import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
 import { EditorModeChip } from './EditorModeChip'
@@ -42,6 +43,7 @@ import { FontSizePicker } from './FontSizePicker'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'
+import { OpenReviewDrawerButton } from './suggestions/OpenReviewDrawerButton'
 import { TableMenu } from './TableMenu'
 import { TextColorButton } from './TextColorButton'
 import { ToolbarTooltip } from './ToolbarTooltip'
@@ -68,6 +70,11 @@ interface DocumentToolbarProps {
     // replaces those with useSuggestionPermissions(driveItemId).
     canEdit?: boolean
     canSuggest?: boolean
+    // Per-document review-drawer store wired by the screen. When the
+    // store and driveItemId are both present, the toolbar renders a
+    // button that toggles the suggestion review drawer for this doc.
+    reviewDrawerStore?: ReviewDrawerStore
+    driveItemId?: string
 }
 
 // DocumentToolbar lays out the editor's formatting actions in groups
@@ -84,6 +91,8 @@ export function DocumentToolbar({
     modeStore,
     canEdit = true,
     canSuggest = true,
+    reviewDrawerStore,
+    driveItemId,
 }: DocumentToolbarProps) {
     const iconColor = useThemeColor('muted-foreground')
     const activeColor = useThemeColor('primary')
@@ -388,6 +397,16 @@ export function DocumentToolbar({
                                     canStart={newCommentFlow.canStart}
                                     isOpen={newCommentFlow.isOpen}
                                     onPress={newCommentFlow.start}
+                                />
+                            </>
+                        ) : null}
+                        {reviewDrawerStore && driveItemId ? (
+                            <>
+                                <Separator />
+                                <OpenReviewDrawerButton
+                                    driveItemId={driveItemId}
+                                    store={reviewDrawerStore}
+                                    disabled={disabled}
                                 />
                             </>
                         ) : null}

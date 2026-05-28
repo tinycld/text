@@ -1,0 +1,85 @@
+import type * as Y from 'yjs'
+import {
+    SUGGESTION_STATUS_OPEN,
+    type Suggestion,
+    type SuggestionStatus,
+} from '../../webview-editor/source/suggestions/suggestion-types'
+
+const ROOT_KEY = 'suggestions'
+
+export interface CreateSuggestionInput {
+    id: string
+    authorId: string
+    createdAt: number
+    note?: string
+}
+
+export interface ResolveSuggestionInput {
+    status: Exclude<SuggestionStatus, typeof SUGGESTION_STATUS_OPEN>
+    by: string
+    at: number
+}
+
+// SuggestionsMap wraps the Y.Map<string, Suggestion> rooted under the
+// 'suggestions' key on the document. Centralizes write-shape decisions
+// so the command layer and resolve transactions don't drift.
+//
+// All writes happen inside Yjs transactions implicitly — Y.Map.set is
+// already transactional. The wrapper doesn't wrap them in explicit
+// doc.transact() because:
+//   - single Map.set calls don't need batching
+//   - resolve() does one set, atomically
+//   - the command layer wraps suggestion writes alongside mark writes
+//     in its own ProseMirror transaction, which y-prosemirror bridges
+//     into a single Yjs transaction at commit time
+export class SuggestionsMap {
+    private readonly map: Y.Map<Suggestion>
+
+    constructor(doc: Y.Doc) {
+        this.map = doc.getMap<Suggestion>(ROOT_KEY)
+    }
+
+    create(input: CreateSuggestionInput): void {
+        // Idempotent: first-writer-wins. The Yjs CRDT will accept
+        // concurrent creates from different peers but they all carry
+        // the same id (the command layer is responsible for generating
+        // collision-free ulids), so the merged result is consistent.
+        if (this.map.has(input.id)) return
+        const entry: Suggestion = {
+            id: input.id,
+            authorId: input.authorId,
+            createdAt: input.createdAt,
+            status: SUGGESTION_STATUS_OPEN,
+            ...(input.note ? { note: input.note } : {}),
+        }
+        this.map.set(input.id, entry)
+    }
+
+    resolve(id: string, input: ResolveSuggestionInput): void {
+        const existing = this.map.get(id)
+        if (!existing) {
+            throw new Error(`SuggestionsMap.resolve: suggestion ${id} not found`)
+        }
+        const updated: Suggestion = {
+            ...existing,
+            status: input.status,
+            resolvedBy: input.by,
+            resolvedAt: input.at,
+        }
+        this.map.set(id, updated)
+    }
+
+    get(id: string): Suggestion | undefined {
+        return this.map.get(id)
+    }
+
+    list(): Suggestion[] {
+        return Array.from(this.map.values())
+    }
+
+    observe(handler: () => void): () => void {
+        const observer = () => handler()
+        this.map.observe(observer)
+        return () => this.map.unobserve(observer)
+    }
+}

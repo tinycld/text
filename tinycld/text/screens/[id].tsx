@@ -37,6 +37,7 @@ import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
 import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
+import { createEditorModeStore } from '../stores/editor-mode-store'
 
 export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
     const room = useTextRoom(mount.itemId, {
@@ -131,6 +132,21 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const openSlashMenuImage = useCallback(() => {
         triggerSlashMenuImage()
     }, [triggerSlashMenuImage])
+    // One mode store per open document. The store is reference-stable
+    // across renders (so the editor mounts and command layer subscribe
+    // exactly once), and is recreated only when the document remounts.
+    // Identity is wired separately below via setIdentity — the store
+    // starts with `identity: null` and the command layer's mode check
+    // gates writes until both mode === 'suggesting' and identity is set.
+    const modeStore = useMemo(() => createEditorModeStore(), [])
+    const { userOrgId } = useCurrentRole()
+    useEffect(() => {
+        if (userOrgId) {
+            modeStore.getState().setIdentity({ userOrgId })
+        } else {
+            modeStore.getState().setIdentity(null)
+        }
+    }, [userOrgId, modeStore])
     const {
         EditorComponent,
         commands,
@@ -142,6 +158,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         webViewRef,
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
+        modeStore,
     })
     commandsRef.current = commands
     const hello = typedServerHello(room)

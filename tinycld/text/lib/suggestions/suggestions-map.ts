@@ -40,10 +40,16 @@ export class SuggestionsMap {
     }
 
     create(input: CreateSuggestionInput): void {
-        // Idempotent: first-writer-wins. The Yjs CRDT will accept
-        // concurrent creates from different peers but they all carry
-        // the same id (the command layer is responsible for generating
-        // collision-free ulids), so the merged result is consistent.
+        // Idempotent for local replays — if the id already exists in
+        // our local view, skip the write. For concurrent creates from
+        // different peers with the same id (which would require a
+        // ulid collision), Yjs's internal last-writer-wins resolution
+        // determines the survivor; this wrapper does NOT enforce
+        // first-writer-wins across the network. The command layer
+        // generates ulid suggestionIds so collision is vanishingly
+        // unlikely in practice — the realistic case this guard
+        // protects against is the same peer re-firing create() on
+        // an already-known id (transaction replay / undo-redo).
         if (this.map.has(input.id)) return
         const entry: Suggestion = {
             id: input.id,

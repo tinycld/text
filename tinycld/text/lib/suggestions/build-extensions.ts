@@ -7,6 +7,7 @@ import {
     SuggestedInsert,
 } from '../../webview-editor/source/suggestions'
 import { SuggestionCommandLayer } from './command-layer'
+import { SuggestionDecorations } from './decorations'
 
 export interface SuggestionEditorExtensionOptions {
     modeStore?: EditorModeStore
@@ -30,7 +31,12 @@ export interface SuggestionEditorExtensionOptions {
 export function buildSuggestionEditorExtensions(
     options: SuggestionEditorExtensionOptions = {}
 ): AnyExtension[] {
-    const baseExtensions: AnyExtension[] = [SuggestedInsert, SuggestedDelete, SuggestedBlockChange]
+    const baseExtensions: AnyExtension[] = [
+        SuggestedInsert,
+        SuggestedDelete,
+        SuggestedBlockChange,
+        SuggestionDecorations,
+    ]
     if (options.modeStore && options.yDoc) {
         baseExtensions.push(
             SuggestionCommandLayer.configure({

@@ -24,11 +24,11 @@ describe('buildSuggestionEditorExtensions', () => {
 describe('buildSuggestionEditorExtensions with options', () => {
     it('includes the command layer when no options are supplied (inert form)', () => {
         const ext = buildSuggestionEditorExtensions()
-        expect(ext).toHaveLength(4)
+        expect(ext).toHaveLength(5)
         // Inert form: the configure() call is NOT made, so the last
         // extension's .options is whatever addOptions() defaults to (null
         // shapes). Verify modeStore is falsy.
-        const last = ext[3] as { options?: { modeStore?: unknown } }
+        const last = ext[4] as { options?: { modeStore?: unknown } }
         expect(last.options?.modeStore).toBeFalsy()
     })
 
@@ -36,9 +36,9 @@ describe('buildSuggestionEditorExtensions with options', () => {
         const modeStore = createEditorModeStore()
         const yDoc = new Y.Doc()
         const ext = buildSuggestionEditorExtensions({ modeStore, yDoc })
-        expect(ext).toHaveLength(4)
+        expect(ext).toHaveLength(5)
         // Configured form: the configure() call sets options.modeStore.
-        const last = ext[3] as { options?: { modeStore?: unknown } }
+        const last = ext[4] as { options?: { modeStore?: unknown } }
         expect(last.options?.modeStore).toBe(modeStore)
     })
 })

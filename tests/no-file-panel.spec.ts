@@ -1,12 +1,14 @@
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { login, navigateToPackage, ORG_SLUG } from '../../app/tests/e2e/helpers'
+import { FEATURE_DOC_HEADING } from './_menubar-helpers'
 
 // The text index renders the shared NoFilePanel whenever the user lands
 // on /text without a deep-link (the rail otherwise reopens the last
 // edited document). Covers: panel is visible, three cards render with
 // the right copy, the New / Browse Recent / Browse All actions all
-// navigate. Upload is not exercised here because Playwright's file
-// chooser flow is covered by drive's upload specs.
+// navigate, and Upload drops the file into a new document the user
+// can immediately edit.
 test.describe('Text No-File panel', () => {
     test.beforeEach(async ({ page }) => {
         await login(page)
@@ -39,6 +41,32 @@ test.describe('Text No-File panel', () => {
         await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
         await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
             timeout: 75_000,
+        })
+    })
+
+    test('Upload docx creates a document whose content is editable', async ({ page }) => {
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
+            timeout: 30_000,
+        })
+
+        // The upload card hides its <input type="file"> behind a label
+        // wrapper; setInputFiles targets the input directly. The fixture
+        // is the seeded tests/assets/feature-test.docx — the same one
+        // the other text e2e specs use, with a known "Sample Document"
+        // heading at the top.
+        const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
+        await page.locator('input[type="file"]').setInputFiles(fixturePath)
+
+        // Single .docx upload routes straight to the editor.
+        await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
+            timeout: 75_000,
+        })
+
+        // The fixture's H1 must render in the editor — proves the upload
+        // landed and the editor loaded it for editing.
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+            timeout: 30_000,
         })
     })
 

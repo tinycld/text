@@ -100,10 +100,21 @@ describe('SuggestionCommandLayer', () => {
         state = state.apply(state.tr.insertText('hello', 1))
         vi.advanceTimersByTime(31_000)
         state = state.apply(state.tr.insertText(' world', state.doc.content.size - 1))
+        // Walk ALL suggestedInsert marks per text node (not just the
+        // first match). Phase 2b Case 2c lets same-type marks stack on
+        // the same range, so when `inclusive: true` carries the first
+        // session's mark across the boundary into the new run, the
+        // second session's mark layers on top instead of replacing it.
+        // The invariant that matters is that two distinct sessions
+        // mint two distinct suggestionIds — observable across all
+        // marks on the doc, not via mark-per-node.
         const ids: string[] = []
         state.doc.descendants(node => {
-            const m = node.marks.find(m => m.type.name === 'suggestedInsert')
-            if (m) ids.push(m.attrs.suggestionId as string)
+            for (const m of node.marks) {
+                if (m.type.name === 'suggestedInsert') {
+                    ids.push(m.attrs.suggestionId as string)
+                }
+            }
         })
         expect(new Set(ids).size).toBe(2)
     })
@@ -215,14 +226,20 @@ describe('SuggestionCommandLayer', () => {
         let state = makeState(modeStore, yDoc)
 
         state = state.apply(state.tr.insertText('hello', 1))
+        // Walk ALL suggestedInsert marks per text node. Phase 2b Case
+        // 2c lets same-type marks stack on the same range, so the
+        // identity-change boundary may produce a single text node
+        // carrying both Alice's and Bob's marks layered.
         const firstIds: { id: string; author: string }[] = []
         state.doc.descendants(node => {
-            const m = node.marks.find(m => m.type.name === 'suggestedInsert')
-            if (m)
-                firstIds.push({
-                    id: m.attrs.suggestionId as string,
-                    author: m.attrs.authorId as string,
-                })
+            for (const m of node.marks) {
+                if (m.type.name === 'suggestedInsert') {
+                    firstIds.push({
+                        id: m.attrs.suggestionId as string,
+                        author: m.attrs.authorId as string,
+                    })
+                }
+            }
         })
         expect(firstIds.length).toBeGreaterThan(0)
         expect(firstIds[0].author).toBe('uo_alice')
@@ -233,12 +250,14 @@ describe('SuggestionCommandLayer', () => {
 
         const allIds: { id: string; author: string }[] = []
         state.doc.descendants(node => {
-            const m = node.marks.find(m => m.type.name === 'suggestedInsert')
-            if (m)
-                allIds.push({
-                    id: m.attrs.suggestionId as string,
-                    author: m.attrs.authorId as string,
-                })
+            for (const m of node.marks) {
+                if (m.type.name === 'suggestedInsert') {
+                    allIds.push({
+                        id: m.attrs.suggestionId as string,
+                        author: m.attrs.authorId as string,
+                    })
+                }
+            }
         })
 
         // Should have at least 2 distinct suggestion ids with different authors

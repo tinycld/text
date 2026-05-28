@@ -35,6 +35,12 @@ export interface SuggestedDeleteAttrs {
 export const SuggestedDelete = Mark.create({
     name: 'suggestedDelete',
     inclusive: true,
+    // excludes: '' lets multiple suggestedDelete marks coexist on the
+    // same range, recording each contributing author's proposal
+    // independently. Spec Case 2c: two users proposing the same edit
+    // both register their suggestionId. Without this, PM's default
+    // (excludes: name) would replace the earlier mark.
+    excludes: '',
 
     addAttributes() {
         return {

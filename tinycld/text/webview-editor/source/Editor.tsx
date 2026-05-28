@@ -28,6 +28,7 @@ import type { EditorModeStore } from '../../stores/editor-mode-store'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { installFormatBridge } from './bridges/format-bridge'
+import { installSuggestionListBridge } from './suggestions/list-bridge'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -409,6 +410,27 @@ function EditorMounted({ init }: EditorMountedProps) {
         const bridge = installFindReplaceBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
+
+    // Suggestion list bridge: pushes the current
+    // DocumentSuggestionsResult snapshot to the host whenever the
+    // editor doc or the suggestions Y.Map changes. The host's
+    // useDocumentSuggestionBridge subscribes to these pushes via the
+    // 'suggestion.changed' message and surfaces them through the
+    // standard subscribe/getSnapshot bridge contract used by the
+    // review drawer. init.roomId is the driveItemId on this surface
+    // (set by use-document-editor.native.tsx's roomId: driveItemId
+    // mapping).
+    useEffect(() => {
+        if (!editor) return
+        return installSuggestionListBridge(
+            editor,
+            yDoc,
+            init.roomId,
+            (kind, payload) => {
+                postToNative({ kind, payload })
+            }
+        )
+    }, [editor, yDoc, init.roomId])
 
     // Forward in-document scroll events out to the host. The host's
     // useWebViewEditor receives this on its 'ui' namespace channel and

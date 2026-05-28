@@ -1,6 +1,8 @@
 import { useAuth } from '@tinycld/core/lib/auth'
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
+import { useMemo } from 'react'
 import { colorForUser } from '../lib/color-for-user'
+import { createEditorModeStore, type EditorModeStore } from '../stores/editor-mode-store'
 import { useDocumentEditor } from './use-document-editor'
 import { typedServerHello, typedServerSlot } from './useTextRoom'
 
@@ -23,11 +25,17 @@ import { typedServerHello, typedServerSlot } from './useTextRoom'
 export function useTextDocument(
     room: RealtimeRoomHandle,
     driveItemId: string,
-    options: { onRequestInsertImage?: () => void } = {}
+    options: { onRequestInsertImage?: () => void; modeStore?: EditorModeStore } = {}
 ) {
     const { user } = useAuth()
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
+    // Fallback mode store for callers that don't yet supply their own.
+    // The screen (Phase 2a Task 7) will pass an explicit modeStore so
+    // the suggestion command layer wires up; until then this useMemo
+    // produces a stable, per-instance no-op store so the editor mounts
+    // without a missing-prop error.
+    const fallbackModeStore = useMemo(() => createEditorModeStore(), [])
     const editorResult = useDocumentEditor({
         yDoc: room.doc,
         awareness: room.awareness,
@@ -35,6 +43,7 @@ export function useTextDocument(
         driveItemId,
         onRequestInsertImage: options.onRequestInsertImage,
         user: user ? { id: user.id, name: user.name, color: colorForUser(user.id) } : undefined,
+        modeStore: options.modeStore ?? fallbackModeStore,
     })
     return {
         ...editorResult,

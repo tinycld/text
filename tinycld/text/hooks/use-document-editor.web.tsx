@@ -40,6 +40,7 @@ import { makeWebFindReplaceController } from '../lib/find-replace-controller-web
 import { findReplacePlugin } from '../lib/find-replace-plugin'
 import { buildSuggestionEditorExtensions } from '../lib/suggestions/build-extensions'
 import { countWords } from '../lib/word-count'
+import type { EditorModeStore } from '../stores/editor-mode-store'
 import {
     CodeShortcuts,
     deriveActiveIndent,
@@ -179,6 +180,13 @@ export interface UseDocumentEditorOptions {
     // the slash-menu Image entry removes the trigger and inserts
     // nothing.
     onRequestInsertImage?: () => void
+    // The per-document mode store. The suggestion command layer reads
+    // mode + identity off this to decide whether to intercept user
+    // transactions in suggesting mode. The screen instantiates the
+    // store and threads it through useTextDocument; until that wiring
+    // lands, useTextDocument supplies a fallback no-op store so the
+    // editor doesn't crash.
+    modeStore: EditorModeStore
 }
 
 // FindReplaceExtension wraps the find/replace plugin in a Tiptap
@@ -382,7 +390,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 SlashMenu.configure({
                     openImageInsert: () => onRequestInsertImageRef.current?.(),
                 }),
-                ...buildSuggestionEditorExtensions(),
+                ...buildSuggestionEditorExtensions({
+                    modeStore: options.modeStore,
+                    yDoc: options.yDoc,
+                }),
             ],
         },
         [options.yDoc, options.awareness, options.user?.name, options.user?.color]

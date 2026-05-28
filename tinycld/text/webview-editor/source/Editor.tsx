@@ -24,6 +24,7 @@ import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
+import type { EditorModeStore } from '../../stores/editor-mode-store'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { installFormatBridge } from './bridges/format-bridge'
@@ -112,6 +113,7 @@ interface BuildEditorExtensionsOptions {
     yDoc?: Y.Doc
     awareness?: Awareness
     user?: { id: string; name: string; color: string }
+    modeStore?: EditorModeStore
 }
 
 // buildEditorExtensions returns the full TipTap extension list used by
@@ -176,7 +178,11 @@ export function buildEditorExtensions(options: BuildEditorExtensionsOptions = {}
             provider: { awareness: options.awareness },
             user: options.user,
         }),
-        ...buildSuggestionEditorExtensions(),
+        ...buildSuggestionEditorExtensions(
+            options.modeStore && options.yDoc
+                ? { modeStore: options.modeStore, yDoc: options.yDoc }
+                : undefined
+        ),
     ]
 }
 

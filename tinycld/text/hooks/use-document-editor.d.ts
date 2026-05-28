@@ -3,6 +3,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import type { FindReplaceController } from '../lib/find-replace-controller'
+import type { EditorModeStore } from '../stores/editor-mode-store'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -18,6 +19,13 @@ export interface UseDocumentEditorOptions {
     // src back through `commands.insertImage`. Web-only; native
     // ignores.
     onRequestInsertImage?: () => void
+    // The per-document mode store. The suggestion command layer reads
+    // mode + identity off this to decide whether to intercept user
+    // transactions in suggesting mode. The screen instantiates the
+    // store and threads it through useTextDocument; until that wiring
+    // lands, useTextDocument supplies a fallback no-op store so the
+    // editor doesn't crash.
+    modeStore: EditorModeStore
 }
 
 // Host-side surface for the comment system. Both variants implement

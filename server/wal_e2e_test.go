@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 	ycrdt "github.com/skyterra/y-crdt"
@@ -219,5 +220,55 @@ func TestRealtimeWAL_CleanupOnDriveItemDelete(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("WAL rows after drive_item delete = %d; want 0", calls)
+	}
+}
+
+// TestRealtimeWAL_RejectsClientAuthorshipWrite verifies that Register wires
+// validateUpdate into RoomKindOptions.UpdateContentValidator so the broker
+// rejects inbound MsgDocUpdate frames that mutate protected Y.Doc roots
+// (clientAuthors, clientFirstSeen, editEvents). Together with core's
+// TestUpdateContentValidatorRejectsUpdate — which proves the broker calls
+// UpdateContentValidator when set and drops the frame on a non-nil return
+// (no journal append, no server-doc apply, no fan-out) — this completes
+// the end-to-end guarantee that a client-forged authorship write never
+// reaches the journal.
+//
+// The text package can't drive the broker pipeline from outside the
+// realtime package (route, join, runConnection are unexported), so this
+// test does the two pieces it CAN cover from here:
+//   1. Run the production wiring (text.Register) and assert
+//      UpdateContentValidator was wired (not left nil).
+//   2. Hand the wired function a Yjs update that writes to clientAuthors —
+//      the exact malicious-client shape — and assert it returns an error.
+// Core's broker-integration test then closes the loop: a non-nil error
+// from this exact function drops the frame before the journal.
+func TestRealtimeWAL_RejectsClientAuthorshipWrite(t *testing.T) {
+	t.Cleanup(realtime.ResetRegistryForTest)
+
+	// pocketbase.New() is enough for Register: it touches only the hook
+	// registry (OnRecordAfterDeleteSuccess) and the realtime room-kind
+	// registry, neither of which needs the DB to be bootstrapped.
+	app := pocketbase.New()
+	Register(app)
+
+	opts, ok := realtime.LookupOptionsForTest(roomKindText)
+	if !ok {
+		t.Fatalf("Register did not register the %q room kind", roomKindText)
+	}
+	if opts.UpdateContentValidator == nil {
+		t.Fatalf("Register did not wire UpdateContentValidator for %q", roomKindText)
+	}
+
+	// Hand-craft a Yjs update that writes to "clientAuthors" — the
+	// authorship map a malicious client would attempt to forge. Same
+	// ycrdt API the validator's isolated tests use (see
+	// suggestions_authz_test.go) so we know the bytes are well-formed.
+	src := ycrdt.NewDoc("src", false, nil, nil, false)
+	authors := src.GetMap("clientAuthors").(*ycrdt.YMap)
+	authors.Set("999", "spoofed-author-id")
+	spoofed := ycrdt.EncodeStateAsUpdate(src, nil)
+
+	if err := opts.UpdateContentValidator("doc-1", spoofed); err == nil {
+		t.Fatal("wired validator admitted a clientAuthors write; expected rejection")
 	}
 }

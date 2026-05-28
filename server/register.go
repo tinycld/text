@@ -96,6 +96,13 @@ func Register(app *pocketbase.PocketBase) {
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},
+		// Content-level reject: drop inbound updates that mutate the
+		// server-stamped authorship Y.Doc roots (clientAuthors,
+		// clientFirstSeen, editEvents). Without this, a hostile client
+		// could forge authorship metadata before the server even gets a
+		// chance to re-stamp on the next inbound mutation. See
+		// suggestions_authz.go for the probe-based detection.
+		UpdateContentValidator: validateUpdate,
 	})
 
 	// /api/text/render/:id — server-rendered HTML for previews +

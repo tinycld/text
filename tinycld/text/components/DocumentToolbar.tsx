@@ -400,12 +400,10 @@ export function DocumentToolbar({
                                 />
                             </>
                         ) : null}
-                        {/* Phase 2b: review drawer is web-only. The data hook walks the
-                            editor's PM doc, which is only available on the host on web;
-                            native's WebView owns the editor and would need a host-side
-                            bridge (similar to commentBridge) to surface the suggestion
-                            list. Tracked for Phase 2c. */}
-                        {Platform.OS === 'web' && reviewDrawerStore && driveItemId ? (
+                        {/* The review drawer now works on both platforms — Phase 2c's
+                            useDocumentSuggestionBridge feeds the same anchored/orphaned
+                            shape to the drawer regardless of where the editor lives. */}
+                        {reviewDrawerStore && driveItemId ? (
                             <>
                                 <Separator />
                                 <OpenReviewDrawerButton

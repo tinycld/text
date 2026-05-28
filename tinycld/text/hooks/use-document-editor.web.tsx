@@ -189,6 +189,10 @@ export interface UseDocumentEditorOptions {
     // short-circuits so no suggestion marks are written, regardless of
     // what the user types.
     modeStore: EditorModeStore
+    // Native-only: accepted for parity with the .d.ts contract. The
+    // web variant's suggestion bridge reads the host editor directly,
+    // so there's no WebView message channel to subscribe to here.
+    onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
 // FindReplaceExtension wraps the find/replace plugin in a Tiptap

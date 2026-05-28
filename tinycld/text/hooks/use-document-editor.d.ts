@@ -28,6 +28,13 @@ export interface UseDocumentEditorOptions {
     // short-circuits so no suggestion marks are written, regardless of
     // what the user types.
     modeStore: EditorModeStore
+    // Native-only: subscribe to {kind, payload} messages emitted by
+    // the WebView's suggestion list bridge. The screen wires this to
+    // its NativeSuggestionBridge's processIncomingMessage so the review
+    // drawer's anchored/orphaned snapshot reflects the WebView-side
+    // editor. Web variant ignores — its host-side bridge reads the
+    // editor directly.
+    onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
 // Host-side surface for the comment system. Both variants implement

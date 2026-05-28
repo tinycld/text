@@ -10,7 +10,7 @@ import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
 import { TextCommentDrawer } from '../components/comments/TextCommentDrawer'
@@ -31,10 +31,12 @@ import { ReviewDrawer } from '../components/suggestions/ReviewDrawer'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
-import { useDocumentSuggestions } from '../hooks/use-document-suggestions'
+import type { DocumentSuggestionsResult } from '../hooks/use-document-suggestions'
 import { useNewCommentFlow } from '../hooks/use-new-comment-flow'
 import { usePrintDocument } from '../hooks/use-print-document'
 import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
+import { useDocumentSuggestionBridge } from '../hooks/use-suggestion-bridge'
+import type { NativeSuggestionBridge } from '../hooks/use-suggestion-bridge.native'
 import { useSuggestionPermissions } from '../hooks/use-suggestion-permissions'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
@@ -44,6 +46,12 @@ import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 import { bulkAccept, bulkReject } from '../lib/suggestions/bulk-resolve'
 import { createEditorModeStore, EDITOR_MODE_VIEWING } from '../stores/editor-mode-store'
 import { createReviewDrawerStore } from '../stores/review-drawer-store'
+
+// Stable identity for the empty-state snapshot. useSyncExternalStore
+// reads getSnapshot every render and requires a stable reference when
+// nothing has changed; returning a fresh object literal would trip
+// React's "result of getSnapshot should be cached" warning.
+const EMPTY_SUGGESTIONS_RESULT: DocumentSuggestionsResult = { anchored: [], orphaned: [] }
 
 export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
     const room = useTextRoom(mount.itemId, {
@@ -158,6 +166,19 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
             modeStore.getState().setIdentity(null)
         }
     }, [userOrgId, modeStore])
+    // The suggestion bridge is created below (it needs tiptapEditor +
+    // yDoc, which come out of useTextDocument). But the native variant
+    // of useTextDocument needs an onSuggestionMessage callback to wire
+    // into the WebView's onMessage path. Bridge messages arrive after
+    // tiptapEditor mounts, so the ordering works: the callback closes
+    // over a ref that's filled in once the bridge exists, and bridge
+    // messages before the bridge mounts are dropped on the floor
+    // (the WebView posts an initial snapshot on mount, and the bridge
+    // observer pushes updates as state changes).
+    const nativeBridgeRef = useRef<NativeSuggestionBridge | null>(null)
+    const onSuggestionMessage = useCallback((kind: string, payload: unknown) => {
+        nativeBridgeRef.current?.processIncomingMessage(kind, payload)
+    }, [])
     const {
         EditorComponent,
         commands,
@@ -170,17 +191,41 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
         modeStore,
+        onSuggestionMessage,
     })
     commandsRef.current = commands
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
 
-    // Suggestion review pipeline: the data hook walks the editor + Y.Map
-    // to produce anchored/orphaned lists; the resolve service exposes
-    // single-suggestion Accept/Reject; the bulk wrappers batch into one
-    // Y.Doc transaction so peers see Accept-all / Reject-all atomically.
-    const { anchored, orphaned } = useDocumentSuggestions(tiptapEditor, room.doc)
+    // Suggestion review pipeline. The bridge surfaces the same
+    // anchored/orphaned shape on both platforms: on web it walks the
+    // host's editor + Y.Map directly; on native it accumulates the
+    // WebView's pushed snapshots via onSuggestionMessage. The screen
+    // doesn't have to know which path applies — the platform-resolved
+    // useDocumentSuggestionBridge picks .web/.native automatically.
+    const suggestionBridge = useDocumentSuggestionBridge({
+        driveItemId,
+        yDoc: room.doc,
+        editor: tiptapEditor,
+    })
+    // Cast the bridge to its native concrete type so the ref-backed
+    // callback above can call processIncomingMessage. On web the cast
+    // is a lie (web's bridge doesn't expose processIncomingMessage),
+    // but onSuggestionMessage is never invoked there — useWebViewEditor
+    // doesn't run, and Platform.OS === 'web' callers never reach the
+    // WebView message path.
+    nativeBridgeRef.current = suggestionBridge as unknown as NativeSuggestionBridge | null
+    const subscribeBridge = useCallback(
+        (handler: () => void) => suggestionBridge?.subscribe(handler) ?? (() => {}),
+        [suggestionBridge]
+    )
+    const getBridgeSnapshot = useCallback(
+        (): DocumentSuggestionsResult =>
+            suggestionBridge?.getSnapshot() ?? EMPTY_SUGGESTIONS_RESULT,
+        [suggestionBridge]
+    )
+    const { anchored, orphaned } = useSyncExternalStore(subscribeBridge, getBridgeSnapshot)
     const resolveService = useResolveSuggestionService({
         editor: tiptapEditor,
         yDoc: room.doc,

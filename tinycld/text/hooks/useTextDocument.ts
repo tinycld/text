@@ -25,7 +25,11 @@ import { typedServerHello, typedServerSlot } from './useTextRoom'
 export function useTextDocument(
     room: RealtimeRoomHandle,
     driveItemId: string,
-    options: { onRequestInsertImage?: () => void; modeStore?: EditorModeStore } = {}
+    options: {
+        onRequestInsertImage?: () => void
+        modeStore?: EditorModeStore
+        onSuggestionMessage?: (kind: string, payload: unknown) => void
+    } = {}
 ) {
     const { user } = useAuth()
     const hello = typedServerHello(room)
@@ -44,6 +48,7 @@ export function useTextDocument(
         onRequestInsertImage: options.onRequestInsertImage,
         user: user ? { id: user.id, name: user.name, color: colorForUser(user.id) } : undefined,
         modeStore: options.modeStore ?? fallbackModeStore,
+        onSuggestionMessage: options.onSuggestionMessage,
     })
     return {
         ...editorResult,

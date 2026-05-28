@@ -59,6 +59,12 @@ export interface UseDocumentEditorOptions {
     // matches the .d.ts contract so callers can pass it uniformly
     // across platforms.
     modeStore: EditorModeStore
+    // Forwarded to useWebViewEditor. Called when the WebView's
+    // suggestion list bridge posts a {kind, payload} message. The
+    // screen wires this to the NativeSuggestionBridge's
+    // processIncomingMessage so the review drawer's anchored/orphaned
+    // snapshot stays in sync with the WebView-side editor.
+    onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
 // useDocumentEditor (native) — Phase 4. The WebView contains a full
@@ -218,6 +224,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         onScroll,
         onCommentMessage,
         onFindReplaceMessage,
+        onSuggestionMessage: options.onSuggestionMessage,
     })
 
     // postMessage isn't ref-stable (it depends on the bridge identity)

@@ -12,7 +12,9 @@ export interface SuggestionSession {
     // extending the idle window. Useful for the popover / sidebar to
     // ask "is the author still actively editing this suggestion?"
     // Returns null if no active session OR if the idle window has
-    // elapsed since the last touch.
+    // elapsed since the last touch. Side effect: when the window has
+    // elapsed, the session is internally cleared on this call, so
+    // subsequent calls also return null until the next touch().
     current: () => string | null
     // reset drops the active suggestionId. Called when the user
     // explicitly exits suggest mode (so the next touch in suggest

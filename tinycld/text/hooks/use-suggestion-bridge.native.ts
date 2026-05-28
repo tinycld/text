@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import type { DocumentSuggestionsResult } from './use-document-suggestions'
-import type {
-    DocumentSuggestionBridge,
-    SuggestionBridgeOptions,
-} from './use-suggestion-bridge.d'
+import type { DocumentSuggestionBridge, SuggestionBridgeOptions } from './use-suggestion-bridge.d'
 
 // Internal shape that adds the message-processing method. The hook
 // returns the narrower DocumentSuggestionBridge (the consumer can't
@@ -42,7 +39,7 @@ export function createNativeSuggestionBridge(
 
     return {
         getSnapshot: () => snapshot,
-        subscribe: (handler) => {
+        subscribe: handler => {
             subscribers.add(handler)
             return () => {
                 subscribers.delete(handler)

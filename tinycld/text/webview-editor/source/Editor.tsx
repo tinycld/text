@@ -28,7 +28,6 @@ import type { EditorModeStore } from '../../stores/editor-mode-store'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { installFormatBridge } from './bridges/format-bridge'
-import { installSuggestionListBridge } from './suggestions/list-bridge'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -41,6 +40,7 @@ import {
     deriveImageSelection,
 } from './editor-state'
 import { RealtimeClient } from './realtime-client'
+import { installSuggestionListBridge } from './suggestions/list-bridge'
 
 // Local extensions declared in this module — kept together so the
 // import block stays uninterrupted and the in-line `Extension.create`
@@ -422,14 +422,9 @@ function EditorMounted({ init }: EditorMountedProps) {
     // mapping).
     useEffect(() => {
         if (!editor) return
-        return installSuggestionListBridge(
-            editor,
-            yDoc,
-            init.roomId,
-            (kind, payload) => {
-                postToNative({ kind, payload })
-            }
-        )
+        return installSuggestionListBridge(editor, yDoc, init.roomId, (kind, payload) => {
+            postToNative({ kind, payload })
+        })
     }, [editor, yDoc, init.roomId])
 
     // Forward in-document scroll events out to the host. The host's

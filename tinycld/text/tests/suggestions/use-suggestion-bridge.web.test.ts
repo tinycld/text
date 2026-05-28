@@ -3,8 +3,8 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
-import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { createWebSuggestionBridge } from '~/tinycld/text/hooks/use-suggestion-bridge.web'
+import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { SuggestionsMap } from '~/tinycld/text/lib/suggestions/suggestions-map'
 
 describe('web suggestion bridge', () => {
@@ -24,7 +24,11 @@ describe('web suggestion bridge', () => {
                                 marks: [
                                     {
                                         type: 'suggestedInsert',
-                                        attrs: { suggestionId: 's1', authorId: 'uo_alice', ts: 1000 },
+                                        attrs: {
+                                            suggestionId: 's1',
+                                            authorId: 'uo_alice',
+                                            ts: 1000,
+                                        },
                                     },
                                 ],
                             },

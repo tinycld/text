@@ -45,6 +45,7 @@ function buildDecorations(state: EditorState): DecorationSet {
                         {
                             kind: 'suggestedInsert',
                             suggestionId: mark.attrs.suggestionId,
+                            authorId: mark.attrs.authorId,
                         }
                     )
                 )
@@ -65,6 +66,7 @@ function buildDecorations(state: EditorState): DecorationSet {
                         {
                             kind: 'suggestedDelete',
                             suggestionId: mark.attrs.suggestionId,
+                            authorId: mark.attrs.authorId,
                         }
                     )
                 )

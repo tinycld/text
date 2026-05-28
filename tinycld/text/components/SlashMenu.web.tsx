@@ -5,7 +5,7 @@ import { useEffect, useMemo, useReducer } from 'react'
 import { createPortal } from 'react-dom'
 import { Pressable, Text, View } from 'react-native'
 import type * as Y from 'yjs'
-import { useResolveSuggestion } from '../hooks/use-resolve-suggestion'
+import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
 import {
     anchoredOverlayReducer,
     decodeUiMessage,
@@ -101,11 +101,12 @@ function SuggestionPopoverContainer({
     yDoc: Y.Doc | null
     canResolve: boolean
 }) {
-    const suggestionId = (payload as { suggestionId?: string } | null)?.suggestionId ?? ''
-    const { accept, reject, isPending } = useResolveSuggestion(suggestionId, {
-        editor,
-        yDoc,
-    })
+    // The payload's suggestions[] is forwarded through to the body via
+    // `payload` — the container only needs the service hook here so the
+    // body can dispatch per row. The service hook produces accept(id) /
+    // reject(id) — a single mount can dispatch to any of the (possibly
+    // multiple) layered marks.
+    const { accept, reject, isPending } = useResolveSuggestionService({ editor, yDoc })
 
     return (
         <SuggestionPopover
@@ -113,12 +114,12 @@ function SuggestionPopoverContainer({
             respond={respond}
             canResolve={canResolve}
             isPending={isPending}
-            onAccept={async () => {
-                await accept()
+            onAccept={async (suggestionId: string) => {
+                await accept(suggestionId)
                 respond('select', { resolution: 'accept', suggestionId })
             }}
-            onReject={async () => {
-                await reject()
+            onReject={async (suggestionId: string) => {
+                await reject(suggestionId)
                 respond('select', { resolution: 'reject', suggestionId })
             }}
         />

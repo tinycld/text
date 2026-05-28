@@ -206,18 +206,30 @@ export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps 
                     // matches when from <= pos < to.
                     const decoSet = getSuggestionDecorations(view.state)
                     const decos = decoSet.find(coords.pos, coords.pos)
-                    if (decos.length === 0) return false
 
-                    // Pick the first decoration's suggestionId. Layered
-                    // marks (Case 2b) produce stacked decorations — we
-                    // surface the first one for Task 11. A future phase
-                    // could disambiguate (show both, or pick the most
-                    // recent) but the storage layer already keys on
-                    // suggestionId per mark, so the first one is
-                    // sufficient for the initial click target.
-                    const deco = decos[0]
-                    const suggestionId = deco.spec?.suggestionId as string | undefined
-                    if (!suggestionId) return false
+                    // Enumerate ALL suggestion decorations at the
+                    // click point — Case 2b/2c layered marks stack on
+                    // the same range, and the popover renders one row
+                    // per (suggestionId, kind) so the viewer can
+                    // Accept/Reject each independently. Filter to
+                    // suggestion kinds defensively (the decoration
+                    // plugin currently only emits those, but other
+                    // plugins could share the DecorationSet plumbing
+                    // in the future).
+                    const suggestions = decos
+                        .filter(
+                            d =>
+                                d.spec?.kind === 'suggestedInsert' ||
+                                d.spec?.kind === 'suggestedDelete'
+                        )
+                        .map(d => ({
+                            id: d.spec.suggestionId as string,
+                            authorId: (d.spec as { authorId?: string }).authorId ?? 'unknown',
+                            kind: (d.spec.kind === 'suggestedInsert' ? 'insert' : 'delete') as
+                                | 'insert'
+                                | 'delete',
+                        }))
+                    if (suggestions.length === 0) return false
 
                     // Generate a fresh requestId. Displaces any
                     // previously-in-flight request: the host's reducer
@@ -236,7 +248,7 @@ export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps 
                         payload: {
                             kind: 'suggestion',
                             rect: rectFromClick(event),
-                            payload: { suggestionId },
+                            payload: { suggestions },
                         },
                     })
 

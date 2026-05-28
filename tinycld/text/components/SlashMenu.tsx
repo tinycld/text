@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core'
 import { useMemo } from 'react'
 import { Platform } from 'react-native'
 import type * as Y from 'yjs'
-import { useResolveSuggestion } from '../hooks/use-resolve-suggestion'
+import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
 import {
     AnchoredOverlayController,
     type AnchoredOverlayProps,
@@ -53,6 +53,12 @@ interface SlashMenuProps {
 // is a fresh wrapper closure per registry build; this component is
 // the closure body, mounted by the controller when a 'suggestion'
 // kind popover is opened.
+//
+// Phase 2b: the payload carries suggestions[] (one entry per
+// decoration found at the click position) so the popover can render
+// one row per layered mark. The service-style resolve hook accepts
+// the suggestionId per call (not at construction), so a single mount
+// can dispatch to whichever row the viewer clicks.
 function SuggestionPopoverContainer({
     payload,
     respond,
@@ -64,11 +70,10 @@ function SuggestionPopoverContainer({
     yDoc: Y.Doc | null
     canResolve: boolean
 }) {
-    const suggestionId = (payload as { suggestionId?: string } | null)?.suggestionId ?? ''
-    const { accept, reject, isPending } = useResolveSuggestion(suggestionId, {
-        editor,
-        yDoc,
-    })
+    // The payload's suggestions[] is forwarded through to the body via
+    // `payload` — the container only needs the service hook here so the
+    // body can dispatch per row.
+    const { accept, reject, isPending } = useResolveSuggestionService({ editor, yDoc })
 
     return (
         <SuggestionPopover
@@ -76,12 +81,12 @@ function SuggestionPopoverContainer({
             respond={respond}
             canResolve={canResolve}
             isPending={isPending}
-            onAccept={async () => {
-                await accept()
+            onAccept={async (suggestionId: string) => {
+                await accept(suggestionId)
                 respond('select', { resolution: 'accept', suggestionId })
             }}
-            onReject={async () => {
-                await reject()
+            onReject={async (suggestionId: string) => {
+                await reject(suggestionId)
                 respond('select', { resolution: 'reject', suggestionId })
             }}
         />

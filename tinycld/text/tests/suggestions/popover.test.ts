@@ -282,13 +282,27 @@ describe('createSuggestionPopoverPlugin (click handler)', () => {
                 namespace?: string
                 type?: string
                 requestId?: string
-                payload?: { kind?: string; payload?: { suggestionId?: string } }
+                payload?: {
+                    kind?: string
+                    payload?: {
+                        suggestions?: Array<{
+                            id: string
+                            authorId: string
+                            kind: 'insert' | 'delete'
+                        }>
+                    }
+                }
             }
             expect(msg.namespace).toBe('ui')
             expect(msg.type).toBe('show-popover')
             expect(msg.requestId).toBe('r-clicked')
             expect(msg.payload?.kind).toBe('suggestion')
-            expect(msg.payload?.payload?.suggestionId).toBe('sid-clicked')
+            // Single-suggestion case still wraps the one entry in a
+            // suggestions[] — the popover container branches on length
+            // to render the compact vs. multi-row UI.
+            expect(msg.payload?.payload?.suggestions).toEqual([
+                { id: 'sid-clicked', authorId: 'uo_alice', kind: 'insert' },
+            ])
         } finally {
             view.posAtCoords = originalPosAt
             editor.destroy()
@@ -330,6 +344,116 @@ describe('createSuggestionPopoverPlugin (click handler)', () => {
             )
             expect(consumed).toBe(false)
             expect(posts).toHaveLength(0)
+        } finally {
+            view.posAtCoords = originalPosAt
+            editor.destroy()
+        }
+    })
+})
+
+describe('SuggestionPopover layered marks (Case 2b/2c)', () => {
+    beforeEach(() => {
+        resetUiMessageBus()
+        delete window.ReactNativeWebView
+    })
+    afterEach(() => {
+        delete window.ReactNativeWebView
+        resetUiMessageBus()
+    })
+
+    it('click on a range with two overlapping marks publishes both suggestion ids', () => {
+        // Case 2b: a text node carries TWO suggestion marks at once —
+        // alice proposed inserting it, bob proposed deleting it (or
+        // any other stacking combination produced by Case 2c's
+        // excludes: '' configuration). The popover plugin should
+        // enumerate ALL decorations at the click position, not just
+        // the first one, so the host can render one row per
+        // suggestion.
+        const posts: object[] = []
+        const editor = new Editor({
+            extensions: [StarterKit, ...buildSuggestionEditorExtensions()],
+            content: {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'overlap',
+                                marks: [
+                                    {
+                                        type: 'suggestedInsert',
+                                        attrs: {
+                                            suggestionId: 'sid-alice-insert',
+                                            authorId: 'uo_alice',
+                                            ts: 1000,
+                                        },
+                                    },
+                                    {
+                                        type: 'suggestedDelete',
+                                        attrs: {
+                                            suggestionId: 'sid-bob-delete',
+                                            authorId: 'uo_bob',
+                                            ts: 1100,
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+
+        const stubbedPlugin = createSuggestionPopoverPlugin({
+            post: msg => {
+                posts.push(msg)
+            },
+            newRequestId: () => 'r-layered',
+        })
+
+        const view = editor.view
+        const click = stubbedPlugin.props.handleDOMEvents?.click
+        expect(click).toBeTruthy()
+
+        const originalPosAt = view.posAtCoords.bind(view)
+        view.posAtCoords = () => ({ pos: 2, inside: 1 })
+
+        try {
+            const consumed = click?.call(
+                stubbedPlugin,
+                view,
+                new MouseEvent('click', { clientX: 10, clientY: 10 }) as unknown as PointerEvent
+            )
+            expect(consumed).toBe(true)
+            expect(posts).toHaveLength(1)
+            const msg = posts[0] as {
+                namespace?: string
+                type?: string
+                payload?: {
+                    kind?: string
+                    payload?: {
+                        suggestions?: Array<{
+                            id: string
+                            authorId: string
+                            kind: 'insert' | 'delete'
+                        }>
+                    }
+                }
+            }
+            expect(msg.namespace).toBe('ui')
+            expect(msg.type).toBe('show-popover')
+            expect(msg.payload?.kind).toBe('suggestion')
+            const suggestions = msg.payload?.payload?.suggestions ?? []
+            // Both overlapping marks surface. Order isn't part of the
+            // contract (DecorationSet.find() ordering is an
+            // implementation detail) — sort by id before asserting.
+            const sorted = [...suggestions].sort((a, b) => a.id.localeCompare(b.id))
+            expect(sorted).toEqual([
+                { id: 'sid-alice-insert', authorId: 'uo_alice', kind: 'insert' },
+                { id: 'sid-bob-delete', authorId: 'uo_bob', kind: 'delete' },
+            ])
         } finally {
             view.posAtCoords = originalPosAt
             editor.destroy()

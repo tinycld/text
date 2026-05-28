@@ -28,35 +28,60 @@ import (
 // Hard error if: the bytes don't form a ZIP, or word/document.xml
 // is missing or malformed. Everything else degrades to a Warning.
 func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
-	root, warnings, err := parseDocxToPMNode(docx)
+	pmJSON, warnings, _, err := docxToPMJSONShared(docx)
+	return pmJSON, warnings, err
+}
+
+// DocxToPMJSONWithSuggestions is DocxToPMJSON plus the parsed
+// suggestion-map entries from the customXml/tinycld-suggestions.xml
+// part. The runtime bootstrap uses these to seed the Yjs `suggestions`
+// Y.Map so the review drawer surfaces the existing revisions when a
+// Word-edited docx is first opened in tinycld.
+//
+// Returns nil entries when the docx has no customXml/tinycld-suggestions.xml
+// (typical for Word-authored docx — the <w:ins>/<w:del> marks still
+// parse via the synthesized-id path; only the lifecycle metadata —
+// status / resolvedBy / note — is absent, and the seed safely no-ops).
+func DocxToPMJSONWithSuggestions(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	return docxToPMJSONShared(docx)
+}
+
+// docxToPMJSONShared is the common implementation behind DocxToPMJSON
+// and DocxToPMJSONWithSuggestions. It produces the marshaled PM JSON,
+// the parser warnings, and the suggestion entries; the public wrappers
+// drop entries when their signature doesn't expose them.
+func docxToPMJSONShared(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	root, warnings, entries, err := parseDocxToPMNode(docx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("translate: marshal root: %w", err)
+		return nil, nil, nil, fmt.Errorf("translate: marshal root: %w", err)
 	}
-	return out, warnings, nil
+	return out, warnings, entries, nil
 }
 
 // parseDocxToPMNode parses .docx bytes into an in-memory PMNode tree
-// plus warnings. Shared by DocxToPMJSON (which marshals to JSON for
-// the bootstrap path's Y.Doc seeding) and DocxToHTML (which walks
-// the tree directly to HTML for the render path).
-func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
+// plus warnings and any suggestion-map entries recovered from the
+// tinycld customXml part. Shared by DocxToPMJSON /
+// DocxToPMJSONWithSuggestions (which marshal to JSON for the bootstrap
+// path's Y.Doc seeding) and DocxToHTML (which walks the tree directly
+// to HTML for the render path).
+func parseDocxToPMNode(docx []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
 	zr, err := zip.NewReader(bytes.NewReader(docx), int64(len(docx)))
 	if err != nil {
-		return PMNode{}, nil, fmt.Errorf("translate: open docx as zip: %w", err)
+		return PMNode{}, nil, nil, fmt.Errorf("translate: open docx as zip: %w", err)
 	}
 
 	parts, err := readZipParts(zr)
 	if err != nil {
-		return PMNode{}, nil, err
+		return PMNode{}, nil, nil, err
 	}
 
 	docXML, ok := parts["word/document.xml"]
 	if !ok {
-		return PMNode{}, nil, fmt.Errorf("translate: docx missing word/document.xml")
+		return PMNode{}, nil, nil, fmt.Errorf("translate: docx missing word/document.xml")
 	}
 
 	parser := docxParser{
@@ -81,9 +106,9 @@ func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
 
 	root, err := parser.parseDocument(docXML)
 	if err != nil {
-		return PMNode{}, nil, fmt.Errorf("translate: parse document.xml: %w", err)
+		return PMNode{}, nil, nil, fmt.Errorf("translate: parse document.xml: %w", err)
 	}
-	return root, parser.warnings, nil
+	return root, parser.warnings, parser.suggestionEntries, nil
 }
 
 // readZipParts collects the bytes of every file in the docx zip.

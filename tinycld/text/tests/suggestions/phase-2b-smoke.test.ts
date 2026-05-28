@@ -3,13 +3,13 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { computeDocumentSuggestions } from '~/tinycld/text/hooks/use-document-suggestions'
+import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { bulkAccept, bulkReject } from '~/tinycld/text/lib/suggestions/bulk-resolve'
 import { SuggestionsMap } from '~/tinycld/text/lib/suggestions/suggestions-map'
 import {
-    EDITOR_MODE_SUGGESTING,
     createEditorModeStore,
+    EDITOR_MODE_SUGGESTING,
 } from '~/tinycld/text/stores/editor-mode-store'
 import {
     SUGGESTION_STATUS_ACCEPTED,
@@ -32,10 +32,7 @@ describe('Phase 2b smoke', () => {
         const yDoc = new Y.Doc()
 
         const editor = new Editor({
-            extensions: [
-                StarterKit,
-                ...buildSuggestionEditorExtensions({ modeStore, yDoc }),
-            ],
+            extensions: [StarterKit, ...buildSuggestionEditorExtensions({ modeStore, yDoc })],
             content: {
                 type: 'doc',
                 content: [
@@ -61,7 +58,7 @@ describe('Phase 2b smoke', () => {
         const result = computeDocumentSuggestions(editor.state.doc, map)
         expect(result.anchored.length).toBeGreaterThanOrEqual(3)
 
-        const ids = result.anchored.map((r) => r.id)
+        const ids = result.anchored.map(r => r.id)
         bulkAccept(editor, ids, { resolverUserOrgId: 'uo_carol', yDoc })
 
         for (const id of ids) {
@@ -69,12 +66,10 @@ describe('Phase 2b smoke', () => {
         }
         // Marks all gone
         let hasMarks = false
-        editor.state.doc.descendants((node) => {
+        editor.state.doc.descendants(node => {
             if (
                 node.marks.some(
-                    (m) =>
-                        m.type.name === 'suggestedInsert' ||
-                        m.type.name === 'suggestedDelete'
+                    m => m.type.name === 'suggestedInsert' || m.type.name === 'suggestedDelete'
                 )
             ) {
                 hasMarks = true
@@ -87,10 +82,7 @@ describe('Phase 2b smoke', () => {
     it('two users propose deletion of the same range → both rows in the list', () => {
         const yDoc = new Y.Doc()
         const editor = new Editor({
-            extensions: [
-                StarterKit,
-                ...buildSuggestionEditorExtensions(),
-            ],
+            extensions: [StarterKit, ...buildSuggestionEditorExtensions()],
             content: {
                 type: 'doc',
                 content: [
@@ -130,9 +122,9 @@ describe('Phase 2b smoke', () => {
 
         const result = computeDocumentSuggestions(editor.state.doc, map)
         // Both delete suggestions are anchored — Case 2c.
-        const deletes = result.anchored.filter((r) => r.kind === 'delete')
+        const deletes = result.anchored.filter(r => r.kind === 'delete')
         expect(deletes).toHaveLength(2)
-        expect(deletes.map((d) => d.authorId).sort()).toEqual(['uo_bob', 'uo_carol'])
+        expect(deletes.map(d => d.authorId).sort()).toEqual(['uo_bob', 'uo_carol'])
 
         // Accepting just Bob's leaves Carol's mark still on the text.
         bulkAccept(editor, ['s-bob'], {
@@ -144,7 +136,7 @@ describe('Phase 2b smoke', () => {
         // the deleted range and is gone too — but her Y.Map entry is
         // still open (orphaned).
         const result2 = computeDocumentSuggestions(editor.state.doc, map)
-        expect(result2.orphaned.map((o) => o.id)).toContain('s-carol')
+        expect(result2.orphaned.map(o => o.id)).toContain('s-carol')
 
         editor.destroy()
     })
@@ -152,10 +144,7 @@ describe('Phase 2b smoke', () => {
     it('bulkReject removes inserted text and flips status', () => {
         const yDoc = new Y.Doc()
         const editor = new Editor({
-            extensions: [
-                StarterKit,
-                ...buildSuggestionEditorExtensions(),
-            ],
+            extensions: [StarterKit, ...buildSuggestionEditorExtensions()],
             content: {
                 type: 'doc',
                 content: [

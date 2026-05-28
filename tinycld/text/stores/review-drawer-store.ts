@@ -29,8 +29,7 @@ export function createReviewDrawerStore() {
                 driveItemId,
                 // If we're switching documents, drop the focused
                 // suggestion from the previous doc.
-                focusedSuggestionId:
-                    s.driveItemId === driveItemId ? s.focusedSuggestionId : null,
+                focusedSuggestionId: s.driveItemId === driveItemId ? s.focusedSuggestionId : null,
             })),
         close: () => set({ isOpen: false, focusedSuggestionId: null }),
         focusSuggestion: id => set({ focusedSuggestionId: id }),

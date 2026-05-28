@@ -1,10 +1,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 import { useStore } from 'zustand'
-import type {
-    AnchoredSuggestion,
-    OrphanedSuggestion,
-} from '../../hooks/use-document-suggestions'
+import type { AnchoredSuggestion, OrphanedSuggestion } from '../../hooks/use-document-suggestions'
 import type { ReviewDrawerStore } from '../../stores/review-drawer-store'
 import { SuggestionRow } from './SuggestionRow'
 
@@ -55,9 +52,9 @@ export function ReviewDrawer({
     onBulkReject,
     onJump,
 }: ReviewDrawerProps) {
-    const isOpen = useStore(store, (s) => s.isOpen)
-    const openForId = useStore(store, (s) => s.driveItemId)
-    const focusedId = useStore(store, (s) => s.focusedSuggestionId)
+    const isOpen = useStore(store, s => s.isOpen)
+    const openForId = useStore(store, s => s.driveItemId)
+    const focusedId = useStore(store, s => s.focusedSuggestionId)
     const close = store.getState().close
     const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
@@ -67,8 +64,8 @@ export function ReviewDrawer({
     const drawerOpen = isOpen && openForId === driveItemId
     if (!drawerOpen) return null
 
-    const openAnchored = anchored.filter((s) => s.status === 'open')
-    const openIds = openAnchored.map((s) => s.id)
+    const openAnchored = anchored.filter(s => s.status === 'open')
+    const openIds = openAnchored.map(s => s.id)
 
     return (
         <View
@@ -94,9 +91,7 @@ export function ReviewDrawer({
                     alignItems: 'center',
                 }}
             >
-                <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>
-                    Suggestions
-                </Text>
+                <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>Suggestions</Text>
                 <Pressable
                     onPress={close}
                     accessibilityRole="button"
@@ -121,9 +116,7 @@ export function ReviewDrawer({
                             accessibilityRole="button"
                             accessibilityLabel="Accept all suggestions"
                         >
-                            <Text style={{ color: '#fff', fontSize: 13 }}>
-                                Accept all
-                            </Text>
+                            <Text style={{ color: '#fff', fontSize: 13 }}>Accept all</Text>
                         </Pressable>
                         <Pressable
                             onPress={() => onBulkReject(openIds)}
@@ -138,9 +131,7 @@ export function ReviewDrawer({
                             accessibilityRole="button"
                             accessibilityLabel="Reject all suggestions"
                         >
-                            <Text style={{ color: fg, fontSize: 13 }}>
-                                Reject all
-                            </Text>
+                            <Text style={{ color: fg, fontSize: 13 }}>Reject all</Text>
                         </Pressable>
                     </View>
                 )}
@@ -150,7 +141,7 @@ export function ReviewDrawer({
                             No suggestions in this document.
                         </Text>
                     )}
-                    {openAnchored.map((s) => (
+                    {openAnchored.map(s => (
                         <SuggestionRow
                             key={`${s.id}-${s.kind}`}
                             suggestion={s}
@@ -175,7 +166,7 @@ export function ReviewDrawer({
                             >
                                 Orphaned
                             </Text>
-                            {orphaned.map((s) => (
+                            {orphaned.map(s => (
                                 <View
                                     key={s.id}
                                     style={{
@@ -198,17 +189,13 @@ export function ReviewDrawer({
                                                 onPress={() => onAccept(s.id)}
                                                 disabled={isPending}
                                             >
-                                                <Text style={{ color: fg }}>
-                                                    Accept
-                                                </Text>
+                                                <Text style={{ color: fg }}>Accept</Text>
                                             </Pressable>
                                             <Pressable
                                                 onPress={() => onReject(s.id)}
                                                 disabled={isPending}
                                             >
-                                                <Text style={{ color: fg }}>
-                                                    Reject
-                                                </Text>
+                                                <Text style={{ color: fg }}>Reject</Text>
                                             </Pressable>
                                         </View>
                                     )}

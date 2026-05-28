@@ -15,7 +15,7 @@ function makeDocWithSuggestions(ids: string[]) {
     const yDoc = new Y.Doc()
     const content = {
         type: 'doc',
-        content: ids.map((id) => ({
+        content: ids.map(id => ({
             type: 'paragraph',
             content: [
                 {
@@ -51,8 +51,8 @@ describe('bulkAccept', () => {
         }
         // All insert marks gone (text remains)
         let hasInsertMark = false
-        editor.state.doc.descendants((node) => {
-            if (node.marks.some((m) => m.type.name === 'suggestedInsert')) {
+        editor.state.doc.descendants(node => {
+            if (node.marks.some(m => m.type.name === 'suggestedInsert')) {
                 hasInsertMark = true
             }
         })

@@ -171,10 +171,7 @@ describe('SuggestionCommandLayer', () => {
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
         const yDoc = new Y.Doc()
-        const schema = getSchema([
-            StarterKit,
-            ...buildSuggestionEditorExtensions(),
-        ])
+        const schema = getSchema([StarterKit, ...buildSuggestionEditorExtensions()])
         const docNode = schema.nodes.doc.create(
             {},
             schema.nodes.paragraph.create({}, schema.text('doomed text'))
@@ -201,11 +198,9 @@ describe('SuggestionCommandLayer', () => {
         // Now the text "doomed" should carry BOTH delete marks
         let allMarksCount = 0
         let textWithBothMarks: string | null = null
-        state.doc.descendants((node) => {
+        state.doc.descendants(node => {
             if (!node.isText) return
-            const deletes = node.marks.filter(
-                (m) => m.type.name === 'suggestedDelete'
-            )
+            const deletes = node.marks.filter(m => m.type.name === 'suggestedDelete')
             if (deletes.length === 2) {
                 allMarksCount = 2
                 textWithBothMarks = node.text ?? ''
@@ -327,13 +322,11 @@ describe('SuggestionCommandLayer', () => {
         // carries onto the next author's adjacent keystrokes.
         const aliceRuns: string[][] = []
         const bobRuns: string[][] = []
-        state.doc.descendants((node) => {
+        state.doc.descendants(node => {
             if (!node.isText) return
-            const inserts = node.marks.filter(
-                (m) => m.type.name === 'suggestedInsert'
-            )
+            const inserts = node.marks.filter(m => m.type.name === 'suggestedInsert')
             if (inserts.length === 0) return
-            const authors = inserts.map((m) => m.attrs.authorId as string)
+            const authors = inserts.map(m => m.attrs.authorId as string)
             const text = node.text ?? ''
             // Each text node should carry exactly one author's mark
             // (no credit leak). Stacking is for layered marks across

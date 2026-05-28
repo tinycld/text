@@ -3,8 +3,8 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
-import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { computeDocumentSuggestions } from '~/tinycld/text/hooks/use-document-suggestions'
+import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { SuggestionsMap } from '~/tinycld/text/lib/suggestions/suggestions-map'
 
 function makeEditor(content: object) {
@@ -112,7 +112,7 @@ describe('computeDocumentSuggestions', () => {
         map.create({ id: 's-third', authorId: 'uo_y', createdAt: 3000 })
 
         const result = computeDocumentSuggestions(editor.state.doc, map)
-        expect(result.anchored.map((r) => r.id)).toEqual(['s-second', 's-third'])
+        expect(result.anchored.map(r => r.id)).toEqual(['s-second', 's-third'])
         editor.destroy()
     })
 
@@ -133,7 +133,7 @@ describe('computeDocumentSuggestions', () => {
 
         const result = computeDocumentSuggestions(editor.state.doc, map)
         expect(result.anchored).toHaveLength(0)
-        expect(result.orphaned.map((r) => r.id)).toEqual(['s-orphan'])
+        expect(result.orphaned.map(r => r.id)).toEqual(['s-orphan'])
         editor.destroy()
     })
 
@@ -169,7 +169,7 @@ describe('computeDocumentSuggestions', () => {
 
         const result = computeDocumentSuggestions(editor.state.doc, map)
         expect(result.anchored).toHaveLength(2)
-        expect(result.anchored.map((r) => r.kind).sort()).toEqual(['delete', 'insert'])
+        expect(result.anchored.map(r => r.kind).sort()).toEqual(['delete', 'insert'])
         editor.destroy()
     })
 

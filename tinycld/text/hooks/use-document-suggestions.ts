@@ -116,8 +116,7 @@ export function computeDocumentSuggestions(
         const entry = map.get(row.id)
         const status = entry?.status ?? SUGGESTION_STATUS_OPEN
         // Truncation suffix when the snippet reached the cap.
-        const snippet =
-            row.snippet.length >= SNIPPET_MAX_LENGTH ? `${row.snippet}…` : row.snippet
+        const snippet = row.snippet.length >= SNIPPET_MAX_LENGTH ? `${row.snippet}…` : row.snippet
         anchored.push({
             id: row.id,
             status,
@@ -132,7 +131,7 @@ export function computeDocumentSuggestions(
     anchored.sort((a, b) => a.anchorRange.from - b.anchorRange.from)
 
     // Orphan pass: any map entry whose id isn't keyed in seenInDoc.
-    const seenIds = new Set(Array.from(seenInDoc.values()).map((r) => r.id))
+    const seenIds = new Set(Array.from(seenInDoc.values()).map(r => r.id))
     const orphaned: OrphanedSuggestion[] = []
     for (const entry of map.list()) {
         if (seenIds.has(entry.id)) continue

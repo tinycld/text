@@ -26,8 +26,8 @@ describe('Case 2c — same-type suggestion marks stack', () => {
         // suggestionIds to survive.
         const set = m2.addToSet(m1.addToSet([]))
         const text = schema.text('deletion-target', set)
-        const dels = text.marks.filter((m) => m.type.name === 'suggestedDelete')
-        const names = dels.map((m) => m.attrs.authorId)
+        const dels = text.marks.filter(m => m.type.name === 'suggestedDelete')
+        const names = dels.map(m => m.attrs.authorId)
         expect(names).toContain('uo_bob')
         expect(names).toContain('uo_carol')
         expect(dels).toHaveLength(2)
@@ -46,7 +46,7 @@ describe('Case 2c — same-type suggestion marks stack', () => {
         })
         const set = m2.addToSet(m1.addToSet([]))
         const text = schema.text('contested-insertion', set)
-        expect(text.marks.filter((m) => m.type.name === 'suggestedInsert')).toHaveLength(2)
+        expect(text.marks.filter(m => m.type.name === 'suggestedInsert')).toHaveLength(2)
     })
 
     it('an insert mark and a delete mark still coexist (Phase 2a Case 2b regression check)', () => {

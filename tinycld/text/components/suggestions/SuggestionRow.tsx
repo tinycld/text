@@ -70,14 +70,13 @@ export function SuggestionRow({
                     {suggestion.snippet}
                 </Text>
                 <Text style={{ color: muted, fontSize: 11 }}>
-                    {suggestion.kind === 'insert' ? 'Added' : 'Removed'} by{' '}
-                    {suggestion.authorId}
+                    {suggestion.kind === 'insert' ? 'Added' : 'Removed'} by {suggestion.authorId}
                 </Text>
             </View>
             {canResolve && (
                 <View style={{ flexDirection: 'row', gap: 4 }}>
                     <Pressable
-                        onPress={(e) => {
+                        onPress={e => {
                             e.stopPropagation()
                             onAccept()
                         }}
@@ -89,7 +88,7 @@ export function SuggestionRow({
                         <Check size={16} color={fg} />
                     </Pressable>
                     <Pressable
-                        onPress={(e) => {
+                        onPress={e => {
                             e.stopPropagation()
                             onReject()
                         }}

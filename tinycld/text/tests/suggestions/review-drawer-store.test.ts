@@ -46,7 +46,7 @@ describe('review-drawer-store', () => {
     it('subscribers fire on isOpen changes', () => {
         const store = createReviewDrawerStore()
         let observed = false
-        const unsub = store.subscribe((s) => {
+        const unsub = store.subscribe(s => {
             observed = s.isOpen
         })
         store.getState().open('di_x')

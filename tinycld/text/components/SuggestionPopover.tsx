@@ -151,12 +151,7 @@ interface SuggestionPopoverRowProps {
     onReject: (suggestionId: string) => void | Promise<void>
 }
 
-function SuggestionPopoverRow({
-    entry,
-    isPending,
-    onAccept,
-    onReject,
-}: SuggestionPopoverRowProps) {
+function SuggestionPopoverRow({ entry, isPending, onAccept, onReject }: SuggestionPopoverRowProps) {
     return (
         <View className="flex-row items-center gap-2">
             <Text className="w-4 text-sm font-semibold text-foreground">

@@ -898,6 +898,11 @@ func codeBlockChildren(runs []PMNode) []PMNode {
 // parseInlineGroup is parseHyperlink/parseIns/parseDel without the
 // link-specific bookkeeping — used to flatten a tracked-insertion's
 // runs back into the surrounding paragraph.
+//
+// Nested <w:ins>/<w:del> children are handled inline: the suggestion
+// stack is pushed for the duration of the inner element and the runs
+// underneath layer both marks (Case 2c — a delete inside a delete,
+// or an insert+delete pair) onto the emitted text nodes.
 func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, runs *[]PMNode) error {
 	for {
 		tok, err := dec.Token()
@@ -906,11 +911,24 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if t.Name.Local == "r" {
+			switch t.Name.Local {
+			case "r":
 				if err := p.parseRun(dec, t, runs, nil); err != nil {
 					return err
 				}
-			} else {
+			case "ins":
+				p.pushSuggestion(MarkTypeSuggestedInsert, t)
+				if err := p.parseInlineGroup(dec, t, runs); err != nil {
+					return err
+				}
+				p.popSuggestion()
+			case "del":
+				p.pushSuggestion(MarkTypeSuggestedDelete, t)
+				if err := p.parseInlineGroup(dec, t, runs); err != nil {
+					return err
+				}
+				p.popSuggestion()
+			default:
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}

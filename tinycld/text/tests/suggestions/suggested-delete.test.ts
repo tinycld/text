@@ -106,8 +106,8 @@ describe('SuggestedDelete mark', () => {
         // Verify each mark's attrs are independently preserved (defensive
         // against a hypothetical regression where the second mark clobbers
         // the first's attribute storage).
-        const ins = text.marks.find((m) => m.type.name === 'suggestedInsert')
-        const del = text.marks.find((m) => m.type.name === 'suggestedDelete')
+        const ins = text.marks.find(m => m.type.name === 'suggestedInsert')
+        const del = text.marks.find(m => m.type.name === 'suggestedDelete')
         expect(ins?.attrs).toEqual({ suggestionId: 's-ins', authorId: 'alice', ts: 1 })
         expect(del?.attrs).toEqual({ suggestionId: 's-del', authorId: 'bob', ts: 2 })
     })

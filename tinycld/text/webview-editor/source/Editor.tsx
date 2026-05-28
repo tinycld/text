@@ -26,7 +26,6 @@ import { countWords } from '../../lib/word-count'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { installFormatBridge } from './bridges/format-bridge'
-import { SuggestedBlockChange, SuggestedDelete, SuggestedInsert } from './suggestions'
 import {
     CodeShortcuts,
     deriveActiveHeadingLevel,
@@ -39,6 +38,7 @@ import {
     deriveImageSelection,
 } from './editor-state'
 import { RealtimeClient } from './realtime-client'
+import { SuggestedBlockChange, SuggestedDelete, SuggestedInsert } from './suggestions'
 
 // Local extensions declared in this module — kept together so the
 // import block stays uninterrupted and the in-line `Extension.create`

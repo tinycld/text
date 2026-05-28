@@ -18,6 +18,11 @@ export interface CommentRange {
     to: number
 }
 
+export interface CommentMarkStorage {
+    findComment: (commentId: string) => Range | null
+    getAllComments: () => CommentRange[]
+}
+
 declare module '@tiptap/core' {
     interface Commands<ReturnType> {
         tinycldComment: {
@@ -25,11 +30,9 @@ declare module '@tiptap/core' {
             removeComment: (commentId: string) => ReturnType
         }
     }
-}
-
-export interface CommentMarkStorage {
-    findComment: (commentId: string) => Range | null
-    getAllComments: () => CommentRange[]
+    interface Storage {
+        tinycldComment: CommentMarkStorage
+    }
 }
 
 export const CommentMark = Mark.create<unknown, CommentMarkStorage>({

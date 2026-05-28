@@ -28,7 +28,14 @@ export interface SuggestedInsertAttrs {
 
 export const SuggestedInsert = Mark.create({
     name: 'suggestedInsert',
-    inclusive: true,
+    // inclusive: false because the command layer (command-layer.ts)
+    // explicitly calls addMark on exact ranges; we never want a
+    // previous user's mark to carry forward onto another user's
+    // adjacent keystrokes. With inclusive: true + excludes: '', the
+    // two flags interacted to create an author-credit leak — Bob's
+    // typing at the boundary of Alice's run would inherit Alice's
+    // mark, stacking instead of replacing per excludes: ''.
+    inclusive: false,
     // excludes: '' lets multiple suggestedInsert marks coexist on the
     // same range, recording each contributing author's proposal
     // independently. Spec Case 2c: two users proposing the same edit

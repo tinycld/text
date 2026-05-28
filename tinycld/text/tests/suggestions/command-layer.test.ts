@@ -100,14 +100,13 @@ describe('SuggestionCommandLayer', () => {
         state = state.apply(state.tr.insertText('hello', 1))
         vi.advanceTimersByTime(31_000)
         state = state.apply(state.tr.insertText(' world', state.doc.content.size - 1))
-        // Walk ALL suggestedInsert marks per text node (not just the
-        // first match). Phase 2b Case 2c lets same-type marks stack on
-        // the same range, so when `inclusive: true` carries the first
-        // session's mark across the boundary into the new run, the
-        // second session's mark layers on top instead of replacing it.
-        // The invariant that matters is that two distinct sessions
-        // mint two distinct suggestionIds — observable across all
-        // marks on the doc, not via mark-per-node.
+        // Walk ALL suggestedInsert marks per text node. The invariant
+        // that matters is that two distinct sessions (separated by the
+        // 30s idle window) mint two distinct suggestionIds — observable
+        // across all marks on the doc. With `inclusive: false` each
+        // run wears only its own session's mark, but the assertion
+        // here is on the SET of ids across the whole doc, which is
+        // robust regardless of how marks distribute across text nodes.
         const ids: string[] = []
         state.doc.descendants(node => {
             for (const m of node.marks) {
@@ -160,6 +159,60 @@ describe('SuggestionCommandLayer', () => {
         const sel = TextSelection.create(state.doc, 1, 6)
         state = state.apply(state.tr.setSelection(sel).deleteSelection())
         expect(state.doc.textContent).not.toContain('hello')
+    })
+
+    it('Case 2c — two users separately proposing deletion of the same range stack marks', () => {
+        // Alice proposes deletion of "doomed". Then identity switches
+        // to Bob, and Bob proposes deletion of the SAME range. Both
+        // suggestedDelete marks should coexist on the text — the
+        // schema's excludes: '' is what permits this when the command
+        // layer's addMark calls run independently per author.
+        const modeStore = createEditorModeStore()
+        modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
+        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        const yDoc = new Y.Doc()
+        const schema = getSchema([
+            StarterKit,
+            ...buildSuggestionEditorExtensions(),
+        ])
+        const docNode = schema.nodes.doc.create(
+            {},
+            schema.nodes.paragraph.create({}, schema.text('doomed text'))
+        )
+        let state = EditorState.create({
+            doc: docNode,
+            schema,
+            plugins: [createSuggestionCommandPlugin({ modeStore, yDoc })],
+        })
+        // Alice selects "doomed" and deletes
+        let sel = TextSelection.create(state.doc, 1, 7)
+        state = state.apply(state.tr.setSelection(sel).deleteSelection())
+        // Switch to Bob
+        modeStore.getState().setIdentity({ userOrgId: 'uo_bob' })
+        // Wait beyond idle window so a fresh session mints — and so
+        // that Bob's command-layer transaction is independent of
+        // Alice's.
+        vi.advanceTimersByTime(31_000)
+        // Bob selects the same range (the original "doomed" text,
+        // which is now wearing Alice's suggestedDelete and is still
+        // in the doc per Phase 2a's restore semantics) and deletes
+        sel = TextSelection.create(state.doc, 1, 7)
+        state = state.apply(state.tr.setSelection(sel).deleteSelection())
+        // Now the text "doomed" should carry BOTH delete marks
+        let allMarksCount = 0
+        let textWithBothMarks: string | null = null
+        state.doc.descendants((node) => {
+            if (!node.isText) return
+            const deletes = node.marks.filter(
+                (m) => m.type.name === 'suggestedDelete'
+            )
+            if (deletes.length === 2) {
+                allMarksCount = 2
+                textWithBothMarks = node.text ?? ''
+            }
+        })
+        expect(allMarksCount).toBe(2)
+        expect(textWithBothMarks).toBe('doomed')
     })
 
     it('creates a suggestions map entry on first edit in suggest mode', () => {
@@ -226,10 +279,10 @@ describe('SuggestionCommandLayer', () => {
         let state = makeState(modeStore, yDoc)
 
         state = state.apply(state.tr.insertText('hello', 1))
-        // Walk ALL suggestedInsert marks per text node. Phase 2b Case
-        // 2c lets same-type marks stack on the same range, so the
-        // identity-change boundary may produce a single text node
-        // carrying both Alice's and Bob's marks layered.
+        // Walk ALL suggestedInsert marks per text node. With
+        // `inclusive: false` on the mark, each author's keystrokes
+        // wear only their own session's mark — Alice's run carries
+        // her mark, Bob's adjacent run carries his, with no leak.
         const firstIds: { id: string; author: string }[] = []
         state.doc.descendants(node => {
             for (const m of node.marks) {
@@ -267,5 +320,30 @@ describe('SuggestionCommandLayer', () => {
         expect(distinctAuthors.size).toBe(2)
         expect(distinctAuthors.has('uo_alice')).toBe(true)
         expect(distinctAuthors.has('uo_bob')).toBe(true)
+
+        // Stricter check: Alice's text segment must be credited to
+        // Alice ONLY, and Bob's segment to Bob ONLY. Catches the
+        // inclusive:true + excludes:'' credit-leak bug where a mark
+        // carries onto the next author's adjacent keystrokes.
+        const aliceRuns: string[][] = []
+        const bobRuns: string[][] = []
+        state.doc.descendants((node) => {
+            if (!node.isText) return
+            const inserts = node.marks.filter(
+                (m) => m.type.name === 'suggestedInsert'
+            )
+            if (inserts.length === 0) return
+            const authors = inserts.map((m) => m.attrs.authorId as string)
+            const text = node.text ?? ''
+            // Each text node should carry exactly one author's mark
+            // (no credit leak). Stacking is for layered marks across
+            // independent command-layer transactions, not for adjacent
+            // typing across authors.
+            expect(authors).toHaveLength(1)
+            if (authors[0] === 'uo_alice') aliceRuns.push([text, ...authors])
+            else if (authors[0] === 'uo_bob') bobRuns.push([text, ...authors])
+        })
+        expect(aliceRuns.length).toBeGreaterThan(0)
+        expect(bobRuns.length).toBeGreaterThan(0)
     })
 })

@@ -32,8 +32,11 @@ import {
 import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
+import type { EditorModeStore } from '../stores/editor-mode-store'
 import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
+import { EditorModeChip } from './EditorModeChip'
+import { EditorModeMenu } from './EditorModeMenu'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
 import { ImageInsertButton } from './ImageInsertButton'
@@ -54,6 +57,17 @@ interface DocumentToolbarProps {
         isOpen: boolean
         start: () => void
     }
+    // Per-document editor-mode store wired by the screen (see
+    // screens/[id].tsx). Optional — when undefined, the mode menu
+    // and chip render nothing, so callers that don't yet care about
+    // suggestion mode (tests, lightweight tool harnesses) don't have
+    // to construct a store.
+    modeStore?: EditorModeStore
+    // canEdit / canSuggest gate which rows show up in the mode menu.
+    // Hard-coded to true at the screen call site for Phase 2a; Task 9
+    // replaces those with useSuggestionPermissions(driveItemId).
+    canEdit?: boolean
+    canSuggest?: boolean
 }
 
 // DocumentToolbar lays out the editor's formatting actions in groups
@@ -67,6 +81,9 @@ export function DocumentToolbar({
     state,
     disabled = false,
     newCommentFlow,
+    modeStore,
+    canEdit = true,
+    canSuggest = true,
 }: DocumentToolbarProps) {
     const iconColor = useThemeColor('muted-foreground')
     const activeColor = useThemeColor('primary')
@@ -374,10 +391,21 @@ export function DocumentToolbar({
                                 />
                             </>
                         ) : null}
+                        {modeStore ? (
+                            <>
+                                <Separator />
+                                <EditorModeMenu
+                                    modeStore={modeStore}
+                                    canEdit={canEdit}
+                                    canSuggest={canSuggest}
+                                />
+                            </>
+                        ) : null}
                         <HelpSearchButton />
                     </View>
                 </View>
             </ToolbarRow>
+            {modeStore ? <EditorModeChip modeStore={modeStore} /> : null}
 
             <LinkPopover
                 isOpen={linkOpen}

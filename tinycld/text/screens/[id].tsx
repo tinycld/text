@@ -246,6 +246,9 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         isOpen: newCommentFlow.isOpen,
                         start: newCommentFlow.start,
                     }}
+                    modeStore={modeStore}
+                    canEdit
+                    canSuggest
                 />
                 <DocumentContextMenu
                     commands={commands}

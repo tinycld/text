@@ -69,10 +69,14 @@ export function ReviewDrawer({
 
     return (
         <View
+            // Cleared by the title + menubar + toolbar stack so the
+            // OpenReviewDrawerButton stays clickable for toggle-close
+            // (otherwise the drawer would cover the toolbar trigger
+            // and users would have to find the × close button).
             style={{
                 position: 'absolute',
                 right: 0,
-                top: 0,
+                top: 96,
                 bottom: 0,
                 width: 320,
                 backgroundColor: bg,

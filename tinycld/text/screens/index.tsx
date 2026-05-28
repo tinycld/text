@@ -1,7 +1,7 @@
-import { NoFilePanel } from '@tinycld/core/components/NoFilePanel'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
+import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
 import { useCallback } from 'react'
@@ -37,7 +37,11 @@ export default function TextIndex() {
 
     return (
         <NoFilePanel
-            kind="text"
+            headline="A blank page."
+            sublabel="Where the next thought lands."
+            newLabel="New document"
+            uploadHint=".docx, .md, .txt"
+            accept=".docx,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
             onCreateNew={handleCreateNew}
             onUpload={handleUpload}
             isPending={blank.isPending || create.isPending}

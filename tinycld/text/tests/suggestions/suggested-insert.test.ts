@@ -48,28 +48,33 @@ describe('SuggestedInsert mark', () => {
         expect(span?.getAttribute('data-ts')).toBe('456')
     })
 
-    it('rejects mark serialization without suggestionId or authorId', () => {
-        // ProseMirror's Mark.create does not validate required attrs (default: null
-        // is permitted), so we exercise the rejection through serialization, which
-        // invokes the renderHTML callback that enforces the contract.
-        const serializer = DOMSerializer.fromSchema(schema)
-        const missingSuggestionId = schema.marks.suggestedInsert.create({
-            authorId: 'u',
-            ts: 1,
-        })
-        const missingAuthorId = schema.marks.suggestedInsert.create({
-            suggestionId: 's',
-            ts: 1,
-        })
-        const textWithoutSid = schema.text('x', [missingSuggestionId])
-        const textWithoutAid = schema.text('x', [missingAuthorId])
-        const paragraphSid = schema.nodes.paragraph.create({}, textWithoutSid)
-        const paragraphAid = schema.nodes.paragraph.create({}, textWithoutAid)
-        expect(() => serializer.serializeFragment(paragraphSid.content, { document })).toThrow(
-            /suggestionId/
-        )
-        expect(() => serializer.serializeFragment(paragraphAid.content, { document })).toThrow(
-            /authorId/
-        )
+    it('drops the mark on parse if data-suggestion-id is missing', () => {
+        const html =
+            '<p><span data-suggested-insert data-author-id="user-1" data-ts="123">contested</span></p>'
+        document.body.innerHTML = html
+        const node = DOMParser.fromSchema(schema).parse(document.body)
+        const inline = node.firstChild?.firstChild
+        const mark = inline?.marks.find(m => m.type.name === 'suggestedInsert')
+        expect(mark).toBeUndefined()
+    })
+
+    it('drops the mark on parse if data-author-id is missing', () => {
+        const html =
+            '<p><span data-suggested-insert data-suggestion-id="abc" data-ts="123">contested</span></p>'
+        document.body.innerHTML = html
+        const node = DOMParser.fromSchema(schema).parse(document.body)
+        const inline = node.firstChild?.firstChild
+        const mark = inline?.marks.find(m => m.type.name === 'suggestedInsert')
+        expect(mark).toBeUndefined()
+    })
+
+    it('drops the mark on parse if data-ts is missing', () => {
+        const html =
+            '<p><span data-suggested-insert data-suggestion-id="abc" data-author-id="user-1">contested</span></p>'
+        document.body.innerHTML = html
+        const node = DOMParser.fromSchema(schema).parse(document.body)
+        const inline = node.firstChild?.firstChild
+        const mark = inline?.marks.find(m => m.type.name === 'suggestedInsert')
+        expect(mark).toBeUndefined()
     })
 })

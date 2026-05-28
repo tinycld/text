@@ -1,24 +1,24 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 
-// Tiptap mark anchoring a proposed insertion to a range of text. The
-// `suggestionId` attribute matches the `id` field of the corresponding
-// `Suggestion` record (see suggestion-types.ts). The mark itself
-// replicates through Yjs XmlFragment, which is the source of truth for
-// the inserted range — concurrent edits migrate the range automatically.
-//
-// Two-way attribute round-tripping (parseHTML + renderHTML) is required:
-// y-prosemirror serializes marks to HTML when fragments cross the
-// y-prosemirror boundary, and ProseMirror reads them back through the
-// same parser. Omitting either side drops the attribute on the first
-// remote update.
-//
-// suggestionId and authorId are required: every "suggested insert" must
-// be attributable to a tracked suggestion + author. We enforce that in
-// renderHTML rather than at mark-create time because ProseMirror's
-// Mark.create permits `default: null` attribute values; the throw fires
-// the first time the mark is serialized to DOM (e.g. via DOMSerializer
-// or through the y-prosemirror boundary), catching programming bugs
-// before bad data escapes the editor.
+/**
+ * SuggestedInsert TipTap mark.
+ *
+ * Inline mark applied to text that has been proposed for insertion in
+ * a suggesting-mode edit. Carries the originating suggestionId,
+ * authorId (the user who proposed the insert), and ts (proposal
+ * timestamp in Unix ms).
+ *
+ * Both parseHTML and renderHTML are required so that the mark
+ * survives the y-prosemirror serialization boundary (the WebView
+ * editor's Yjs round-trip) AND round-trips through docx export/import
+ * (phase 5 docx work). The parseHTML tag selector requires all three
+ * data attributes — a span without any one of them is not reparsed
+ * as a suggestedInsert, which is the codebase's idiom (see CommentMark
+ * and BlockIndent) for surviving malformed input without crashing.
+ *
+ * Phase 2 adds the suggest-mode command layer that creates these
+ * marks; phase 5 adds the docx round-trip via WordZero's w:ins.
+ */
 
 export interface SuggestedInsertAttrs {
     suggestionId: string
@@ -37,9 +37,9 @@ export const SuggestedInsert = Mark.create({
                 parseHTML: el => el.getAttribute('data-suggestion-id'),
                 renderHTML: attrs => {
                     if (!attrs.suggestionId) {
-                        throw new Error('suggestedInsert mark requires suggestionId')
+                        return {}
                     }
-                    return { 'data-suggestion-id': attrs.suggestionId as string }
+                    return { 'data-suggestion-id': attrs.suggestionId }
                 },
             },
             authorId: {
@@ -47,24 +47,34 @@ export const SuggestedInsert = Mark.create({
                 parseHTML: el => el.getAttribute('data-author-id'),
                 renderHTML: attrs => {
                     if (!attrs.authorId) {
-                        throw new Error('suggestedInsert mark requires authorId')
+                        return {}
                     }
-                    return { 'data-author-id': attrs.authorId as string }
+                    return { 'data-author-id': attrs.authorId }
                 },
             },
             ts: {
-                default: 0,
+                default: null,
                 parseHTML: el => {
                     const v = el.getAttribute('data-ts')
-                    return v ? Number(v) : 0
+                    const n = v ? Number(v) : Number.NaN
+                    return Number.isFinite(n) ? n : null
                 },
-                renderHTML: attrs => ({ 'data-ts': String(attrs.ts ?? 0) }),
+                renderHTML: attrs => {
+                    if (typeof attrs.ts !== 'number' || !Number.isFinite(attrs.ts)) {
+                        return {}
+                    }
+                    return { 'data-ts': String(attrs.ts) }
+                },
             },
         }
     },
 
     parseHTML() {
-        return [{ tag: 'span[data-suggested-insert]' }]
+        return [
+            {
+                tag: 'span[data-suggested-insert][data-suggestion-id][data-author-id][data-ts]',
+            },
+        ]
     },
 
     renderHTML({ HTMLAttributes }) {

@@ -106,6 +106,17 @@ const (
 	// regenerated from these attrs, so dropping or editing the mark
 	// removes the comment cleanly.
 	MarkTypeComment = "comment"
+	// MarkTypeSuggestedInsert is applied to runs proposed for
+	// insertion by a user in suggesting mode. On export, the run
+	// wraps in <w:ins author="..." date="..." w:id="...">; the
+	// suggestionId / authorId / ts / note attrs land in the
+	// customXml/tinycld-suggestions.xml part.
+	MarkTypeSuggestedInsert = "suggestedInsert"
+	// MarkTypeSuggestedDelete is the mirror — proposed deletions
+	// wrap in <w:del> with the underlying text moving to <w:delText>.
+	// Word renders this as strikethrough, and accepting the change
+	// removes the text.
+	MarkTypeSuggestedDelete = "suggestedDelete"
 	// MarkTypeCode is the inline equivalent of NodeTypeCodeBlock — a
 	// monospaced verbatim span. Round-trips through OOXML as a
 	// <w:rStyle w:val="VerbatimChar"/> on the run's <w:rPr>. Tiptap's
@@ -116,14 +127,16 @@ const (
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
 var SupportedMarks = map[string]bool{
-	MarkTypeBold:      true,
-	MarkTypeItalic:    true,
-	MarkTypeUnderline: true,
-	MarkTypeStrike:    true,
-	MarkTypeLink:      true,
-	MarkTypeTextStyle: true,
-	MarkTypeComment:   true,
-	MarkTypeCode:      true,
+	MarkTypeBold:            true,
+	MarkTypeItalic:          true,
+	MarkTypeUnderline:       true,
+	MarkTypeStrike:          true,
+	MarkTypeLink:            true,
+	MarkTypeTextStyle:       true,
+	MarkTypeComment:         true,
+	MarkTypeSuggestedInsert: true,
+	MarkTypeSuggestedDelete: true,
+	MarkTypeCode:            true,
 }
 
 // Paragraph alignment + indent. textAlign is "left" | "center" |

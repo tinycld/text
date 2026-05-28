@@ -14,7 +14,7 @@ migrate(
                 type: 'file',
                 required: false,
                 maxSelect: 1,
-                maxSize: 50 * 1024 * 1024, // 50 MiB — Yjs state is compact, but cap matches docx
+                maxSize: 104857600, // 100 MiB — exactly matches the docx blob cap (drv_ver_file) so a Yjs snapshot is never rejected when the docx fit
             })
         )
 

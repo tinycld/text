@@ -32,6 +32,7 @@ import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import { useNewCommentFlow } from '../hooks/use-new-comment-flow'
 import { usePrintDocument } from '../hooks/use-print-document'
+import { useSuggestionPermissions } from '../hooks/use-suggestion-permissions'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
 import { colorForUser } from '../lib/color-for-user'
@@ -163,6 +164,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     commandsRef.current = commands
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
+    const { canEdit, canSuggest } = useSuggestionPermissions(driveItemId)
     // Print routes through the server's /api/text/render endpoint
     // — no longer needs the editor handle. Print works even if the
     // editor isn't mounted yet (e.g. from the share screen).
@@ -247,8 +249,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         start: newCommentFlow.start,
                     }}
                     modeStore={modeStore}
-                    canEdit
-                    canSuggest
+                    canEdit={canEdit}
+                    canSuggest={canSuggest}
                 />
                 <DocumentContextMenu
                     commands={commands}

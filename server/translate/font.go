@@ -42,4 +42,3 @@ func PxToHalfPoints(px int) int {
 	v := float64(px) * float64(pointsPerInch*halfPointsPerPt) / float64(pxPerInch)
 	return int(math.Round(v))
 }
-

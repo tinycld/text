@@ -171,7 +171,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -1709,6 +1709,19 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	px := fontSizePxFromMarks(node.Marks)
 	empty := &document.TextFormat{}
 
+	// Suggestion markers are the OUTERMOST wrapper so that <w:ins> /
+	// <w:del> envelops everything else (comment range markers, link
+	// runs, bg/code-styled real run). Markers are planted as their own
+	// bare text runs; the post-process pass rewrites the open marker
+	// into the opening <w:ins>/<w:del> tag (with w:id, w:author,
+	// w:date) and the close marker into the matching closing tag.
+	// For deletes the rewriter also swaps <w:t> for <w:delText> on
+	// every real run between the two markers.
+	suggestionSpans := em.queueSuggestionMarks(node.Marks)
+	for _, span := range suggestionSpans {
+		p.AddFormattedText(span.OpenMarker, empty)
+	}
+
 	commentSpans := em.queueCommentMarks(node.Marks)
 	for _, span := range commentSpans {
 		p.AddFormattedText(span.OpenMarker, empty)
@@ -1803,6 +1816,14 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	// balanced (innermost-first) commentRangeEnd markers.
 	for i := len(commentSpans) - 1; i >= 0; i-- {
 		p.AddFormattedText(commentSpans[i].CloseMarker, empty)
+	}
+
+	// Suggestion close markers in REVERSE declaration order so the
+	// post-process pass produces properly-nested </w:ins>/</w:del>
+	// wrappers. Layered marks (Case 2c) rely on this so the inner
+	// wrapper closes before the outer one.
+	for i := len(suggestionSpans) - 1; i >= 0; i-- {
+		p.AddFormattedText(suggestionSpans[i].CloseMarker, empty)
 	}
 	return nil
 }

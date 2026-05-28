@@ -66,6 +66,12 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// leaving just `<run bg-open><run real><run bg-close>` for the
 	// bgColor rewriter to find unambiguously.
 	doc = rewriteBgColorMarks(doc, em.bgColorSpans)
+	// Suggestion ranges (<w:ins>/<w:del>) wrap their entire content,
+	// including any comment range markers / reference runs the
+	// previous passes already produced. Running LAST lets the
+	// rewriter operate on a fully-resolved interior and apply the
+	// <w:t>→<w:delText> swap with no marker-run noise in the way.
+	doc = rewriteSuggestionRanges(doc, em.suggestionSpans)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {

@@ -1,5 +1,10 @@
 package translate
 
+import (
+	"strconv"
+	"time"
+)
+
 // suggestionKind discriminates the two flavors of suggestion mark we
 // emit. They share most of the queueing/serialization machinery, but
 // differ in whether they wrap with <w:ins> (insert) or <w:del>
@@ -28,6 +33,24 @@ type suggestionSpan struct {
 	// Ts is the unix-ms timestamp from the PM mark attrs. The docx
 	// w:date is ISO-8601 derived from this.
 	Ts int64
+	// OpenMarker / CloseMarker are the placeholder text tokens we
+	// plant flanking the real run during WordZero emission. The post-
+	// process pass (rewriteSuggestionRanges) finds them in the
+	// serialized document.xml and rewrites them into <w:ins>/<w:del>
+	// open/close wrappers around the surviving real runs.
+	OpenMarker  string
+	CloseMarker string
+}
+
+// suggestionOpenToken / suggestionCloseToken format the unique marker
+// strings planted around suggestion-marked runs. Numbered by
+// em.suggestionSpanSeq so each (run, mark) pair gets its own pair —
+// the same pattern comment marks use (see commentOpenToken).
+func suggestionOpenToken(n int) string {
+	return "{{__pmsg:" + strconv.Itoa(n) + ":open}}"
+}
+func suggestionCloseToken(n int) string {
+	return "{{__pmsg:" + strconv.Itoa(n) + ":close}}"
 }
 
 // queueSuggestionMarks walks the given marks slice and emits one
@@ -71,9 +94,36 @@ func (em *emitter) queueSuggestionMarks(marks []PMMark) []suggestionSpan {
 			SuggestionID:   suggestionID,
 			AuthorID:       authorID,
 			Ts:             ts,
+			OpenMarker:     suggestionOpenToken(em.suggestionSpanSeq),
+			CloseMarker:    suggestionCloseToken(em.suggestionSpanSeq),
 		}
 		em.suggestionSpans = append(em.suggestionSpans, span)
 		spans = append(spans, span)
 	}
 	return spans
+}
+
+// hasDeleteSpan reports whether any of the given spans is a delete.
+// Used by emitTextRun to decide whether the inner text element gets
+// emitted as <w:t> (the default) or <w:delText> (Word requires the
+// latter for any text inside a <w:del> wrapper).
+func hasDeleteSpan(spans []suggestionSpan) bool {
+	for _, s := range spans {
+		if s.Kind == suggestionKindDelete {
+			return true
+		}
+	}
+	return false
+}
+
+// unixMsToISO8601 formats a unix-millisecond timestamp as an
+// ISO-8601 / RFC 3339 string in UTC — the format docx's w:date
+// attribute expects on <w:ins>/<w:del>. Returns "" for ts==0 so the
+// caller can omit the attribute when there's no real timestamp to
+// record.
+func unixMsToISO8601(ms int64) string {
+	if ms == 0 {
+		return ""
+	}
+	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
 }

@@ -304,6 +304,15 @@ func TestRealtimeWAL_RejectsClientAuthorshipWrite(t *testing.T) {
 // Register would set (cross-reference register.go); the test passes iff
 // that exact bundle, plumbed through a real Broker, drops the spoofed
 // frame while accepting the legitimate one.
+//
+// Because the wiring is local, a refactor that changes WHICH field
+// Register populates with the validator (e.g. moving the protection
+// into a wrapper or a new OnConnect-time check) would still pass this
+// test even though production would break. That drift is guarded by
+// TestRealtimeWAL_RejectsClientAuthorshipWrite above, which DOES call
+// Register and looks up the registered options via LookupOptionsForTest.
+// The two tests are complementary: that one guards Register's wiring,
+// this one guards the broker's route() integration.
 func TestRealtimeWAL_Phase1_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
 	t.Cleanup(realtime.ResetRegistryForTest)
 

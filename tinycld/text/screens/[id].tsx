@@ -27,18 +27,23 @@ import { MenuBar } from '../components/menubar/MenuBar'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { SlashMenu } from '../components/SlashMenu'
+import { ReviewDrawer } from '../components/suggestions/ReviewDrawer'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
+import { useDocumentSuggestions } from '../hooks/use-document-suggestions'
 import { useNewCommentFlow } from '../hooks/use-new-comment-flow'
 import { usePrintDocument } from '../hooks/use-print-document'
+import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
 import { useSuggestionPermissions } from '../hooks/use-suggestion-permissions'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
 import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
+import { bulkAccept, bulkReject } from '../lib/suggestions/bulk-resolve'
 import { createEditorModeStore, EDITOR_MODE_VIEWING } from '../stores/editor-mode-store'
+import { createReviewDrawerStore } from '../stores/review-drawer-store'
 
 export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
     const room = useTextRoom(mount.itemId, {
@@ -140,6 +145,11 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // starts with `identity: null` and the command layer's mode check
     // gates writes until both mode === 'suggesting' and identity is set.
     const modeStore = useMemo(() => createEditorModeStore(), [])
+    // One review-drawer store per open document — same scope rule as
+    // modeStore. Recreated when the document remounts so a stale
+    // focusedSuggestionId from doc A can't focus an unrelated row in
+    // doc B after navigation.
+    const reviewDrawerStore = useMemo(() => createReviewDrawerStore(), [])
     const { userOrgId } = useCurrentRole()
     useEffect(() => {
         if (userOrgId) {
@@ -165,6 +175,36 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
+
+    // Suggestion review pipeline: the data hook walks the editor + Y.Map
+    // to produce anchored/orphaned lists; the resolve service exposes
+    // single-suggestion Accept/Reject; the bulk wrappers batch into one
+    // Y.Doc transaction so peers see Accept-all / Reject-all atomically.
+    const { anchored, orphaned } = useDocumentSuggestions(tiptapEditor, room.doc)
+    const resolveService = useResolveSuggestionService({
+        editor: tiptapEditor,
+        yDoc: room.doc,
+    })
+    const onBulkAccept = useCallback(
+        (ids: string[]) => {
+            if (!tiptapEditor || !room.doc || !userOrgId) return
+            bulkAccept(tiptapEditor, ids, {
+                resolverUserOrgId: userOrgId,
+                yDoc: room.doc,
+            })
+        },
+        [tiptapEditor, room.doc, userOrgId]
+    )
+    const onBulkReject = useCallback(
+        (ids: string[]) => {
+            if (!tiptapEditor || !room.doc || !userOrgId) return
+            bulkReject(tiptapEditor, ids, {
+                resolverUserOrgId: userOrgId,
+                yDoc: room.doc,
+            })
+        },
+        [tiptapEditor, room.doc, userOrgId]
+    )
 
     // Reflect the editor mode into the Tiptap editor's editable flag so
     // 'viewing' mode is read-only at the editor level. Other modes stay
@@ -282,6 +322,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     modeStore={modeStore}
                     canEdit={canEdit}
                     canSuggest={canSuggest}
+                    reviewDrawerStore={reviewDrawerStore}
+                    driveItemId={driveItemId}
                 />
                 <DocumentContextMenu
                     commands={commands}
@@ -333,6 +375,23 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     driveItemId={driveItemId}
                     documentComments={documentComments}
                     commentBridge={commentBridge}
+                />
+                <ReviewDrawer
+                    driveItemId={driveItemId}
+                    store={reviewDrawerStore}
+                    anchored={anchored}
+                    orphaned={orphaned}
+                    canResolve={canResolve}
+                    isPending={resolveService.isPending}
+                    onAccept={resolveService.accept}
+                    onReject={resolveService.reject}
+                    onBulkAccept={onBulkAccept}
+                    onBulkReject={onBulkReject}
+                    onJump={s => {
+                        if (!tiptapEditor) return
+                        tiptapEditor.commands.focus(s.anchorRange.from)
+                        reviewDrawerStore.getState().focusSuggestion(s.id)
+                    }}
                 />
                 {newCommentFlow.modal}
                 <SlashMenu

@@ -22,6 +22,7 @@ import { CommentMark } from '../../lib/editor/comment-mark'
 import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
+import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
@@ -38,7 +39,6 @@ import {
     deriveImageSelection,
 } from './editor-state'
 import { RealtimeClient } from './realtime-client'
-import { SuggestedBlockChange, SuggestedDelete, SuggestedInsert } from './suggestions'
 
 // Local extensions declared in this module — kept together so the
 // import block stays uninterrupted and the in-line `Extension.create`
@@ -176,9 +176,7 @@ export function buildEditorExtensions(options: BuildEditorExtensionsOptions = {}
             provider: { awareness: options.awareness },
             user: options.user,
         }),
-        SuggestedInsert,
-        SuggestedDelete,
-        SuggestedBlockChange,
+        ...buildSuggestionEditorExtensions(),
     ]
 }
 

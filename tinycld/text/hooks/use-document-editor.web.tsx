@@ -38,6 +38,7 @@ import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { makeWebFindReplaceController } from '../lib/find-replace-controller-web'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
+import { buildSuggestionEditorExtensions } from '../lib/suggestions/build-extensions'
 import { countWords } from '../lib/word-count'
 import {
     CodeShortcuts,
@@ -381,6 +382,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 SlashMenu.configure({
                     openImageInsert: () => onRequestInsertImageRef.current?.(),
                 }),
+                ...buildSuggestionEditorExtensions(),
             ],
         },
         [options.yDoc, options.awareness, options.user?.name, options.user?.color]

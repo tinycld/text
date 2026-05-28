@@ -38,7 +38,7 @@ import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
 import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
-import { createEditorModeStore } from '../stores/editor-mode-store'
+import { createEditorModeStore, EDITOR_MODE_VIEWING } from '../stores/editor-mode-store'
 
 export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
     const room = useTextRoom(mount.itemId, {
@@ -165,6 +165,37 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
+
+    // Reflect the editor mode into the Tiptap editor's editable flag so
+    // 'viewing' mode is read-only at the editor level. Other modes stay
+    // editable; the command layer (lib/suggestions/command-layer.ts)
+    // gates whether 'suggesting'-mode edits become real-text or
+    // suggestion marks. Native is a no-op — tiptapEditor is null
+    // because the WebView owns the editor, and viewing-mode read-only
+    // wiring on native is handled by a different code path (the
+    // existing editable flag passed to the WebView).
+    useEffect(() => {
+        if (!tiptapEditor) return
+        const updateEditable = () => {
+            const { mode } = modeStore.getState()
+            tiptapEditor.setEditable(mode !== EDITOR_MODE_VIEWING)
+        }
+        updateEditable()
+        const unsubscribe = modeStore.subscribe(updateEditable)
+        return unsubscribe
+    }, [tiptapEditor, modeStore])
+
+    // Coerce mode to Viewing for viewer-role users so the toolbar
+    // dropdown's label matches the only available option. Without
+    // this, a pure viewer (no edit, no suggest) sees the trigger read
+    // 'Editing' until they open the dropdown, even though every option
+    // except Viewing is hidden.
+    useEffect(() => {
+        if (!canEdit && !canSuggest) {
+            modeStore.getState().setMode(EDITOR_MODE_VIEWING)
+        }
+    }, [canEdit, canSuggest, modeStore])
+
     // Print routes through the server's /api/text/render endpoint
     // — no longer needs the editor handle. Print works even if the
     // editor isn't mounted yet (e.g. from the share screen).

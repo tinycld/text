@@ -31,6 +31,13 @@ import (
 // A failed stamping just leaves the entry unrecorded; the next frame
 // from the same clientID retries.
 //
+// noteStamped is called only if Publish returns nil — a journal-failed
+// broadcast leaves clientIDs un-stamped, so the next inbound update
+// from that clientID will retry. Without this guard, the broker's
+// silent-on-failure (pre-fix) or error-return (post-fix) Publish path
+// could mark a clientID stamped even though its authorship entry was
+// never persisted, losing the entry forever.
+//
 // Concurrency. Runs on the broker's route-path goroutine (per-
 // connection). The doc mutation goes through textDocHandle.stampAuthorship,
 // which acquires the same mutex the broker's own ApplyUpdate uses, so
@@ -89,17 +96,27 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 		}
 		delta, err := handle.stampAuthorship(entries)
 		if err != nil {
-			slog.Warn("text: stampAuthorship failed", "roomID", roomID, "err", err)
+			// Error (not Warn) because writeAuthorshipEntries only
+			// fails when the doc's protected roots ("clientAuthors" /
+			// "clientFirstSeen") cannot be obtained — that's
+			// corruption of the server-side Y.Doc, not a transient
+			// issue. An operator seeing this log should investigate
+			// the doc's structure, not assume it'll auto-recover.
+			slog.Error("text: stampAuthorship failed", "roomID", roomID, "err", err)
 			return
 		}
 		if len(delta) == 0 {
 			return
 		}
-		room.PublishDocUpdate(delta)
+		if err := room.PublishDocUpdate(delta); err != nil {
+			slog.Warn("text: authorship broadcast failed; not marking stamped",
+				"roomID", roomID, "err", err)
+			return
+		}
 		// Only mark stamped AFTER successful broadcast — if we noted
-		// before publish and PublishDocUpdate silently dropped (e.g.
-		// journal append failure), the next frame from this clientID
-		// would skip stamping and the entry would be lost.
+		// before publish and PublishDocUpdate dropped (e.g. journal
+		// append failure), the next frame from this clientID would
+		// skip stamping and the entry would be lost.
 		for _, cid := range fresh {
 			cache.noteStamped(roomID, cid)
 		}

@@ -14,7 +14,7 @@ func TestWriteSuggestionsCustomXML(t *testing.T) {
 		{ID: "s_alice", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 		{ID: "s_bob", AuthorID: "uo_bob", CreatedAt: 1700000010000, Status: "open", Note: "rewrite"},
 	}
-	xmlBytes, err := writeSuggestionsCustomXML(spans, nil, nil, entries)
+	xmlBytes, err := writeSuggestionsCustomXML(spans, nil, nil, nil, entries)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestParseSuggestionsCustomXMLRoundtrip(t *testing.T) {
 		{DocxRevisionID: 1, Kind: suggestionKindInsert, SuggestionID: "s_alice"},
 		{DocxRevisionID: 2, Kind: suggestionKindDelete, SuggestionID: "s_bob"},
 	}
-	xmlBytes, err := writeSuggestionsCustomXML(spans, nil, nil, original)
+	xmlBytes, err := writeSuggestionsCustomXML(spans, nil, nil, nil, original)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}

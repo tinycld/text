@@ -264,7 +264,7 @@ func TestWriteSuggestionsCustomXMLIncludesBlockChange(t *testing.T) {
 		{ID: "s_bc_1", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 		{ID: "s_bc_2", AuthorID: "uo_bob", CreatedAt: 1700000010000, Status: "open"},
 	}
-	xmlBytes, err := writeSuggestionsCustomXML(nil, nil, blockSpans, entries)
+	xmlBytes, err := writeSuggestionsCustomXML(nil, nil, blockSpans, nil, entries)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}

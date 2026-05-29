@@ -86,6 +86,11 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// format-change pass is not load-bearing for correctness; we run
 	// last for deterministic test output.
 	doc = rewriteBlockChangeMarkers(doc, em.blockChangeSpans)
+	// Cell-change markers (<w:tcPrChange> / <w:cellIns> / <w:cellDel>)
+	// inject into the affected cell's <w:tcPr>. Cell changes target
+	// yet another XML region from paragraph block changes (tcPr vs.
+	// pPr), so ordering relative to other rewrites is independent.
+	doc = rewriteCellChangeMarkers(doc, em.cellChangeSpans)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {
@@ -134,8 +139,8 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// is useful: spans without entries still publish the (w:id →
 	// suggestionId) mapping; entries without spans (degenerate but
 	// possible) keep the metadata for any future reconciliation.
-	if len(em.suggestionSpans) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 || len(em.suggestionEntries) > 0 {
-		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.formatChangeSpans, em.blockChangeSpans, em.suggestionEntries)
+	if len(em.suggestionSpans) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 || len(em.cellChangeSpans) > 0 || len(em.suggestionEntries) > 0 {
+		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.formatChangeSpans, em.blockChangeSpans, em.cellChangeSpans, em.suggestionEntries)
 		if err != nil {
 			return nil, fmt.Errorf("translate: build suggestions custom xml: %w", err)
 		}

@@ -897,6 +897,37 @@ func attachBlockChangeAttrWithAfter(attrs map[string]any, blockChange map[string
 	attrs[NodeAttrSuggestedBlockChange] = blockChange
 }
 
+// attachCellChangeAttr fills the suggestedBlockChange entry on a
+// tableCell node from a parsed <w:tcPrChange>/<w:cellIns>/<w:cellDel>
+// payload. The after state's shading/borders come from the outer
+// cell tcPr's siblings (parseTableCellProperties already extracted
+// them); for ins/del variants attachCellChangeAttr preserves the
+// added/deleted flags that parseCellInsDel stamped.
+//
+// Skips when cellChange is nil — most cells don't carry one.
+func attachCellChangeAttr(attrs map[string]any, cellChange map[string]any, shading string, borders map[string]any) {
+	if cellChange == nil {
+		return
+	}
+	// If after was already populated (parseCellInsDel for ins/del),
+	// keep it. Otherwise (parseTcPrChange — attr-only), synthesize
+	// from the outer tcPr siblings.
+	if _, hasAfter := cellChange["after"]; !hasAfter {
+		afterAttrs := map[string]any{}
+		if shading != "" {
+			afterAttrs["shading"] = shading
+		}
+		if borders != nil {
+			afterAttrs["borders"] = borders
+		}
+		cellChange["after"] = map[string]any{
+			"type":  NodeTypeTableCell,
+			"attrs": afterAttrs,
+		}
+	}
+	attrs[NodeAttrSuggestedBlockChange] = cellChange
+}
+
 // applyAlignIndentAttrs adds textAlign + indent entries to the given
 // attr map when they are non-default. Defaults (textAlign="left",
 // indentLevel=0) are omitted so the PM JSON stays compact for the
@@ -2450,7 +2481,8 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 			case "tcPr":
 				var bordersAttr map[string]any
 				var shading string
-				tcWDxa, gridSpan, vMerge, bordersAttr, shading, err = p.parseTableCellProperties(dec, t)
+				var cellChange map[string]any
+				tcWDxa, gridSpan, vMerge, bordersAttr, shading, cellChange, err = p.parseTableCellProperties(dec, t)
 				if err != nil {
 					return nil, err
 				}
@@ -2476,6 +2508,12 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 					// into their start cell's rowspan once the table
 					// is fully parsed.
 					cell.Attrs["_vmerge"] = vMerge
+				}
+				if cellChange != nil {
+					if cell.Attrs == nil {
+						cell.Attrs = map[string]any{}
+					}
+					attachCellChangeAttr(cell.Attrs, cellChange, shading, bordersAttr)
 				}
 			case "p":
 				para, err := p.parseParagraph(dec, t)
@@ -2532,16 +2570,17 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 //   - <w:vMerge/>                 — this cell continues a merge that
 //     started above. (OOXML allows
 //     w:val="continue" but Word omits it.)
-func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, error) {
+func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, map[string]any, error) {
 	tcWDxa := 0
 	gridSpan := 1
 	vMerge := ""
 	var borders map[string]any
 	shading := ""
+	var cellChange map[string]any
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return 0, 0, "", nil, "", err
+			return 0, 0, "", nil, "", nil, err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -2561,7 +2600,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "gridSpan":
 				if v := attrValue(t, "val"); v != "" {
@@ -2570,7 +2609,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "vMerge":
 				v := attrValue(t, "val")
@@ -2581,29 +2620,203 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					vMerge = "continue"
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "tcBorders":
 				b, err := parseTcBorders(dec, t)
 				if err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 				borders = b
 			case "shd":
 				shading = parseTcShading(t)
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
+				}
+			case "tcPrChange":
+				// <w:tcPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:tcPr> ... before-state cell properties ... </w:tcPr>
+				// </w:tcPrChange>
+				cc, perr := p.parseTcPrChange(dec, t)
+				if perr != nil {
+					return 0, 0, "", nil, "", nil, perr
+				}
+				if cc != nil {
+					cellChange = cc
+				}
+			case "cellIns":
+				// <w:cellIns w:id="N" w:author="..." w:date="..."/>
+				// Cell was proposed for addition. The cell content stays
+				// in the doc until the suggestion is resolved.
+				cc := p.parseCellInsDel(t, true)
+				if cc != nil {
+					cellChange = cc
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, "", nil, err
+				}
+			case "cellDel":
+				// <w:cellDel w:id="N" w:author="..." w:date="..."/>
+				// Cell was proposed for removal. The cell content stays
+				// in the doc until the suggestion is resolved.
+				cc := p.parseCellInsDel(t, false)
+				if cc != nil {
+					cellChange = cc
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, "", nil, err
 				}
 			default:
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return tcWDxa, gridSpan, vMerge, borders, shading, nil
+				return tcWDxa, gridSpan, vMerge, borders, shading, cellChange, nil
 			}
 		}
+	}
+}
+
+// parseTcPrChange consumes a <w:tcPrChange> element and returns a
+// half-built suggestedBlockChange attribute (suggestionId, authorId,
+// ts, before) for attachment to the enclosing tableCell node. The
+// AFTER state will be filled in by attachCellChangeAttr from the
+// outer tcPr's siblings.
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping.CellChange (when present) or synthesized as
+// "docx:tcpr:<id>:<author>" when absent (Word-authored docx).
+//
+// Returns nil when the tcPrChange is malformed (no nested tcPr) —
+// the parser falls back to "no cell-change attr on this cell".
+func (p *docxParser) parseTcPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.CellChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:tcpr:%d:%s", wID, wAuthor)
+	}
+
+	beforeAttrs := map[string]any{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "tcPr" {
+				// Nested <w:tcPr> carries the BEFORE state. Walk it
+				// recursively for shading and borders — same shapes
+				// the outer cell uses.
+				if perr := p.parseTcPrChangeNested(dec, t, beforeAttrs); perr != nil {
+					return nil, perr
+				}
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before": map[string]any{
+						"type":  NodeTypeTableCell,
+						"attrs": beforeAttrs,
+					},
+				}, nil
+			}
+		}
+	}
+}
+
+// parseTcPrChangeNested walks the nested <w:tcPr> inside <w:tcPrChange>
+// and pulls out shading + borders into the BEFORE attrs map. Skips
+// unknown children. Width / gridSpan / vMerge changes are not modeled
+// in v1 — they round-trip through the outer cell tcPr only.
+func (p *docxParser) parseTcPrChangeNested(dec *xml.Decoder, start xml.StartElement, beforeAttrs map[string]any) error {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "shd":
+				if s := parseTcShading(t); s != "" {
+					beforeAttrs["shading"] = s
+				}
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			case "tcBorders":
+				b, err := parseTcBorders(dec, t)
+				if err != nil {
+					return err
+				}
+				if b != nil {
+					beforeAttrs["borders"] = b
+				}
+			default:
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return nil
+			}
+		}
+	}
+}
+
+// parseCellInsDel returns a half-built suggestedBlockChange attribute
+// for <w:cellIns> (added=true) or <w:cellDel> (deleted=true). Same id
+// recovery convention as parseTcPrChange. The before/after shape
+// includes the added/deleted flag so the resolver can dispatch on the
+// sub-case (cell-added vs cell-deleted vs cell-attr).
+func (p *docxParser) parseCellInsDel(start xml.StartElement, isInsert bool) map[string]any {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.CellChange[wID]
+	if suggestionID == "" {
+		prefix := "tcdel"
+		if isInsert {
+			prefix = "tcins"
+		}
+		suggestionID = fmt.Sprintf("docx:%s:%d:%s", prefix, wID, wAuthor)
+	}
+
+	before := map[string]any{
+		"type":  NodeTypeTableCell,
+		"attrs": map[string]any{},
+	}
+	if isInsert {
+		before["added"] = true
+	}
+	after := map[string]any{
+		"type":  NodeTypeTableCell,
+		"attrs": map[string]any{},
+	}
+	if !isInsert {
+		after["deleted"] = true
+	}
+	return map[string]any{
+		"suggestionId": suggestionID,
+		"authorId":     wAuthor,
+		"ts":           float64(parseISO8601ToUnixMs(wDate)),
+		"before":       before,
+		"after":        after,
 	}
 }
 

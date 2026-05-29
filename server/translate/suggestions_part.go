@@ -49,7 +49,8 @@ type suggestionEntryXML struct {
 // recovered from the customXml part. Each docx revision kind has its
 // OWN w:id sequence (Word allocates them independently), so the parser
 // keeps a separate map per kind. Phase 2c shipped with Insert/Delete
-// only; Phase 5 adds FormatChange (Task 18) and BlockChange (Task 19).
+// only; Phase 5 adds FormatChange (Task 18), BlockChange (Task 19),
+// and CellChange (Task 20).
 type suggestionMappings struct {
 	// Insert maps the w:id from a <w:ins ...> element to the suggestionId.
 	Insert map[int]string
@@ -65,6 +66,11 @@ type suggestionMappings struct {
 	// Word-authored docx that only carries Word's own <w:pPrChange>
 	// elements (no tinycld customXml) synthesizes ids at parse time.
 	BlockChange map[int]string
+	// CellChange maps the w:id from a <w:tcPrChange>, <w:cellIns>, or
+	// <w:cellDel> element to the suggestionId. Same convention as
+	// BlockChange: only the modern kind="cellChange" entries populate
+	// this map, with Word-authored files synthesizing ids at parse time.
+	CellChange map[int]string
 }
 
 // writeSuggestionsCustomXML serializes the spans (for the
@@ -75,6 +81,7 @@ func writeSuggestionsCustomXML(
 	spans []suggestionSpan,
 	formatChangeSpans []formatChangeSpan,
 	blockChangeSpans []blockChangeSpan,
+	cellChangeSpans []cellChangeSpan,
 	entries []SuggestionMapEntry,
 ) ([]byte, error) {
 	root := suggestionsXMLRoot{}
@@ -101,6 +108,13 @@ func writeSuggestionsCustomXML(
 			RevisionID:   s.DocxRevisionID,
 			SuggestionID: s.SuggestionID,
 			Kind:         "blockChange",
+		})
+	}
+	for _, s := range cellChangeSpans {
+		root.Mappings = append(root.Mappings, suggestionMappingXML{
+			RevisionID:   s.DocxRevisionID,
+			SuggestionID: s.SuggestionID,
+			Kind:         "cellChange",
 		})
 	}
 	for _, e := range entries {
@@ -164,6 +178,7 @@ func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, suggestionMap
 		Delete:       map[int]string{},
 		FormatChange: map[int]string{},
 		BlockChange:  map[int]string{},
+		CellChange:   map[int]string{},
 	}
 	for _, m := range root.Mappings {
 		switch m.Kind {
@@ -175,6 +190,8 @@ func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, suggestionMap
 			maps.FormatChange[m.RevisionID] = m.SuggestionID
 		case "blockChange":
 			maps.BlockChange[m.RevisionID] = m.SuggestionID
+		case "cellChange":
+			maps.CellChange[m.RevisionID] = m.SuggestionID
 		default:
 			// Backwards-compat: pre-Phase-5 emitter set Kind to
 			// "insert" or "delete"; an empty / unknown kind landed in

@@ -199,7 +199,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMap
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 || len(em.cellChangeSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -267,6 +267,14 @@ type emitter struct {
 	// w:id sequence, separate from <w:ins>/<w:del>/<w:rPrChange>.
 	blockChangeSpans   []blockChangeSpan
 	blockChangeSpanSeq int
+	// cellChangeSpans tracks every suggestedBlockChange attribute the
+	// emitter encountered on a tableCell / tableHeader node. The
+	// post-process pass uses them to splice <w:tcPrChange> /
+	// <w:cellIns> / <w:cellDel> elements into the affected cells'
+	// <w:tcPr> blocks. Same independent-counter rule as the other
+	// suggestion span seqs: cell-change has its own w:id sequence.
+	cellChangeSpans   []cellChangeSpan
+	cellChangeSpanSeq int
 	// suggestionEntries is populated from the Yjs suggestions Y.Map by
 	// the caller (PMJSONToDocxWithSuggestions /
 	// PMJSONToDocxWithResolverAndSuggestions). The post-process pass
@@ -1141,6 +1149,23 @@ func pxToDxa(px int) int {
 func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode) error {
 	if err := tbl.ClearCellParagraphs(row, col); err != nil {
 		return fmt.Errorf("translate: clear cell %d,%d: %w", row, col, err)
+	}
+	// Plant a single anchor marker run inside the cell when it carries
+	// a suggestedBlockChange attr. The marker lives in its own
+	// paragraph at the very start of the cell so the post-process pass
+	// can walk back from it to find the enclosing <w:tc> and inject
+	// the cell-change element into its <w:tcPr>. We use a dedicated
+	// paragraph (rather than prepending to the first content paragraph)
+	// so the marker's run doesn't carry inline formatting that the user
+	// might later notice — and so the marker location stays predictable
+	// regardless of cell content shape.
+	cellChangeSpan := em.queueCellChangeAttrs(cell.Attrs)
+	if cellChangeSpan != nil {
+		para, err := tbl.AddCellParagraph(row, col, "")
+		if err != nil {
+			return fmt.Errorf("translate: add cell change marker para: %w", err)
+		}
+		para.AddFormattedText(cellChangeSpan.Marker, &document.TextFormat{})
 	}
 	for _, child := range cell.Content {
 		if child.Type != NodeTypeParagraph {

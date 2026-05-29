@@ -32,6 +32,10 @@ export type BlockChange =
           pos: number
           beforeType: string
           beforeAttrs: Record<string, unknown>
+          // The original block node, retained so the command-layer can
+          // rebuild it (with its inline content + marks) when restoring
+          // a "tracked" delete in suggesting mode.
+          beforeNode: PMNode
       }
 
 // The block-level node types the detector recognizes. Mirrors the
@@ -47,6 +51,31 @@ const TARGET_BLOCK_TYPES = new Set([
     'blockquote',
     'tableCell',
 ])
+
+// isBlockDeleteStep returns true iff the given ReplaceStep would be
+// consumed by extractBlockChanges as one or more block-delete entries.
+// Used by the command-layer to skip block-delete steps in its regular
+// ReplaceStep loop (otherwise the existing text-delete path would
+// fire alongside the block-delete handling and double-restore).
+export function isBlockDeleteStep(
+    step: ReplaceStep,
+    originalState: EditorState
+): boolean {
+    if (step.slice.content.size > 0) return false
+    let found = false
+    originalState.doc.nodesBetween(step.from, step.to, (node, nodePos) => {
+        if (found) return false
+        if (!TARGET_BLOCK_TYPES.has(node.type.name)) return true
+        const startsInside = nodePos >= step.from
+        const endsInside = nodePos + node.nodeSize <= step.to
+        if (startsInside && endsInside) {
+            found = true
+            return false
+        }
+        return true
+    })
+    return found
+}
 
 // extractBlockChanges walks a user transaction's steps and returns one
 // BlockChange entry per affected block. Same-block multi-step
@@ -99,6 +128,20 @@ export function extractBlockChanges(
     return Array.from(byPos.values()).sort((a, b) => a.pos - b.pos)
 }
 
+// stripTrackingAttrs returns a shallow copy of a node's attrs minus
+// the suggestedBlockChange tracking attribute. The payload's
+// before/after shapes record the user-facing attrs only — including
+// the tracking attribute would round-trip our own state into the
+// payload and corrupt the resolve path.
+function stripTrackingAttrs(attrs: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    for (const key in attrs) {
+        if (key === 'suggestedBlockChange') continue
+        out[key] = attrs[key]
+    }
+    return out
+}
+
 function handleAttrStep(
     step: AttrStep,
     originalState: EditorState,
@@ -113,7 +156,7 @@ function handleAttrStep(
     if (!node) return
     if (!TARGET_BLOCK_TYPES.has(node.type.name)) return
 
-    const beforeAttrs = { ...node.attrs }
+    const beforeAttrs = stripTrackingAttrs(node.attrs)
     const afterAttrs = { ...beforeAttrs, [step.attr]: step.value }
     byPos.set(step.pos, {
         kind: 'attr',
@@ -143,8 +186,8 @@ function handleReplaceAroundStep(
     if (!newOpening) return
     if (!TARGET_BLOCK_TYPES.has(newOpening.type.name)) return
 
-    const beforeAttrs = { ...beforeNode.attrs }
-    const afterAttrs = { ...newOpening.attrs }
+    const beforeAttrs = stripTrackingAttrs(beforeNode.attrs)
+    const afterAttrs = stripTrackingAttrs(newOpening.attrs)
     if (beforeNode.type.name === newOpening.type.name) {
         // Same type, different attrs — record as kind='attr' so the
         // resolver can clear via setNodeMarkup without changing type.
@@ -204,7 +247,8 @@ function handleReplaceStepDelete(
             kind: 'delete',
             pos,
             beforeType: node.type.name,
-            beforeAttrs: { ...node.attrs },
+            beforeAttrs: stripTrackingAttrs(node.attrs),
+            beforeNode: node,
         })
     }
 }

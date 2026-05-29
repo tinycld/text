@@ -4,6 +4,7 @@ import { type EditorState, Plugin, PluginKey, type Transaction } from '@tiptap/p
 import { ReplaceStep } from '@tiptap/pm/transform'
 import type * as Y from 'yjs'
 import { EDITOR_MODE_SUGGESTING, type EditorModeStore } from '../../stores/editor-mode-store'
+import { type BlockChange, extractBlockChanges, isBlockDeleteStep } from './block-change-utils'
 import { extractMarkToggles, summarizeToggles } from './format-change-utils'
 import { createSuggestionSession, type SuggestionSession } from './session-grouping'
 import { SuggestionsMap } from './suggestions-map'
@@ -215,6 +216,166 @@ function applyFormatChangeStep(
     return true
 }
 
+// applyBlockChangeStep handles all block-level changes the user emitted
+// in `tr` (setBlockType, setNodeAttribute, block delete) as
+// suggestedBlockChange node attributes plus, for kind='delete',
+// companion suggestedDelete marks on the inline content. Mirrors the
+// format-change branch's "undo + stamp" pattern:
+//
+//   - kind='attr' / 'type-swap': revert the user's change on `out` by
+//     calling setNodeMarkup with the before-type + before-attrs, then
+//     also write the suggestedBlockChange payload as a node attribute.
+//     A single setNodeMarkup call carries both — the before-attrs
+//     restore the user-facing shape, and the suggestedBlockChange
+//     entry records the proposed transition.
+//
+//   - kind='delete': the block is gone from newState. Re-insert the
+//     original block node at the mapped position, stamp the
+//     suggestedBlockChange attribute with after.deleted=true, and add
+//     suggestedDelete marks over the inline content so the
+//     strikethrough decoration applies to the text.
+//
+// Block changes take precedence over the format-change branch in the
+// main appendTransaction loop. The reason: a type-swap from paragraph
+// to heading might incidentally introduce attribute marks
+// (clearIncompatible runs inside setBlockType to strip marks the new
+// type doesn't allow). Those incidental mark-toggle steps should NOT
+// be re-stamped as format changes — they're a side-effect of the
+// type swap, not a separate proposal. By detecting block changes
+// first, the format-change extractMarkToggles call still runs but on
+// transactions where structural intent dominates we accept the small
+// drift (a format-change wrapper might co-exist with the
+// suggestedBlockChange entry, both pointing at the same suggestionId).
+//
+// Returns the set of step INDICES the block-change handling consumed
+// so the caller's regular ReplaceStep dispatch skips them. AttrStep
+// and ReplaceAroundStep aren't in that loop in the first place; the
+// returned set therefore only needs to cover ReplaceStep block-deletes
+// to prevent the existing text-delete path from double-restoring.
+function applyBlockChangeStep(
+    ctx: StepContext,
+    tr: Transaction,
+    oldState: EditorState,
+    schema: EditorState['schema']
+): { consumedReplaceSteps: Set<number>; hadEffect: boolean } {
+    const consumed = new Set<number>()
+    const changes = extractBlockChanges(tr, oldState)
+    if (changes.length === 0) {
+        return { consumedReplaceSteps: consumed, hadEffect: false }
+    }
+
+    // Identify ReplaceStep indices that correspond to block deletes so
+    // the caller can skip them in its text-delete path.
+    for (let i = 0; i < tr.steps.length; i++) {
+        const step = tr.steps[i]
+        if (step instanceof ReplaceStep && isBlockDeleteStep(step, oldState)) {
+            consumed.add(i)
+        }
+    }
+
+    // Process back-to-front so earlier positions stay stable while we
+    // apply structural edits on `out`.
+    const sorted = [...changes].sort((a, b) => b.pos - a.pos)
+    for (const change of sorted) {
+        applyOneBlockChange(ctx, change, schema)
+    }
+    return { consumedReplaceSteps: consumed, hadEffect: true }
+}
+
+function applyOneBlockChange(
+    ctx: StepContext,
+    change: BlockChange,
+    schema: EditorState['schema']
+): void {
+    const payload = {
+        suggestionId: ctx.suggestionId,
+        authorId: ctx.authorId,
+        ts: ctx.now,
+        before: { type: change.beforeType, attrs: change.beforeAttrs },
+        after:
+            change.kind === 'delete'
+                ? {
+                      type: change.beforeType,
+                      attrs: change.beforeAttrs,
+                      deleted: true,
+                  }
+                : { type: change.afterType, attrs: change.afterAttrs },
+    }
+
+    if (change.kind === 'attr' || change.kind === 'type-swap') {
+        applyBlockAttrOrTypeSwap(ctx, change, schema, payload)
+        return
+    }
+    applyBlockDelete(ctx, change, schema, payload)
+}
+
+function applyBlockAttrOrTypeSwap(
+    ctx: StepContext,
+    change: Extract<BlockChange, { kind: 'attr' | 'type-swap' }>,
+    schema: EditorState['schema'],
+    payload: Record<string, unknown>
+): void {
+    // The block exists in newState at the mapped position. Reset its
+    // type + attrs to the before-state and bake in our
+    // suggestedBlockChange payload in a single setNodeMarkup call —
+    // this both reverts the user's change AND records the proposal.
+    const mappedPos = ctx.out.mapping.map(change.pos)
+    const beforeType = schema.nodes[change.beforeType]
+    if (!beforeType) return
+    const node = ctx.out.doc.nodeAt(mappedPos)
+    if (!node) return
+    const nextAttrs: Record<string, unknown> = {
+        ...change.beforeAttrs,
+        suggestedBlockChange: payload,
+    }
+    ctx.out.setNodeMarkup(mappedPos, beforeType, nextAttrs)
+}
+
+function applyBlockDelete(
+    ctx: StepContext,
+    change: Extract<BlockChange, { kind: 'delete' }>,
+    schema: EditorState['schema'],
+    payload: Record<string, unknown>
+): void {
+    // The block was removed by the user's transaction. Re-insert a
+    // fresh copy (with the before-attrs plus our suggestedBlockChange
+    // payload baked in) at the mapped position, then add
+    // suggestedDelete marks across the restored inline content so the
+    // strikethrough decoration applies.
+    const beforeType = schema.nodes[change.beforeType]
+    if (!beforeType) return
+
+    const nextAttrs: Record<string, unknown> = {
+        ...change.beforeAttrs,
+        suggestedBlockChange: payload,
+    }
+    const newBlock = beforeType.create(
+        nextAttrs,
+        change.beforeNode.content,
+        change.beforeNode.marks
+    )
+
+    const mappedPos = ctx.out.mapping.map(change.pos)
+    ctx.out.insert(mappedPos, newBlock)
+    // The inserted block's inline content sits at [mappedPos + 1,
+    // mappedPos + 1 + content.size). addMark only applies to inline
+    // nodes inside that range, so the suggestedBlockChange node
+    // attribute is unaffected.
+    const innerFrom = mappedPos + 1
+    const innerTo = innerFrom + change.beforeNode.content.size
+    if (innerTo > innerFrom) {
+        ctx.out.addMark(
+            innerFrom,
+            innerTo,
+            ctx.deleteMarkType.create({
+                suggestionId: ctx.suggestionId,
+                authorId: ctx.authorId,
+                ts: ctx.now,
+            })
+        )
+    }
+}
+
 // Plugin key tag for transactions the command layer itself appends.
 // We check this in appendTransaction to short-circuit re-entry: when
 // y-prosemirror or another plugin echoes our own appended transaction
@@ -317,6 +478,19 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             let stepHadEffect = false
 
             for (const tr of transactions) {
+                // Phase 5: block-level changes (setBlockType,
+                // setNodeAttribute, block delete) take precedence — they
+                // can incidentally emit Add/Remove mark steps as
+                // setBlockType strips marks the new type doesn't allow,
+                // and we don't want those side-effects to fan out into
+                // a separate suggestedFormatChange entry. The block
+                // branch returns the set of ReplaceStep indices it
+                // consumed so the text-delete path below can skip them.
+                const block = applyBlockChangeStep(ctx, tr, oldState, newState.schema)
+                if (block.hadEffect) {
+                    stepHadEffect = true
+                }
+
                 // Phase 5: detect format changes (toggleBold / toggleItalic
                 // / link / textColor / …) first. A single user command may
                 // emit multiple AddMark/RemoveMark steps; we collapse them
@@ -325,6 +499,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
                     stepHadEffect = true
                 }
                 for (let i = 0; i < tr.steps.length; i++) {
+                    if (block.consumedReplaceSteps.has(i)) continue
                     const step = tr.steps[i]
                     if (!(step instanceof ReplaceStep)) continue
                     const { from, to, slice } = step

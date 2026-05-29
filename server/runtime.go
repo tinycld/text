@@ -69,6 +69,14 @@ type Runtime struct {
 	// roomID the doc / handle maps use.
 	rooms map[string]*realtime.Room
 
+	// editBuffers holds one *editEventBuffer per active room. Constructed
+	// in noteRoom alongside the rooms map entry, drained on close. The
+	// Phase 3b stamper-adjacent path calls BufferFor(roomID).Note(...)
+	// after the authorship stamp succeeds; the buffer's per-clientID
+	// timer fires the flush callback wired by makeEditEventFlush, which
+	// in turn calls handle.publishEditEvent + room.PublishDocUpdate.
+	editBuffers map[string]*editEventBuffer
+
 	// authorship is the Phase 3a stamping cache. Lives the lifetime of
 	// the process; per-room state is dropped in closeDoc so a long-
 	// running server doesn't leak stamped-set / userOrg memos for
@@ -114,6 +122,7 @@ func NewRuntime() *Runtime {
 		docs:           map[string]*ycrdt.Doc{},
 		handles:        map[string]*textDocHandle{},
 		rooms:          map[string]*realtime.Room{},
+		editBuffers:    map[string]*editEventBuffer{},
 		authorship:     newAuthorshipCache(),
 		importWarnings: map[string]importWarningEntry{},
 		stop:           make(chan struct{}),
@@ -126,10 +135,18 @@ func NewRuntime() *Runtime {
 // removes it (a room teardown). Used by the Phase 3a authorship
 // stamper to broadcast server-originated delta updates back to peers
 // via Room.PublishDocUpdate.
+//
+// Phase 3b additionally constructs the per-room editEventBuffer here.
+// The buffer's flush callback closes over the runtime (via
+// makeEditEventFlush) and looks up the handle + room at flush time, so
+// it stays valid as long as both are alive. Buffer construction is
+// cheap (a couple of map allocs); doing it under r.mu keeps the
+// invariant "if rooms[roomID] is set, editBuffers[roomID] is too."
 func (r *Runtime) noteRoom(roomID string, room *realtime.Room) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rooms[roomID] = room
+	r.editBuffers[roomID] = newEditEventBuffer(roomID, r.makeEditEventFlush())
 }
 
 // RoomFor returns the *realtime.Room associated with the given roomID,
@@ -138,6 +155,48 @@ func (r *Runtime) RoomFor(roomID string) *realtime.Room {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.rooms[roomID]
+}
+
+// BufferFor returns the *editEventBuffer registered for the given
+// roomID, or nil if the room has not been created or has been torn
+// down. Pure map lookup under r.mu — the buffer is constructed in
+// noteRoom, so a caller observing a non-nil room from RoomFor will
+// also observe a non-nil buffer here.
+func (r *Runtime) BufferFor(roomID string) *editEventBuffer {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.editBuffers[roomID]
+}
+
+// makeEditEventFlush returns the closure the per-room editEventBuffer
+// invokes when a window closes. The closure runs in a goroutine spawned
+// by time.AfterFunc, so it must be safe to call handleFor + RoomFor
+// from any goroutine — both take r.mu and are concurrency-safe.
+//
+// Lookup-at-flush-time (rather than capturing the handle / room
+// pointers at buffer-construction time) means a window that closes
+// after the room has been torn down silently drops, since handleFor /
+// RoomFor return nil for evicted rooms. Avoids a use-after-close on the
+// handle's Y.Doc.
+func (r *Runtime) makeEditEventFlush() func(string, EditEvent) {
+	return func(roomID string, e EditEvent) {
+		handle := r.handleFor(roomID)
+		room := r.RoomFor(roomID)
+		if handle == nil || room == nil {
+			return
+		}
+		delta, err := handle.publishEditEvent(e)
+		if err != nil {
+			slog.Error("text: editEvent write failed", "roomID", roomID, "err", err)
+			return
+		}
+		if len(delta) == 0 {
+			return
+		}
+		if err := room.PublishDocUpdate(delta); err != nil {
+			slog.Warn("text: editEvent broadcast failed", "roomID", roomID, "err", err)
+		}
+	}
 }
 
 // AuthorshipCache returns the process-wide authorship cache. The
@@ -369,11 +428,23 @@ func ensureAbstractTypeInitialized(at *ycrdt.AbstractType) {
 // closeDoc removes the doc from the registry. Returns true if the
 // doc was registered. Safe to call multiple times.
 //
-// Drops the room reference and the authorship cache's per-room
-// entries alongside the doc/handle so a long-running server doesn't
-// leak state for evicted rooms. The authorship cache has its own
-// mutex; we release r.mu before calling dropRoom to keep the lock
-// ordering (runtime mu → authorship mu, never both held).
+// Drops the room reference, the per-room editEventBuffer, and the
+// authorship cache's per-room entries alongside the doc/handle so a
+// long-running server doesn't leak state for evicted rooms. The
+// authorship cache has its own mutex; we release r.mu before calling
+// dropRoom to keep the lock ordering (runtime mu → authorship mu, never
+// both held).
+//
+// Phase 3b: the buffer is captured while r.mu is held and then drained
+// AFTER unlocking via FlushAll. Draining outside the runtime mutex
+// matters because each Flush call invokes the flush callback, which
+// takes the handle's mutex via publishEditEvent — holding r.mu across
+// that would invert the runtime-mu → handle-mu lock order the rest of
+// the file relies on and risk deadlock against ApplyUpdate /
+// EncodeStateAsUpdate. FlushAll ensures the final in-flight window for
+// each clientID emits before the room dies, so a user who walked away
+// mid-session still sees their last edit batch surface in the activity
+// feed.
 func (r *Runtime) closeDoc(roomID string) bool {
 	r.mu.Lock()
 	if _, ok := r.docs[roomID]; !ok {
@@ -383,8 +454,13 @@ func (r *Runtime) closeDoc(roomID string) bool {
 	delete(r.docs, roomID)
 	delete(r.handles, roomID)
 	delete(r.rooms, roomID)
+	buf := r.editBuffers[roomID]
+	delete(r.editBuffers, roomID)
 	r.mu.Unlock()
 	r.authorship.dropRoom(roomID)
+	if buf != nil {
+		buf.FlushAll()
+	}
 	return true
 }
 

@@ -20,16 +20,36 @@ export interface MarkToggle {
 // Returns empty array if no mark steps are present. Other step kinds
 // (ReplaceStep, ReplaceAroundStep, …) are ignored — the command layer's
 // existing ReplaceStep branch handles those.
+//
+// Steps touching suggestion-tracking marks themselves (suggestedInsert
+// / suggestedDelete / suggestedFormatChange / suggestedBlockChange)
+// are filtered out — those originate from the resolve layer
+// (acceptSuggestion / rejectSuggestion call tr.removeMark on these
+// types), not from a user formatting command. Without this filter
+// the command layer would loop a resolve into a fresh
+// suggestedFormatChange of "removing a suggestion mark", which makes
+// no sense and breaks bulkAccept / bulkReject.
 export function extractMarkToggles(tr: Transaction): MarkToggle[] {
     const out: MarkToggle[] = []
     for (const step of tr.steps) {
         if (step instanceof AddMarkStep) {
+            if (isSuggestionTrackingMarkName(step.mark.type.name)) continue
             out.push({ from: step.from, to: step.to, mark: step.mark, isAdd: true })
         } else if (step instanceof RemoveMarkStep) {
+            if (isSuggestionTrackingMarkName(step.mark.type.name)) continue
             out.push({ from: step.from, to: step.to, mark: step.mark, isAdd: false })
         }
     }
     return out
+}
+
+function isSuggestionTrackingMarkName(name: string): boolean {
+    return (
+        name === 'suggestedInsert' ||
+        name === 'suggestedDelete' ||
+        name === 'suggestedFormatChange' ||
+        name === 'suggestedBlockChange'
+    )
 }
 
 // Collect the union of marks present anywhere in [from, to). Returns
@@ -94,11 +114,5 @@ export function summarizeToggles(
 // pulling a suggestedInsert through into "after" would, on accept,
 // reapply that insert mark — wrong.
 function isContentMark(m: Mark): boolean {
-    const name = m.type.name
-    return (
-        name !== 'suggestedInsert' &&
-        name !== 'suggestedDelete' &&
-        name !== 'suggestedFormatChange' &&
-        name !== 'suggestedBlockChange'
-    )
+    return !isSuggestionTrackingMarkName(m.type.name)
 }

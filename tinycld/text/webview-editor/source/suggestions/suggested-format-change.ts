@@ -147,10 +147,6 @@ export const SuggestedFormatChange = Mark.create({
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [
-            'span',
-            mergeAttributes({ 'data-suggested-format-change': '' }, HTMLAttributes),
-            0,
-        ]
+        return ['span', mergeAttributes({ 'data-suggested-format-change': '' }, HTMLAttributes), 0]
     },
 })

@@ -1,9 +1,10 @@
 import { Extension } from '@tiptap/core'
 import type { MarkType, Slice } from '@tiptap/pm/model'
-import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
+import { type EditorState, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import type * as Y from 'yjs'
 import { EDITOR_MODE_SUGGESTING, type EditorModeStore } from '../../stores/editor-mode-store'
+import { extractMarkToggles, summarizeToggles } from './format-change-utils'
 import { createSuggestionSession, type SuggestionSession } from './session-grouping'
 import { SuggestionsMap } from './suggestions-map'
 
@@ -16,6 +17,7 @@ interface StepContext {
     out: Transaction
     insertMarkType: MarkType
     deleteMarkType: MarkType
+    formatChangeMarkType: MarkType
     suggestionId: string
     authorId: string
     now: number
@@ -155,6 +157,64 @@ function applyReplaceStep(
     )
 }
 
+// applyFormatChangeStep handles all AddMark/RemoveMark steps in `tr`
+// as a single suggested-format-change. The user's mark toggles have
+// already landed in `newState` (appendTransaction sees post-step doc),
+// so we (a) undo each toggle on `out` — re-add removed marks, remove
+// added marks — and (b) stamp a single suggestedFormatChange mark
+// over the merged [from, to) range carrying serialized before/after
+// snapshots. The resolver (Task 5) re-applies the after-set on accept
+// or leaves the before-set intact on reject.
+//
+// Why undo first instead of leaving the user's marks visible: the
+// suggestion is exactly that — proposed, not applied. The visual
+// hint that a format change is pending comes from the decoration
+// plugin (Task 6), which renders the after-set as a styled overlay
+// on the suggestedFormatChange range. Leaving the raw bold/italic
+// mark on the run would make the doc render as if the change were
+// already accepted, defeating the purpose of suggestion mode.
+function applyFormatChangeStep(
+    ctx: StepContext,
+    tr: Transaction,
+    oldState: EditorState,
+    newState: EditorState
+): boolean {
+    const toggles = extractMarkToggles(tr)
+    if (toggles.length === 0) return false
+
+    // Undo each toggle on the output transaction. The output is
+    // anchored at newState's doc, so we reverse what landed: re-add
+    // marks the user removed and remove marks the user added. We map
+    // the toggle ranges through `out.mapping` for safety against any
+    // prior steps appended in this iteration (currently none, since
+    // format changes run first, but the discipline is cheap).
+    for (const t of toggles) {
+        const from = ctx.out.mapping.map(t.from)
+        const to = ctx.out.mapping.map(t.to)
+        if (t.isAdd) {
+            ctx.out.removeMark(from, to, t.mark)
+        } else {
+            ctx.out.addMark(from, to, t.mark)
+        }
+    }
+
+    const summary = summarizeToggles(toggles, oldState, newState)
+    const fcFrom = ctx.out.mapping.map(summary.from)
+    const fcTo = ctx.out.mapping.map(summary.to)
+    ctx.out.addMark(
+        fcFrom,
+        fcTo,
+        ctx.formatChangeMarkType.create({
+            suggestionId: ctx.suggestionId,
+            authorId: ctx.authorId,
+            ts: ctx.now,
+            before: summary.before,
+            after: summary.after,
+        })
+    )
+    return true
+}
+
 // Plugin key tag for transactions the command layer itself appends.
 // We check this in appendTransaction to short-circuit re-entry: when
 // y-prosemirror or another plugin echoes our own appended transaction
@@ -176,6 +236,12 @@ export interface SuggestionCommandLayerOptions {
 //   - DELETES: restores the deleted slice in place (so the user's
 //     change is visually "tracked" not destructive) and wraps it in
 //     suggestedDelete carrying the same attribution.
+//   - FORMAT TOGGLES (Phase 5): undoes the user's mark toggle and
+//     stamps suggestedFormatChange over the range with before/after
+//     snapshots of the affected marks. The raw bold/italic/link mark
+//     itself is reverted so the doc doesn't render the change as if
+//     accepted; the decoration plugin (Task 6) provides the visual
+//     overlay that signals "this format change is pending".
 //
 // Special case 2d (deleting one's own active-suggestion content within
 // the idle window): the delete is allowed to stand. This is how
@@ -213,7 +279,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
 
     return new Plugin({
         key: PLUGIN_KEY,
-        appendTransaction(transactions, _oldState, newState) {
+        appendTransaction(transactions, oldState, newState) {
             const { mode, identity } = modeStore.getState()
             if (mode !== EDITOR_MODE_SUGGESTING) return null
             if (!identity) return null
@@ -232,6 +298,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             const now = Date.now()
             const insertMarkType = newState.schema.marks.suggestedInsert
             const deleteMarkType = newState.schema.marks.suggestedDelete
+            const formatChangeMarkType = newState.schema.marks.suggestedFormatChange
 
             // Build a single appended transaction representing all the
             // mark/restore work. Tag it with the plugin key so we don't
@@ -242,6 +309,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
                 out,
                 insertMarkType,
                 deleteMarkType,
+                formatChangeMarkType,
                 suggestionId,
                 authorId: identity.userOrgId,
                 now,
@@ -249,6 +317,13 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             let stepHadEffect = false
 
             for (const tr of transactions) {
+                // Phase 5: detect format changes (toggleBold / toggleItalic
+                // / link / textColor / …) first. A single user command may
+                // emit multiple AddMark/RemoveMark steps; we collapse them
+                // into one suggestedFormatChange spanning the merged range.
+                if (applyFormatChangeStep(ctx, tr, oldState, newState)) {
+                    stepHadEffect = true
+                }
                 for (let i = 0; i < tr.steps.length; i++) {
                     const step = tr.steps[i]
                     if (!(step instanceof ReplaceStep)) continue

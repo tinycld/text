@@ -26,10 +26,7 @@ describe('SuggestedFormatChange mark', () => {
 
     it('stores and returns attribute values when explicitly set', () => {
         const before: SerializedMarks = [{ type: 'bold' }]
-        const after: SerializedMarks = [
-            { type: 'bold' },
-            { type: 'italic' },
-        ]
+        const after: SerializedMarks = [{ type: 'bold' }, { type: 'italic' }]
         const mark = schema.marks.suggestedFormatChange.create({
             suggestionId: 'sfc-1',
             authorId: 'user-1',
@@ -46,10 +43,7 @@ describe('SuggestedFormatChange mark', () => {
 
     it('parses HTML with data-suggested-format-change attributes', () => {
         const before: SerializedMarks = [{ type: 'bold' }]
-        const after: SerializedMarks = [
-            { type: 'bold' },
-            { type: 'italic' },
-        ]
+        const after: SerializedMarks = [{ type: 'bold' }, { type: 'italic' }]
         const beforeEncoded = encodeURIComponent(JSON.stringify(before))
         const afterEncoded = encodeURIComponent(JSON.stringify(after))
         const html =
@@ -102,9 +96,7 @@ describe('SuggestedFormatChange mark', () => {
     })
 
     it('round-trips through serialize → parse without data loss', () => {
-        const before: SerializedMarks = [
-            { type: 'textStyle', attrs: { color: '#f00' } },
-        ]
+        const before: SerializedMarks = [{ type: 'textStyle', attrs: { color: '#f00' } }]
         const after: SerializedMarks = [
             { type: 'textStyle', attrs: { color: '#0f0' } },
             { type: 'bold' },

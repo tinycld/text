@@ -1,11 +1,7 @@
-import { getSchema } from '@tiptap/core'
+import { getSchema, Mark, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
-import { Mark, mergeAttributes } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
-import {
-    deserializeMarks,
-    serializeMarks,
-} from '~/tinycld/text/lib/suggestions/serialize-marks'
+import { deserializeMarks, serializeMarks } from '~/tinycld/text/lib/suggestions/serialize-marks'
 import type { SerializedMarks } from '~/tinycld/text/webview-editor/source/suggestions/suggestion-types'
 
 // A minimal local Link-like mark with an href attribute so we can
@@ -52,9 +48,7 @@ describe('serializeMarks', () => {
     it('serializes a mark with attrs and preserves them', () => {
         const link = schema.marks.linkLike.create({ href: 'https://example.com' })
         const serialized = serializeMarks([link])
-        expect(serialized).toEqual([
-            { type: 'linkLike', attrs: { href: 'https://example.com' } },
-        ])
+        expect(serialized).toEqual([{ type: 'linkLike', attrs: { href: 'https://example.com' } }])
     })
 
     it('serializes a multi-mark set in input order', () => {

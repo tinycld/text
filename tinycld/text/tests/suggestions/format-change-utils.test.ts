@@ -40,6 +40,22 @@ describe('extractMarkToggles', () => {
         expect(extractMarkToggles(tr)).toEqual([])
     })
 
+    it('filters out steps targeting suggestion-tracking marks themselves', () => {
+        // The resolve layer (acceptSuggestion / rejectSuggestion) calls
+        // tr.removeMark on suggestedInsert / suggestedDelete. The command
+        // layer must ignore those so a resolve isn't looped back into
+        // a fresh suggestedFormatChange.
+        const schema = getSchema([StarterKit, ...buildSuggestionEditorExtensions()])
+        const insertType = schema.marks.suggestedInsert
+        const text = schema.text('hello', [
+            insertType.create({ suggestionId: 'sx', authorId: 'a', ts: 1 }),
+        ])
+        const docNode = schema.nodes.doc.create({}, schema.nodes.paragraph.create({}, text))
+        const state = EditorState.create({ doc: docNode, schema })
+        const tr = state.tr.removeMark(1, 6, insertType)
+        expect(extractMarkToggles(tr)).toEqual([])
+    })
+
     it('returns toggles for both Add and Remove steps in order', () => {
         // Start with a doc that already has bold on "hello", so we can
         // exercise a real RemoveMarkStep alongside an AddMarkStep.
@@ -49,9 +65,7 @@ describe('extractMarkToggles', () => {
         const text = schema.text('hello world', [boldType.create()])
         const docNode = schema.nodes.doc.create({}, schema.nodes.paragraph.create({}, text))
         const state = EditorState.create({ doc: docNode, schema })
-        const tr = state.tr
-            .removeMark(1, 6, boldType)
-            .addMark(7, 12, italicType.create())
+        const tr = state.tr.removeMark(1, 6, boldType).addMark(7, 12, italicType.create())
         const toggles = extractMarkToggles(tr)
         expect(toggles).toHaveLength(2)
         expect(toggles[0].isAdd).toBe(false)
@@ -122,9 +136,7 @@ describe('summarizeToggles', () => {
         const docNode = schema.nodes.doc.create({}, schema.nodes.paragraph.create({}, text))
         const originalState = EditorState.create({ doc: docNode, schema })
 
-        const tr = originalState.tr
-            .removeMark(1, 6, boldType)
-            .addMark(1, 6, italicType.create())
+        const tr = originalState.tr.removeMark(1, 6, boldType).addMark(1, 6, italicType.create())
         const finalState = originalState.apply(tr)
         const toggles = extractMarkToggles(tr)
 
@@ -155,9 +167,7 @@ describe('summarizeToggles', () => {
         const state = makeStateWithText('hello world abc')
         const boldType = state.schema.marks.bold
         const italicType = state.schema.marks.italic
-        const tr = state.tr
-            .addMark(1, 6, boldType.create())
-            .addMark(13, 16, italicType.create())
+        const tr = state.tr.addMark(1, 6, boldType.create()).addMark(13, 16, italicType.create())
         const finalState = state.apply(tr)
         const toggles = extractMarkToggles(tr)
 
@@ -175,10 +185,9 @@ describe('summarizeToggles', () => {
         const schema = getSchema([StarterKit, ...buildSuggestionEditorExtensions()])
         const insertType = schema.marks.suggestedInsert
         const boldType = schema.marks.bold
-        const text = schema.text(
-            'hello',
-            [insertType.create({ suggestionId: 'sx', authorId: 'a', ts: 1 })]
-        )
+        const text = schema.text('hello', [
+            insertType.create({ suggestionId: 'sx', authorId: 'a', ts: 1 }),
+        ])
         const docNode = schema.nodes.doc.create({}, schema.nodes.paragraph.create({}, text))
         const originalState = EditorState.create({ doc: docNode, schema })
 

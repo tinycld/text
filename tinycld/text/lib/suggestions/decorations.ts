@@ -94,9 +94,11 @@ function buildFormatChangeTooltip(
 }
 
 // Human-readable labels for the block-level node types that
-// suggestedBlockChange targets. Mirrors TARGET_BLOCK_TYPES in
-// block-change-utils. If a future schema introduces a new block type
-// without a label here, the raw type name is used as a fallback.
+// suggestedBlockChange targets. Covers both block-change-utils's
+// TARGET_BLOCK_TYPES (paragraph / heading / listItem / blockquote)
+// and table-change-utils's cell types (tableCell / tableHeader).
+// If a future schema introduces a new block type without a label
+// here, the raw type name is used as a fallback.
 const BLOCK_TYPE_LABELS: Record<string, string> = {
     paragraph: 'paragraph',
     heading: 'heading',

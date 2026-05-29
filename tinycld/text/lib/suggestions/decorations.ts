@@ -138,10 +138,7 @@ function labelForBlockAttr(attr: string): string {
 // block attrs are always JSON-serializable (level: number, textAlign:
 // string, indent: number) so the round-trip is safe and the stringify
 // catches null/undefined parity cleanly.
-function diffBlockAttrs(
-    before: Record<string, unknown>,
-    after: Record<string, unknown>
-): string[] {
+function diffBlockAttrs(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
     const keys = new Set<string>([...Object.keys(before), ...Object.keys(after)])
     const changed: string[] = []
     for (const key of keys) {

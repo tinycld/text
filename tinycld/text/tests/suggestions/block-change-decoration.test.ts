@@ -193,9 +193,7 @@ describe('SuggestionDecorations — suggestedBlockChange', () => {
             plugins: [createSuggestionDecorationsPlugin()],
         })
         const decoSet = getSuggestionDecorations(state)
-        const hasBlockDeco = decoSet
-            .find()
-            .some(d => d.spec?.kind === 'suggestedBlockChange')
+        const hasBlockDeco = decoSet.find().some(d => d.spec?.kind === 'suggestedBlockChange')
         expect(hasBlockDeco).toBe(false)
     })
 
@@ -217,9 +215,7 @@ describe('SuggestionDecorations — suggestedBlockChange', () => {
             plugins: [createSuggestionDecorationsPlugin()],
         })
         const decoSet = getSuggestionDecorations(state)
-        const hasBlockDeco = decoSet
-            .find()
-            .some(d => d.spec?.kind === 'suggestedBlockChange')
+        const hasBlockDeco = decoSet.find().some(d => d.spec?.kind === 'suggestedBlockChange')
         expect(hasBlockDeco).toBe(false)
     })
 })
@@ -288,7 +284,7 @@ describe('summarizeBlockChange', () => {
         ).toBe('change to heading 2 (alignment: left)')
     })
 
-    it("joins multiple attr changes with a separator", () => {
+    it('joins multiple attr changes with a separator', () => {
         const summary = summarizeBlockChange(
             { type: 'paragraph', attrs: { textAlign: null, indent: 0 } },
             { type: 'paragraph', attrs: { textAlign: 'center', indent: 1 } }
@@ -311,10 +307,7 @@ describe('summarizeBlockChange', () => {
         // function should not throw or return an empty string when
         // handed a no-op payload.
         expect(
-            summarizeBlockChange(
-                { type: 'paragraph', attrs: {} },
-                { type: 'paragraph', attrs: {} }
-            )
+            summarizeBlockChange({ type: 'paragraph', attrs: {} }, { type: 'paragraph', attrs: {} })
         ).toBe('change block')
     })
 })

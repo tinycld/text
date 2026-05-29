@@ -44,23 +44,14 @@ export type BlockChange =
 // are not considered "blocks" for the purposes of block-change
 // detection — text-level changes inside them are handled by the
 // insert/delete/format-change paths.
-const TARGET_BLOCK_TYPES = new Set([
-    'paragraph',
-    'heading',
-    'listItem',
-    'blockquote',
-    'tableCell',
-])
+const TARGET_BLOCK_TYPES = new Set(['paragraph', 'heading', 'listItem', 'blockquote', 'tableCell'])
 
 // isBlockDeleteStep returns true iff the given ReplaceStep would be
 // consumed by extractBlockChanges as one or more block-delete entries.
 // Used by the command-layer to skip block-delete steps in its regular
 // ReplaceStep loop (otherwise the existing text-delete path would
 // fire alongside the block-delete handling and double-restore).
-export function isBlockDeleteStep(
-    step: ReplaceStep,
-    originalState: EditorState
-): boolean {
+export function isBlockDeleteStep(step: ReplaceStep, originalState: EditorState): boolean {
     if (step.slice.content.size > 0) return false
     let found = false
     originalState.doc.nodesBetween(step.from, step.to, (node, nodePos) => {
@@ -105,10 +96,7 @@ export function isBlockDeleteStep(
 // Because the command-layer maps detected positions through its own
 // emitted transaction, we look up beforeType/beforeAttrs directly from
 // originalState.doc — never from intermediate states.
-export function extractBlockChanges(
-    tr: Transaction,
-    originalState: EditorState
-): BlockChange[] {
+export function extractBlockChanges(tr: Transaction, originalState: EditorState): BlockChange[] {
     // Collect by pos so same-block multi-step transactions collapse.
     // Later steps overwrite earlier entries at the same key.
     const byPos = new Map<number, BlockChange>()

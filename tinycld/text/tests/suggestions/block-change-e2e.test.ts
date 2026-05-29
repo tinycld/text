@@ -93,10 +93,7 @@ function hasSuggestedDeleteMark(editor: Editor, suggestionId: string): boolean {
     editor.state.doc.descendants(node => {
         if (!node.isText) return true
         for (const m of node.marks) {
-            if (
-                m.type.name === 'suggestedDelete' &&
-                m.attrs.suggestionId === suggestionId
-            ) {
+            if (m.type.name === 'suggestedDelete' && m.attrs.suggestionId === suggestionId) {
                 found = true
             }
         }

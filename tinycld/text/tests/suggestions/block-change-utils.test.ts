@@ -2,8 +2,8 @@ import { getSchema } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { EditorState } from 'prosemirror-state'
 import { describe, expect, it } from 'vitest'
-import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 import { extractBlockChanges } from '~/tinycld/text/lib/suggestions/block-change-utils'
+import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
 
 // Build an EditorState whose doc is a single paragraph with the given
 // text. Used by the lower-level cases.

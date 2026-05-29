@@ -457,9 +457,6 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             const sess = getSession(identity.userOrgId)
             const suggestionId = sess.touch()
             const now = Date.now()
-            const insertMarkType = newState.schema.marks.suggestedInsert
-            const deleteMarkType = newState.schema.marks.suggestedDelete
-            const formatChangeMarkType = newState.schema.marks.suggestedFormatChange
 
             // Build a single appended transaction representing all the
             // mark/restore work. Tag it with the plugin key so we don't
@@ -468,57 +465,18 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             out.setMeta(PLUGIN_KEY, true)
             const ctx: StepContext = {
                 out,
-                insertMarkType,
-                deleteMarkType,
-                formatChangeMarkType,
+                insertMarkType: newState.schema.marks.suggestedInsert,
+                deleteMarkType: newState.schema.marks.suggestedDelete,
+                formatChangeMarkType: newState.schema.marks.suggestedFormatChange,
                 suggestionId,
                 authorId: identity.userOrgId,
                 now,
             }
+
             let stepHadEffect = false
-
             for (const tr of transactions) {
-                // Phase 5: block-level changes (setBlockType,
-                // setNodeAttribute, block delete) take precedence — they
-                // can incidentally emit Add/Remove mark steps as
-                // setBlockType strips marks the new type doesn't allow,
-                // and we don't want those side-effects to fan out into
-                // a separate suggestedFormatChange entry. The block
-                // branch returns the set of ReplaceStep indices it
-                // consumed so the text-delete path below can skip them.
-                const block = applyBlockChangeStep(ctx, tr, oldState, newState.schema)
-                if (block.hadEffect) {
+                if (processTransaction(ctx, tr, oldState, newState)) {
                     stepHadEffect = true
-                }
-
-                // Phase 5: detect format changes (toggleBold / toggleItalic
-                // / link / textColor / …) first. A single user command may
-                // emit multiple AddMark/RemoveMark steps; we collapse them
-                // into one suggestedFormatChange spanning the merged range.
-                if (applyFormatChangeStep(ctx, tr, oldState, newState)) {
-                    stepHadEffect = true
-                }
-                for (let i = 0; i < tr.steps.length; i++) {
-                    if (block.consumedReplaceSteps.has(i)) continue
-                    const step = tr.steps[i]
-                    if (!(step instanceof ReplaceStep)) continue
-                    const { from, to, slice } = step
-                    const sliceSize = slice.content.size
-                    const isInsert = from === to && sliceSize > 0
-                    const isDelete = from !== to && sliceSize === 0
-                    const isReplace = from !== to && sliceSize > 0
-
-                    if (isInsert) {
-                        applyInsertStep(ctx, from, sliceSize)
-                        stepHadEffect = true
-                    } else if (isDelete) {
-                        if (applyDeleteStep(ctx, tr, i, from, to)) {
-                            stepHadEffect = true
-                        }
-                    } else if (isReplace) {
-                        applyReplaceStep(ctx, tr, i, from, to, sliceSize)
-                        stepHadEffect = true
-                    }
                 }
             }
 
@@ -541,6 +499,69 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             return out
         },
     })
+}
+
+// processTransaction handles one user transaction's worth of steps:
+// block-change detection → format-change detection → text insert/
+// delete/replace fan-out. Returns true iff at least one step produced
+// observable work that should keep the appended transaction alive.
+// Pulled out of appendTransaction to keep cognitive complexity under
+// biome's noExcessiveCognitiveComplexity threshold.
+function processTransaction(
+    ctx: StepContext,
+    tr: Transaction,
+    oldState: EditorState,
+    newState: EditorState
+): boolean {
+    let hadEffect = false
+
+    // Phase 5: block-level changes (setBlockType, setNodeAttribute,
+    // block delete) take precedence — they can incidentally emit
+    // Add/Remove mark steps as setBlockType strips marks the new type
+    // doesn't allow, and we don't want those side-effects to fan out
+    // into a separate suggestedFormatChange entry. The block branch
+    // returns the set of ReplaceStep indices it consumed so the
+    // text-delete path below can skip them.
+    const block = applyBlockChangeStep(ctx, tr, oldState, newState.schema)
+    if (block.hadEffect) hadEffect = true
+
+    // Phase 5: detect format changes (toggleBold / toggleItalic / link
+    // / textColor / …) next. A single user command may emit multiple
+    // AddMark/RemoveMark steps; the helper collapses them into one
+    // suggestedFormatChange spanning the merged range.
+    if (applyFormatChangeStep(ctx, tr, oldState, newState)) hadEffect = true
+
+    if (processReplaceSteps(ctx, tr, block.consumedReplaceSteps)) hadEffect = true
+    return hadEffect
+}
+
+// processReplaceSteps walks the transaction's ReplaceSteps and routes
+// each to the appropriate handler (insert / delete / replace). The
+// block branch's consumedReplaceSteps set is honored: a step already
+// handled as a block delete is not double-counted here.
+function processReplaceSteps(ctx: StepContext, tr: Transaction, consumed: Set<number>): boolean {
+    let hadEffect = false
+    for (let i = 0; i < tr.steps.length; i++) {
+        if (consumed.has(i)) continue
+        const step = tr.steps[i]
+        if (!(step instanceof ReplaceStep)) continue
+        const { from, to, slice } = step
+        const sliceSize = slice.content.size
+        const isInsert = from === to && sliceSize > 0
+        const isDelete = from !== to && sliceSize === 0
+        const isReplace = from !== to && sliceSize > 0
+
+        if (isInsert) {
+            applyInsertStep(ctx, from, sliceSize)
+            hadEffect = true
+        } else if (isDelete) {
+            if (applyDeleteStep(ctx, tr, i, from, to)) hadEffect = true
+        } else if (isReplace) {
+            applyReplaceStep(ctx, tr, i, from, to, sliceSize)
+            hadEffect = true
+        }
+    }
+    return hadEffect
 }
 
 // SuggestionCommandLayer is the TipTap extension wrapper that mounts

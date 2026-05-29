@@ -4,6 +4,7 @@ import type { EditorModeStore } from '../../stores/editor-mode-store'
 import {
     SuggestedBlockChange,
     SuggestedDelete,
+    SuggestedFormatChange,
     SuggestedInsert,
 } from '../../webview-editor/source/suggestions'
 import { SuggestionCommandLayer } from './command-layer'
@@ -36,6 +37,7 @@ export function buildSuggestionEditorExtensions(
         SuggestedInsert,
         SuggestedDelete,
         SuggestedBlockChange,
+        SuggestedFormatChange,
         SuggestionDecorations,
         SuggestionPopover,
     ]

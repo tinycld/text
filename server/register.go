@@ -66,6 +66,11 @@ const roomKindText = "text-doc"
 //     ({readOnly, importWarnings}) so the joining client can render
 //     parse warnings as a banner and (eventually) gate writes.
 func Register(app *pocketbase.PocketBase) {
+	// Read TINYCLD_EDIT_EVENT_WINDOW_MS once at boot. Lets e2e tests
+	// shorten the 60s edit-event debounce window without per-test
+	// surgery; production leaves the env unset and runs at the default.
+	configureWindowFromEnv()
+
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 	runtime.StartJanitor()

@@ -1,6 +1,8 @@
 package text
 
 import (
+	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -8,7 +10,30 @@ import (
 // WindowDuration is the debounce window for editEvents emission.
 // Per spec: 60s between observed updates from a clientID closes the
 // window and flushes a single EditEvent covering that period.
+//
+// Overridable via TINYCLD_EDIT_EVENT_WINDOW_MS at process boot.
+// The override is read once from Register() via configureWindowFromEnv
+// so e2e tests can shorten the window without re-importing the
+// package; production leaves the env var unset and gets the 60s
+// default. Validates the override is a positive integer; malformed
+// or non-positive values leave the default in place.
 var WindowDuration = 60 * time.Second
+
+// configureWindowFromEnv reads TINYCLD_EDIT_EVENT_WINDOW_MS and, when
+// it parses to a positive integer, overrides WindowDuration. Called
+// from Register at server boot. Idempotent — calling it twice with the
+// same env var has the same effect as calling it once.
+func configureWindowFromEnv() {
+	raw := os.Getenv("TINYCLD_EDIT_EVENT_WINDOW_MS")
+	if raw == "" {
+		return
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		return
+	}
+	WindowDuration = time.Duration(ms) * time.Millisecond
+}
 
 // SampleNodesPerEvent caps the affectedNodes slice on each event so
 // large editing sessions don't bloat the editEvents Y.Array.

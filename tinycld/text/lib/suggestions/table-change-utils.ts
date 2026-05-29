@@ -76,7 +76,7 @@ function stripTrackingAttrs(attrs: Record<string, unknown>): Record<string, unkn
 // The offset is relative to the slice's content start; the caller adds
 // the post-step insertion position to get the final new-doc pos.
 function findCellsInSlice(slice: {
-    content: { descendants: (fn: (n: PMNode, p: number) => boolean | void) => void }
+    content: { descendants: (fn: (n: PMNode, p: number) => boolean | undefined) => void }
 }): Array<{ relPos: number; node: PMNode }> {
     const out: Array<{ relPos: number; node: PMNode }> = []
     slice.content.descendants((node, relPos) => {

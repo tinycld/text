@@ -99,25 +99,155 @@ export interface DocumentSuggestionsResult {
 // The drawer shows them in a separate section so the user can still
 // resolve them administratively.
 //
+// DocRange is the per-suggestion accumulator the doc walk fills in.
+// Lives at module scope so the helper functions (recordBlockChange,
+// recordMarkChange) can take it by name.
+interface DocRange {
+    id: string
+    kind: SuggestionKind
+    authorId: string
+    ts: number
+    from: number
+    to: number
+    snippet: string
+    beforeMarks?: SerializedMarks
+    afterMarks?: SerializedMarks
+    beforeBlock?: BlockChangeBefore
+    afterBlock?: BlockChangeAfter
+}
+
+// recordBlockChange handles the suggestedBlockChange attribute branch
+// of the doc walk. Skips silently when the attr is missing or wrongly
+// shaped; otherwise updates / inserts the matching DocRange entry.
+function recordBlockChange(node: PMNode, pos: number, seenInDoc: Map<string, DocRange>): void {
+    const blockChange = node.attrs.suggestedBlockChange as unknown
+    if (!blockChange || typeof blockChange !== 'object') return
+    const payload = blockChange as {
+        suggestionId?: unknown
+        authorId?: unknown
+        ts?: unknown
+        before?: unknown
+        after?: unknown
+    }
+    if (
+        typeof payload.suggestionId !== 'string' ||
+        typeof payload.authorId !== 'string' ||
+        !payload.before ||
+        typeof payload.before !== 'object' ||
+        !payload.after ||
+        typeof payload.after !== 'object'
+    ) {
+        return
+    }
+    const isCell = node.type.name === 'tableCell' || node.type.name === 'tableHeader'
+    const kind: SuggestionKind = isCell ? 'cell-change' : 'block-change'
+    const id = payload.suggestionId
+    const key = `${id}::${kind}`
+    const before = payload.before as BlockChangeBefore
+    const after = payload.after as BlockChangeAfter
+    // Snippet: text content for non-cell block changes (capped at
+    // SNIPPET_MAX_LENGTH); literal "Cell" for cell-changes (a cell
+    // can be empty when proposing a fresh addRow/addColumn cell, so
+    // its textContent is unreliable as a visual cue).
+    const rawSnippet = isCell ? 'Cell' : (node.textContent ?? '')
+    const existing = seenInDoc.get(key)
+    if (existing) {
+        existing.to = pos + node.nodeSize
+        if (existing.snippet.length < SNIPPET_MAX_LENGTH) {
+            const remaining = SNIPPET_MAX_LENGTH - existing.snippet.length
+            existing.snippet += rawSnippet.slice(0, remaining)
+        }
+        // Re-anchor before/after to the latest seen payload (matches
+        // the "last wins" behavior of the format-change branch below).
+        existing.beforeBlock = before
+        existing.afterBlock = after
+        return
+    }
+    seenInDoc.set(key, {
+        id,
+        kind,
+        authorId: payload.authorId,
+        ts: typeof payload.ts === 'number' ? payload.ts : 0,
+        from: pos,
+        to: pos + node.nodeSize,
+        snippet: rawSnippet.slice(0, SNIPPET_MAX_LENGTH),
+        beforeBlock: before,
+        afterBlock: after,
+    })
+}
+
+// recordMarkChange handles one inline mark on a text node. Skips
+// silently when the mark isn't a recognised suggestion kind; otherwise
+// updates / inserts the matching DocRange entry. format-change marks
+// also stash before/after mark sets on the entry.
+function recordMarkChange(
+    node: PMNode,
+    pos: number,
+    mark: PMNode['marks'][number],
+    seenInDoc: Map<string, DocRange>
+): void {
+    const markName = mark.type.name
+    const kind: SuggestionKind | null =
+        markName === 'suggestedInsert'
+            ? 'insert'
+            : markName === 'suggestedDelete'
+              ? 'delete'
+              : markName === 'suggestedFormatChange'
+                ? 'format-change'
+                : null
+    if (!kind) return
+    const id = mark.attrs.suggestionId as string
+    const key = `${id}::${kind}`
+    const existing = seenInDoc.get(key)
+    if (existing) {
+        existing.to = pos + node.nodeSize
+        if (existing.snippet.length < SNIPPET_MAX_LENGTH) {
+            const remaining = SNIPPET_MAX_LENGTH - existing.snippet.length
+            const append = (node.text ?? '').slice(0, remaining)
+            existing.snippet += append
+        }
+        // format-change: stacked marks with the same id (Case 2c's
+        // excludes: '') each carry their own before/after. The
+        // last-seen mark's before/after wins — the resolve path
+        // iterates all matching marks anyway, so the summary just
+        // needs to identify the proposal scope.
+        if (kind === 'format-change') {
+            existing.beforeMarks = Array.isArray(mark.attrs.before)
+                ? (mark.attrs.before as SerializedMarks)
+                : []
+            existing.afterMarks = Array.isArray(mark.attrs.after)
+                ? (mark.attrs.after as SerializedMarks)
+                : []
+        }
+        return
+    }
+    const rawText = node.text ?? ''
+    const entry: DocRange = {
+        id,
+        kind,
+        authorId: mark.attrs.authorId as string,
+        ts: mark.attrs.ts as number,
+        from: pos,
+        to: pos + node.nodeSize,
+        snippet: rawText.slice(0, SNIPPET_MAX_LENGTH),
+    }
+    if (kind === 'format-change') {
+        entry.beforeMarks = Array.isArray(mark.attrs.before)
+            ? (mark.attrs.before as SerializedMarks)
+            : []
+        entry.afterMarks = Array.isArray(mark.attrs.after)
+            ? (mark.attrs.after as SerializedMarks)
+            : []
+    }
+    seenInDoc.set(key, entry)
+}
+
 // Pure function so tests can drive it directly. The hook wraps it
 // with subscriptions to the editor + Y.Map.
 export function computeDocumentSuggestions(
     doc: PMNode,
     map: SuggestionsMap
 ): DocumentSuggestionsResult {
-    interface DocRange {
-        id: string
-        kind: SuggestionKind
-        authorId: string
-        ts: number
-        from: number
-        to: number
-        snippet: string
-        beforeMarks?: SerializedMarks
-        afterMarks?: SerializedMarks
-        beforeBlock?: BlockChangeBefore
-        afterBlock?: BlockChangeAfter
-    }
     const seenInDoc = new Map<string, DocRange>()
 
     doc.descendants((node, pos) => {
@@ -127,120 +257,10 @@ export function computeDocumentSuggestions(
         // text-only branch below would miss it. We still descend (no
         // early return) so a block-change that also wraps text with
         // suggestedInsert/Delete from a different id surfaces both.
-        const blockChange = node.attrs.suggestedBlockChange as unknown
-        if (blockChange && typeof blockChange === 'object') {
-            const payload = blockChange as {
-                suggestionId?: unknown
-                authorId?: unknown
-                ts?: unknown
-                before?: unknown
-                after?: unknown
-            }
-            if (
-                typeof payload.suggestionId === 'string' &&
-                typeof payload.authorId === 'string' &&
-                payload.before &&
-                typeof payload.before === 'object' &&
-                payload.after &&
-                typeof payload.after === 'object'
-            ) {
-                const isCell = node.type.name === 'tableCell' || node.type.name === 'tableHeader'
-                const kind: SuggestionKind = isCell ? 'cell-change' : 'block-change'
-                const id = payload.suggestionId
-                const key = `${id}::${kind}`
-                const before = payload.before as BlockChangeBefore
-                const after = payload.after as BlockChangeAfter
-                // Snippet: text content for non-cell block changes
-                // (capped at SNIPPET_MAX_LENGTH); literal "Cell" for
-                // cell-changes (a cell can be empty when proposing a
-                // fresh addRow/addColumn cell, so its textContent is
-                // unreliable as a visual cue).
-                const rawSnippet = isCell ? 'Cell' : (node.textContent ?? '')
-                const existing = seenInDoc.get(key)
-                if (existing) {
-                    existing.to = pos + node.nodeSize
-                    if (existing.snippet.length < SNIPPET_MAX_LENGTH) {
-                        const remaining = SNIPPET_MAX_LENGTH - existing.snippet.length
-                        existing.snippet += rawSnippet.slice(0, remaining)
-                    }
-                    // Re-anchor before/after to the latest seen
-                    // payload (matches the "last wins" behavior of
-                    // the format-change branch below).
-                    existing.beforeBlock = before
-                    existing.afterBlock = after
-                } else {
-                    seenInDoc.set(key, {
-                        id,
-                        kind,
-                        authorId: payload.authorId,
-                        ts: typeof payload.ts === 'number' ? payload.ts : 0,
-                        from: pos,
-                        to: pos + node.nodeSize,
-                        snippet: rawSnippet.slice(0, SNIPPET_MAX_LENGTH),
-                        beforeBlock: before,
-                        afterBlock: after,
-                    })
-                }
-            }
-        }
+        recordBlockChange(node, pos, seenInDoc)
         if (!node.isText) return
         for (const mark of node.marks) {
-            const markName = mark.type.name
-            const kind: SuggestionKind | null =
-                markName === 'suggestedInsert'
-                    ? 'insert'
-                    : markName === 'suggestedDelete'
-                      ? 'delete'
-                      : markName === 'suggestedFormatChange'
-                        ? 'format-change'
-                        : null
-            if (!kind) continue
-            const id = mark.attrs.suggestionId as string
-            const key = `${id}::${kind}`
-            const existing = seenInDoc.get(key)
-            if (existing) {
-                existing.to = pos + node.nodeSize
-                if (existing.snippet.length < SNIPPET_MAX_LENGTH) {
-                    const remaining = SNIPPET_MAX_LENGTH - existing.snippet.length
-                    const append = (node.text ?? '').slice(0, remaining)
-                    existing.snippet += append
-                }
-                // format-change: stacked marks with the same id (Case
-                // 2c's excludes: '') each carry their own before/after.
-                // The last-seen mark's before/after wins — the resolve
-                // path iterates all matching marks anyway, so the
-                // summary just needs to identify the proposal scope.
-                if (kind === 'format-change') {
-                    const before = Array.isArray(mark.attrs.before)
-                        ? (mark.attrs.before as SerializedMarks)
-                        : []
-                    const after = Array.isArray(mark.attrs.after)
-                        ? (mark.attrs.after as SerializedMarks)
-                        : []
-                    existing.beforeMarks = before
-                    existing.afterMarks = after
-                }
-            } else {
-                const rawText = node.text ?? ''
-                const entry: DocRange = {
-                    id,
-                    kind,
-                    authorId: mark.attrs.authorId as string,
-                    ts: mark.attrs.ts as number,
-                    from: pos,
-                    to: pos + node.nodeSize,
-                    snippet: rawText.slice(0, SNIPPET_MAX_LENGTH),
-                }
-                if (kind === 'format-change') {
-                    entry.beforeMarks = Array.isArray(mark.attrs.before)
-                        ? (mark.attrs.before as SerializedMarks)
-                        : []
-                    entry.afterMarks = Array.isArray(mark.attrs.after)
-                        ? (mark.attrs.after as SerializedMarks)
-                        : []
-                }
-                seenInDoc.set(key, entry)
-            }
+            recordMarkChange(node, pos, mark, seenInDoc)
         }
     })
 

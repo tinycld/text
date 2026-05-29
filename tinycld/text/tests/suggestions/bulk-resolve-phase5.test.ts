@@ -92,14 +92,20 @@ function setupMixedEditor() {
                                     type: 'tableCell',
                                     attrs: { colspan: 1, rowspan: 1, colwidth: null },
                                     content: [
-                                        { type: 'paragraph', content: [{ type: 'text', text: 'a1' }] },
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'a1' }],
+                                        },
                                     ],
                                 },
                                 {
                                     type: 'tableCell',
                                     attrs: { colspan: 1, rowspan: 1, colwidth: null },
                                     content: [
-                                        { type: 'paragraph', content: [{ type: 'text', text: 'a2' }] },
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'a2' }],
+                                        },
                                     ],
                                 },
                             ],
@@ -111,14 +117,20 @@ function setupMixedEditor() {
                                     type: 'tableCell',
                                     attrs: { colspan: 1, rowspan: 1, colwidth: null },
                                     content: [
-                                        { type: 'paragraph', content: [{ type: 'text', text: 'b1' }] },
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'b1' }],
+                                        },
                                     ],
                                 },
                                 {
                                     type: 'tableCell',
                                     attrs: { colspan: 1, rowspan: 1, colwidth: null },
                                     content: [
-                                        { type: 'paragraph', content: [{ type: 'text', text: 'b2' }] },
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'b2' }],
+                                        },
                                     ],
                                 },
                             ],
@@ -296,10 +308,7 @@ describe('bulkAccept / bulkReject across all Phase 5 suggestion kinds', () => {
         let stillBoldBeforeAccept = false
         editor.state.doc.descendants(node => {
             if (!node.isText) return true
-            if (
-                node.text === 'styled' &&
-                node.marks.some(m => m.type.name === 'bold')
-            ) {
+            if (node.text === 'styled' && node.marks.some(m => m.type.name === 'bold')) {
                 stillBoldBeforeAccept = true
             }
             return true

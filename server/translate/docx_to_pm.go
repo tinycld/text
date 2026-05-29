@@ -141,11 +141,15 @@ type docxParser struct {
 	openComments []string                 // commentIds currently active across the cursor
 	warnings     []Warning                // accumulated soft-degradation signals
 	warningSet   map[WarningCode]struct{} // dedupe
-	// suggestionMapping is the (w:id → suggestionId) map recovered from
-	// the tinycld customXml part. Nil when the docx came from Word (or
-	// any other producer without our custom part) — in that case the
-	// parser synthesizes a stable id from (w:id, w:author).
-	suggestionMapping map[int]string
+	// suggestionMapping is the per-kind (w:id → suggestionId) map
+	// recovered from the tinycld customXml part. Each docx revision
+	// kind (insert/delete/formatChange) has its own w:id sequence in
+	// the part, so the parser looks up the kind-specific map when
+	// resolving an <w:ins>/<w:del>/<w:rPrChange> element. Empty maps
+	// when the docx came from Word (or any other producer without our
+	// custom part) — in that case the parser synthesizes stable ids
+	// from (w:id, w:author).
+	suggestionMapping suggestionMappings
 	// suggestionEntries is the entry metadata from the tinycld customXml
 	// part (carried for callers that want to repopulate a Yjs map).
 	suggestionEntries []SuggestionMapEntry
@@ -223,7 +227,13 @@ func buildSuggestionMarkFromOOXML(p *docxParser, markType string, elem xml.Start
 	wAuthor := attrValue(elem, "author")
 	wDate := attrValue(elem, "date")
 
-	suggestionID := p.suggestionMapping[wID]
+	var suggestionID string
+	switch markType {
+	case MarkTypeSuggestedInsert:
+		suggestionID = p.suggestionMapping.Insert[wID]
+	case MarkTypeSuggestedDelete:
+		suggestionID = p.suggestionMapping.Delete[wID]
+	}
 	if suggestionID == "" {
 		suggestionID = fmt.Sprintf("docx:%d:%s", wID, wAuthor)
 	}
@@ -1303,6 +1313,12 @@ func mergeMarks(a, b []PMMark) []PMMark {
 func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement) ([]PMMark, error) {
 	var marks []PMMark
 	textStyleAttrs := map[string]any{}
+	// formatChangeMark is built when we encounter a <w:rPrChange> child.
+	// It's appended to the returned marks slice at the end so the docx
+	// → PM round-trip surfaces the proposed run-property change to the
+	// resolver as a SuggestedFormatChange. Nil when no rPrChange child
+	// was present (the typical case).
+	var formatChangeMark *PMMark
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1311,6 +1327,23 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "rPrChange":
+				// <w:rPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:rPr> ... before-state marks ... </w:rPr>
+				// </w:rPrChange>
+				// The outer rPr's other children carry the AFTER state;
+				// we capture the BEFORE state by walking into the nested
+				// <w:rPr>. Built mark is held in formatChangeMark and
+				// appended at the end of the outer rPr so the AFTER
+				// marks are already collected (we'll snapshot them then).
+				mark, perr := p.parseRPrChange(dec, t)
+				if perr != nil {
+					return nil, perr
+				}
+				if mark != nil {
+					formatChangeMark = mark
+				}
+				continue
 			case "b":
 				if isOnToggle(t) {
 					marks = append(marks, PMMark{Type: MarkTypeBold})
@@ -1405,10 +1438,105 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 						Attrs: textStyleAttrs,
 					})
 				}
+				if formatChangeMark != nil {
+					// Snapshot the AFTER state from the marks collected
+					// above. Order doesn't affect the resolver — it
+					// re-derives a Set from the array — so we record the
+					// marks as we serialized them.
+					formatChangeMark.Attrs["after"] = serializeMarksToAttr(marks)
+					marks = append(marks, *formatChangeMark)
+				}
 				return marks, nil
 			}
 		}
 	}
+}
+
+// parseRPrChange consumes a <w:rPrChange> element, returning a
+// suggestedFormatChange PMMark whose before/after attrs hold the BEFORE
+// state (extracted from the nested <w:rPr>) and a placeholder AFTER
+// state (the caller fills it in once the outer <w:rPr>'s siblings are
+// fully collected).
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping (when present, from the tinycld customXml part) or
+// synthesized as "docx:rpr:<id>:<author>" when absent (Word-authored docx).
+//
+// Returns nil when the rPrChange element is malformed (e.g. no nested
+// rPr) — the parser falls back to "no format change mark on this run",
+// matching the silent-drop convention used by other suggestion paths.
+func (p *docxParser) parseRPrChange(dec *xml.Decoder, start xml.StartElement) (*PMMark, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.FormatChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:rpr:%d:%s", wID, wAuthor)
+	}
+
+	var beforeMarks []PMMark
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "rPr" {
+				// Nested <w:rPr> carries the BEFORE state. Reuse
+				// parseRunProperties so highlight/shd/color/strike all
+				// round-trip identically to the outer rPr. Strip any
+				// stray suggestedFormatChange mark from the result —
+				// the recursive call would attach one if the nested rPr
+				// itself somehow carried an inner rPrChange (invalid
+				// OOXML but defensive). The BEFORE state must never
+				// include a format-change mark; it predates the proposal.
+				m, perr := p.parseRunProperties(dec, t)
+				if perr != nil {
+					return nil, perr
+				}
+				beforeMarks = stripMark(m, MarkTypeSuggestedFormatChange)
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				attrs := map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before":       serializeMarksToAttr(beforeMarks),
+				}
+				return &PMMark{
+					Type:  MarkTypeSuggestedFormatChange,
+					Attrs: attrs,
+				}, nil
+			}
+		}
+	}
+}
+
+// serializeMarksToAttr converts a Go-side PMMark slice to the
+// SerializedMarks shape ([]map[string]any with "type" + "attrs" keys)
+// the client carries on suggestedFormatChange's before/after attrs.
+// Mirrors the TS-side serialize-marks helper in
+// lib/suggestions/serialize-marks.ts (it produces an Array<{type, attrs}>).
+func serializeMarksToAttr(marks []PMMark) []any {
+	if len(marks) == 0 {
+		return []any{}
+	}
+	out := make([]any, 0, len(marks))
+	for _, m := range marks {
+		entry := map[string]any{"type": m.Type}
+		if len(m.Attrs) > 0 {
+			entry["attrs"] = m.Attrs
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // isOnToggle returns true for <w:b/>, <w:b w:val="true"/>,

@@ -72,6 +72,14 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// rewriter operate on a fully-resolved interior and apply the
 	// <w:t>→<w:delText> swap with no marker-run noise in the way.
 	doc = rewriteSuggestionRanges(doc, em.suggestionSpans)
+	// Format-change markers (<w:rPrChange>) inject into the affected
+	// run's <w:rPr>, which by now contains the after-state marks
+	// WordZero produced plus any rStyle / shd the code/bg rewriters
+	// added. Running after rewriteSuggestionRanges is safe because
+	// the suggestion rewriter wraps runs but leaves their <w:rPr>
+	// intact — and the format-change rewriter walks backwards from its
+	// own marker through any wrapper to find the run's </w:r>.
+	doc = rewriteFormatChangeMarkers(doc, em.formatChangeSpans)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {
@@ -120,8 +128,8 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// is useful: spans without entries still publish the (w:id →
 	// suggestionId) mapping; entries without spans (degenerate but
 	// possible) keep the metadata for any future reconciliation.
-	if len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 {
-		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.suggestionEntries)
+	if len(em.suggestionSpans) > 0 || len(em.formatChangeSpans) > 0 || len(em.suggestionEntries) > 0 {
+		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.formatChangeSpans, em.suggestionEntries)
 		if err != nil {
 			return nil, fmt.Errorf("translate: build suggestions custom xml: %w", err)
 		}

@@ -45,12 +45,28 @@ type suggestionEntryXML struct {
 	Note       string `xml:"note,attr,omitempty"`
 }
 
+// suggestionMappings collects the (w:id → suggestionId) mappings
+// recovered from the customXml part. Each docx revision kind has its
+// OWN w:id sequence (Word allocates them independently), so the parser
+// keeps a separate map per kind. Phase 2c shipped with Insert/Delete
+// only; Phase 5 adds FormatChange.
+type suggestionMappings struct {
+	// Insert maps the w:id from a <w:ins ...> element to the suggestionId.
+	Insert map[int]string
+	// Delete maps the w:id from a <w:del ...> element to the suggestionId.
+	Delete map[int]string
+	// FormatChange maps the w:id from a <w:rPrChange ...> element to
+	// the suggestionId.
+	FormatChange map[int]string
+}
+
 // writeSuggestionsCustomXML serializes the spans (for the
 // w:id → suggestionId mapping) and the entries (for the metadata)
 // into a custom XML part body. The caller is responsible for placing
 // the bytes inside the docx zip at customXml/tinycld-suggestions.xml.
 func writeSuggestionsCustomXML(
 	spans []suggestionSpan,
+	formatChangeSpans []formatChangeSpan,
 	entries []SuggestionMapEntry,
 ) ([]byte, error) {
 	root := suggestionsXMLRoot{}
@@ -63,6 +79,13 @@ func writeSuggestionsCustomXML(
 			RevisionID:   s.DocxRevisionID,
 			SuggestionID: s.SuggestionID,
 			Kind:         kind,
+		})
+	}
+	for _, s := range formatChangeSpans {
+		root.Mappings = append(root.Mappings, suggestionMappingXML{
+			RevisionID:   s.DocxRevisionID,
+			SuggestionID: s.SuggestionID,
+			Kind:         "formatChange",
 		})
 	}
 	for _, e := range entries {
@@ -91,15 +114,23 @@ func writeSuggestionsCustomXML(
 
 // parseSuggestionsCustomXML is the inverse. Reads the part body and
 // returns the entries (for re-populating the suggestions Y.Map) and
-// the (revisionId → suggestionId) mapping (for re-stamping the marks
-// with our richer ids during the docx → PM walk).
-func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, map[int]string, error) {
+// the per-kind (revisionId → suggestionId) mappings (for re-stamping
+// the marks with our richer ids during the docx → PM walk).
+//
+// The returned suggestionMappings keep separate insert/delete/formatChange
+// maps because each docx revision kind has its own w:id sequence; a
+// pre-Phase-5 file that only carries "insert"/"delete" mappings parses
+// with FormatChange empty. Unknown / legacy kinds (older files that
+// omitted Kind=…) are written into BOTH Insert and Delete so callers
+// looking up either kind still resolve them — the union-fallback flow
+// from the original Phase 2c shape.
+func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, suggestionMappings, error) {
 	if len(data) == 0 {
-		return nil, nil, nil
+		return nil, suggestionMappings{}, nil
 	}
 	var root suggestionsXMLRoot
 	if err := xml.Unmarshal(data, &root); err != nil {
-		return nil, nil, err
+		return nil, suggestionMappings{}, err
 	}
 	entries := make([]SuggestionMapEntry, 0, len(root.Entries))
 	for _, e := range root.Entries {
@@ -113,9 +144,27 @@ func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, map[int]strin
 			Note:       e.Note,
 		})
 	}
-	mapping := make(map[int]string, len(root.Mappings))
-	for _, m := range root.Mappings {
-		mapping[m.RevisionID] = m.SuggestionID
+	maps := suggestionMappings{
+		Insert:       map[int]string{},
+		Delete:       map[int]string{},
+		FormatChange: map[int]string{},
 	}
-	return entries, mapping, nil
+	for _, m := range root.Mappings {
+		switch m.Kind {
+		case "insert":
+			maps.Insert[m.RevisionID] = m.SuggestionID
+		case "delete":
+			maps.Delete[m.RevisionID] = m.SuggestionID
+		case "formatChange":
+			maps.FormatChange[m.RevisionID] = m.SuggestionID
+		default:
+			// Backwards-compat: pre-Phase-5 emitter set Kind to
+			// "insert" or "delete"; an empty / unknown kind landed in
+			// the legacy single-map flow. Stash into BOTH insert and
+			// delete maps so old docs keep parsing identically.
+			maps.Insert[m.RevisionID] = m.SuggestionID
+			maps.Delete[m.RevisionID] = m.SuggestionID
+		}
+	}
+	return entries, maps, nil
 }

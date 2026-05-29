@@ -117,6 +117,23 @@ const (
 	// Word renders this as strikethrough, and accepting the change
 	// removes the text.
 	MarkTypeSuggestedDelete = "suggestedDelete"
+	// MarkTypeSuggestedFormatChange records a run-property change
+	// proposed in suggesting mode (toggling bold/italic/underline/color/
+	// font, etc.). Attrs:
+	//   - suggestionId: tinycld id of the proposal
+	//   - authorId:     userOrgId of the proposer
+	//   - ts:           unix-ms timestamp of the proposal
+	//   - before:       SerializedMarks ([]{type, attrs}) — the mark set
+	//                   in effect before the change
+	//   - after:        SerializedMarks ([]{type, attrs}) — the proposed
+	//                   mark set
+	// On docx export the wrapper is a <w:rPrChange w:id="N"
+	// w:author="..." w:date="..."> nested inside the run's <w:rPr>; the
+	// outer rPr carries the AFTER state (so Word renders the proposed
+	// formatting), and the nested <w:rPr> inside <w:rPrChange> carries
+	// the BEFORE state so accept/reject has the pre-change properties
+	// to restore. Phase 5 round-trip.
+	MarkTypeSuggestedFormatChange = "suggestedFormatChange"
 	// MarkTypeCode is the inline equivalent of NodeTypeCodeBlock — a
 	// monospaced verbatim span. Round-trips through OOXML as a
 	// <w:rStyle w:val="VerbatimChar"/> on the run's <w:rPr>. Tiptap's
@@ -134,9 +151,10 @@ var SupportedMarks = map[string]bool{
 	MarkTypeLink:            true,
 	MarkTypeTextStyle:       true,
 	MarkTypeComment:         true,
-	MarkTypeSuggestedInsert: true,
-	MarkTypeSuggestedDelete: true,
-	MarkTypeCode:            true,
+	MarkTypeSuggestedInsert:       true,
+	MarkTypeSuggestedDelete:       true,
+	MarkTypeSuggestedFormatChange: true,
+	MarkTypeCode:                  true,
 }
 
 // Paragraph alignment + indent. textAlign is "left" | "center" |

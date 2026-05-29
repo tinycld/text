@@ -199,7 +199,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMap
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -250,6 +250,15 @@ type emitter struct {
 	commentBodies     map[string]commentBody
 	suggestionSpans   []suggestionSpan
 	suggestionSpanSeq int // monotonic w:id counter starting at 1
+	// formatChangeSpans tracks every suggestedFormatChange mark the
+	// emitter encountered. The post-process pass uses them to splice
+	// <w:rPrChange> wrappers into the affected runs' <w:rPr> blocks.
+	// formatChangeSpanSeq is the independent w:id allocator for this
+	// kind — Word treats <w:ins>/<w:del>/<w:rPrChange> w:id values as
+	// independent docx-local sequences, so reusing 1, 1, 1 across the
+	// three rev-kinds is perfectly legal and matches what Word emits.
+	formatChangeSpans   []formatChangeSpan
+	formatChangeSpanSeq int
 	// suggestionEntries is populated from the Yjs suggestions Y.Map by
 	// the caller (PMJSONToDocxWithSuggestions /
 	// PMJSONToDocxWithResolverAndSuggestions). The post-process pass
@@ -1801,6 +1810,14 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		codeSpan = &span
 	}
 
+	// Format-change markers anchor the rewriter to the real text run we're
+	// about to emit. Only the open marker is planted (right after the
+	// real run); the post-process pass walks back from the marker to find
+	// the run's <w:rPr> and injects <w:rPrChange> there. Spans are
+	// queued here so the marker sequence stays stable across the
+	// emitTextRun call.
+	formatChangeSpans := em.queueFormatChangeMarks(node.Marks)
+
 	if hasLink {
 		// Surround the run with markers; the post-process step
 		// recognizes them in word/document.xml and rewrites the
@@ -1832,6 +1849,13 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 			p.AddFormattedText(bgSpan.CloseMarker, empty)
 		}
 		p.AddFormattedText(closeTok, empty)
+		// Format-change markers go INSIDE the link wrapper so the
+		// rewriter's "previous run" search lands on the real hyperlink-
+		// styled run (the one whose <w:rPr> WordZero populated with the
+		// after-state). One bare marker per layered format-change.
+		for _, fc := range formatChangeSpans {
+			p.AddFormattedText(fc.Marker, empty)
+		}
 	} else {
 		if bgSpan != nil {
 			p.AddFormattedText(bgSpan.OpenMarker, empty)
@@ -1846,6 +1870,9 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		}
 		if bgSpan != nil {
 			p.AddFormattedText(bgSpan.CloseMarker, empty)
+		}
+		for _, fc := range formatChangeSpans {
+			p.AddFormattedText(fc.Marker, empty)
 		}
 	}
 

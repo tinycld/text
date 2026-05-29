@@ -41,10 +41,14 @@ export function AuthorshipTab({ yDoc, clientAuthors }: AuthorshipTabProps) {
     const muted = useThemeColor('muted-foreground')
     const border = useThemeColor('border')
 
+    // The TipTap Collaboration extension binds to the Y.XmlFragment named
+    // 'prosemirror' (see use-document-editor.web.tsx), not 'default'. Read
+    // that same fragment so the contributor walk sees the live editor
+    // content.
     const contributors = useMemo(
         () =>
             yDoc !== null
-                ? aggregateContributors(yDoc.getXmlFragment('default'), clientAuthors)
+                ? aggregateContributors(yDoc.getXmlFragment('prosemirror'), clientAuthors)
                 : [],
         [yDoc, clientAuthors]
     )

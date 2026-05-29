@@ -23,14 +23,9 @@ describe('aggregateContributors', () => {
         text.insert(0, 'hello world')
 
         const authors = new Map<number, string>([[42, 'uo-A']])
-        const summary = aggregateContributors(
-            doc.getXmlFragment('default'),
-            authors
-        )
+        const summary = aggregateContributors(doc.getXmlFragment('default'), authors)
 
-        expect(summary).toEqual([
-            { authorId: 'uo-A', charCount: 11, percent: 100 },
-        ])
+        expect(summary).toEqual([{ authorId: 'uo-A', charCount: 11, percent: 100 }])
     })
 
     it('splits 50/50 across two paragraphs of equal length by two authors', () => {
@@ -63,10 +58,7 @@ describe('aggregateContributors', () => {
             [1, 'uo-A'],
             [2, 'uo-B'],
         ])
-        const summary = aggregateContributors(
-            docA.getXmlFragment('default'),
-            authors
-        )
+        const summary = aggregateContributors(docA.getXmlFragment('default'), authors)
 
         expect(summary).toEqual([
             { authorId: 'uo-A', charCount: 5, percent: 50 },
@@ -76,10 +68,7 @@ describe('aggregateContributors', () => {
 
     it('returns an empty array for an empty fragment', () => {
         const doc = new Y.Doc()
-        const summary = aggregateContributors(
-            doc.getXmlFragment('default'),
-            new Map()
-        )
+        const summary = aggregateContributors(doc.getXmlFragment('default'), new Map())
 
         expect(summary).toEqual([])
     })

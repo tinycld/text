@@ -5,12 +5,14 @@ import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import type * as Y from 'yjs'
 import { useStore } from 'zustand'
 import { useActivityEntries } from '../../hooks/use-activity-entries'
+import { useClientAuthors } from '../../hooks/use-client-authors'
 import type { AnchoredSuggestion, OrphanedSuggestion } from '../../hooks/use-document-suggestions'
 import type { ReviewDrawerStore } from '../../stores/review-drawer-store'
 import { ActivityTab } from './ActivityTab'
+import { AuthorshipTab } from './AuthorshipTab'
 import { SuggestionRow } from './SuggestionRow'
 
-type ReviewDrawerTab = 'suggestions' | 'activity'
+type ReviewDrawerTab = 'suggestions' | 'activity' | 'authorship'
 
 export interface ReviewDrawerProps {
     driveItemId: string
@@ -84,12 +86,13 @@ export function ReviewDrawer({
     // never touch the Activity tab. Local state — there's no reason
     // to persist this across sessions or share it with other drawers.
     const [activeTab, setActiveTab] = useState<ReviewDrawerTab>('suggestions')
-    // The Activity tab is web-only for Phase 3b. On native tiptapEditor
-    // is null (the WebView owns the editor) and the editEvents pipeline
-    // hasn't been wired through the WebView bridge yet; the spec
-    // explicitly defers that. Hide the tab control on native so the
-    // drawer reads as Suggestions-only there.
-    const showActivityTab = Platform.OS === 'web' && yDoc != null
+    // The Activity + Authorship tabs are web-only for Phase 3b/3c. On
+    // native tiptapEditor is null (the WebView owns the editor) and
+    // neither the editEvents pipeline nor the authorship walker have
+    // been wired through the WebView bridge — the specs explicitly
+    // defer both. Hide both tab controls on native so the drawer reads
+    // as Suggestions-only there.
+    const showExtendedTabs = Platform.OS === 'web' && yDoc != null
 
     const drawerOpen = isOpen && openForId === driveItemId
     if (!drawerOpen) return null
@@ -125,7 +128,7 @@ export function ReviewDrawer({
                     alignItems: 'center',
                 }}
             >
-                {showActivityTab ? (
+                {showExtendedTabs ? (
                     <View style={{ flexDirection: 'row', gap: 4 }}>
                         <TabButton
                             label="Suggestions"
@@ -141,6 +144,13 @@ export function ReviewDrawer({
                             inactiveColor={muted}
                             onPress={() => setActiveTab('activity')}
                         />
+                        <TabButton
+                            label="Authorship"
+                            isActive={activeTab === 'authorship'}
+                            activeColor={primary}
+                            inactiveColor={muted}
+                            onPress={() => setActiveTab('authorship')}
+                        />
                     </View>
                 ) : (
                     <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>Suggestions</Text>
@@ -154,12 +164,14 @@ export function ReviewDrawer({
                 </Pressable>
             </View>
 
-            {showActivityTab && activeTab === 'activity' ? (
+            {showExtendedTabs && activeTab === 'activity' ? (
                 <ActivityTabContainer
                     driveItemId={driveItemId}
                     yDoc={yDoc ?? null}
                     editor={editor ?? null}
                 />
+            ) : showExtendedTabs && activeTab === 'authorship' ? (
+                <AuthorshipTabContainer yDoc={yDoc ?? null} />
             ) : (
                 <View style={{ flex: 1, padding: 12, gap: 12 }}>
                     {canResolve && openIds.length > 0 && (
@@ -325,4 +337,20 @@ interface ActivityTabContainerProps {
 function ActivityTabContainer({ driveItemId, yDoc, editor }: ActivityTabContainerProps) {
     const entries = useActivityEntries(yDoc, editor, driveItemId)
     return <ActivityTab entries={entries} />
+}
+
+// AuthorshipTabContainer isolates the useClientAuthors subscription to a
+// child component so the hook only observes the doc's `clientAuthors`
+// Y.Map while the Authorship tab is mounted. Same scoping pattern as
+// ActivityTabContainer — calling useClientAuthors at the ReviewDrawer
+// top level would double up on the editor-level subscription that
+// use-document-editor.web already installs to drive the decoration
+// extension.
+interface AuthorshipTabContainerProps {
+    yDoc: Y.Doc | null
+}
+
+function AuthorshipTabContainer({ yDoc }: AuthorshipTabContainerProps) {
+    const clientAuthors = useClientAuthors(yDoc)
+    return <AuthorshipTab yDoc={yDoc} clientAuthors={clientAuthors} />
 }

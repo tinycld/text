@@ -43,7 +43,7 @@ export function walkParagraphAuthors(
     let item = (yText as unknown as { _start: ItemLike | null })._start
     // `undefined` distinguishes "no run started yet" from "current run
     // is authored by null (anonymous)". null is a valid authorId.
-    let currentAuthor: string | null | undefined = undefined
+    let currentAuthor: string | null | undefined
     let runStart = 0
     while (item !== null) {
         if (!item.deleted) {

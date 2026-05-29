@@ -41,19 +41,22 @@ export function aggregateContributors(
             return
         }
         if (node instanceof Y.XmlElement || node instanceof Y.XmlFragment) {
-            node.forEach((child) => visit(child))
+            node.forEach(child => {
+                visit(child)
+            })
         }
     }
 
-    yFragment.forEach((child) => visit(child))
+    yFragment.forEach(child => {
+        visit(child)
+    })
 
     const out: ContributorSummary[] = []
     for (const [authorId, charCount] of totals.entries()) {
         out.push({
             authorId,
             charCount,
-            percent:
-                grandTotal > 0 ? Math.round((charCount / grandTotal) * 100) : 0,
+            percent: grandTotal > 0 ? Math.round((charCount / grandTotal) * 100) : 0,
         })
     }
     out.sort((a, b) => b.charCount - a.charCount)

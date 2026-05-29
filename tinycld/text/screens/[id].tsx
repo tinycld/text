@@ -10,9 +10,11 @@ import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
+import type { Editor as TiptapEditor } from '@tiptap/react'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
+import * as Y from 'yjs'
 import { OpenCommentsDrawerButton } from '../components/comments/OpenCommentsDrawerButton'
 import { TextCommentDrawer } from '../components/comments/TextCommentDrawer'
 import { DocumentContextMenu } from '../components/DocumentContextMenu'
@@ -28,8 +30,10 @@ import { MenuBar } from '../components/menubar/MenuBar'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { SlashMenu } from '../components/SlashMenu'
+import { AuthorshipPopover } from '../components/suggestions/AuthorshipPopover'
 import { ReviewDrawer } from '../components/suggestions/ReviewDrawer'
 import { WordCountBadge } from '../components/WordCountBadge'
+import { useClientAuthors } from '../hooks/use-client-authors'
 import { useDocumentComments } from '../hooks/use-document-comments'
 import { useDocumentFileActions } from '../hooks/use-document-file-actions'
 import type { DocumentSuggestionsResult } from '../hooks/use-document-suggestions'
@@ -41,6 +45,11 @@ import type { NativeSuggestionBridge } from '../hooks/use-suggestion-bridge.nati
 import { useSuggestionPermissions } from '../hooks/use-suggestion-permissions'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
+import {
+    aggregateContributors,
+    type ContributorSummary,
+} from '../lib/authorship/aggregate-contributors'
+import { walkParagraphAuthors } from '../lib/authorship/walk-paragraph-authors'
 import { colorForUser } from '../lib/color-for-user'
 import { FindReplaceEditorContext } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
@@ -300,6 +309,27 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         }
     }, [isReadOnly, modeStore])
 
+    // Authorship blame popover. Right-click on a paragraph (web only)
+    // resolves the targeted block to its Y.XmlText, walks the per-author
+    // run list via walkParagraphAuthors, and opens a popover anchored to
+    // the cursor coordinates. The screen owns the state because the
+    // popover is rendered at screen scope (positioned absolutely over
+    // the editor) and the contextmenu listener has to attach to the
+    // editor's DOM container — both reads that live above the editor's
+    // own hook.
+    const clientAuthors = useClientAuthors(room.doc)
+    const [authorshipPopover, setAuthorshipPopover] = useState<{
+        x: number
+        y: number
+        contributors: ContributorSummary[]
+    } | null>(null)
+    useAuthorshipContextMenu({
+        tiptapEditor,
+        yDoc: room.doc,
+        clientAuthors,
+        onOpen: setAuthorshipPopover,
+    })
+
     // Print routes through the server's /api/text/render endpoint
     // — no longer needs the editor handle. Print works even if the
     // editor isn't mounted yet (e.g. from the share screen).
@@ -466,6 +496,16 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     yDoc={room.doc}
                     canResolve={canResolve}
                 />
+                <AuthorshipPopover
+                    isOpen={authorshipPopover !== null}
+                    position={
+                        authorshipPopover === null
+                            ? null
+                            : { x: authorshipPopover.x, y: authorshipPopover.y }
+                    }
+                    contributors={authorshipPopover?.contributors ?? []}
+                    onClose={() => setAuthorshipPopover(null)}
+                />
             </View>
         </FindReplaceEditorContext.Provider>
     )
@@ -564,6 +604,122 @@ function useDevYDocWindowHook(yDoc: unknown): void {
             if (w.__tinyTextDoc === yDoc) delete w.__tinyTextDoc
         }
     }, [yDoc])
+}
+
+// Authorship blame popover trigger. Installs a `contextmenu` listener
+// on the editor's DOM container (web only) — right-clicking inside the
+// editor resolves the clicked block to its Y.XmlText, computes a per-
+// author run list via walkParagraphAuthors, aggregates the runs into
+// ContributorSummary[], and opens the popover at the cursor coordinates.
+//
+// PM-pos → YText mapping: the y-tiptap fork's Collaboration extension
+// binds the editor to a Y.XmlFragment whose children correspond 1:1
+// with the PM doc's top-level blocks. For a block at PM doc index N
+// (read via $pos.index(0) on the resolved PM position), the matching
+// YXmlElement is yFragment.get(N) and the inline text content lives in
+// that element's first child (a Y.XmlText). If the editor schema ever
+// nests blocks deeper than one level (e.g. a paragraph inside a list
+// item), this mapping no longer holds — the listener falls back to the
+// whole-doc aggregator in that case so a right-click in a nested block
+// still surfaces *some* attribution data instead of silently no-op'ing.
+//
+// The listener fires on `contextmenu` (right-click) and preventDefault's
+// the browser's native menu only when we have a popover to show. When
+// there's no editor / no yDoc / no PM position under the cursor we
+// return early without preventing default, so the native menu still
+// surfaces in those cases.
+interface AuthorshipContextMenuOptions {
+    tiptapEditor: TiptapEditor | null
+    yDoc: Y.Doc | null
+    clientAuthors: Map<number, string>
+    onOpen: (popover: { x: number; y: number; contributors: ContributorSummary[] }) => void
+}
+
+function useAuthorshipContextMenu(opts: AuthorshipContextMenuOptions) {
+    const { tiptapEditor, yDoc, clientAuthors, onOpen } = opts
+    const clientAuthorsRef = useRef(clientAuthors)
+    clientAuthorsRef.current = clientAuthors
+    const onOpenRef = useRef(onOpen)
+    onOpenRef.current = onOpen
+
+    useEffect(() => {
+        if (Platform.OS !== 'web') return
+        if (tiptapEditor === null || yDoc === null) return
+        const dom = tiptapEditor.view.dom
+        if (!(dom instanceof HTMLElement)) return
+
+        const handler = (e: MouseEvent) => {
+            const view = tiptapEditor.view
+            const coords = view.posAtCoords({ left: e.clientX, top: e.clientY })
+            if (coords === null) return
+            const $pos = view.state.doc.resolve(coords.pos)
+            // $pos.depth === 0 means the cursor landed on the doc itself
+            // (between top-level blocks); $pos.index(0) is the index of
+            // the top-level block containing the position. We always read
+            // index(0) so a click in a nested block (e.g. paragraph
+            // inside a list item) still resolves to the enclosing
+            // top-level block — the corresponding YXmlElement at the
+            // fragment level — which is the closest the public API gets
+            // us without diving into y-prosemirror's mapping table.
+            const blockIndex = $pos.depth >= 1 ? $pos.index(0) : 0
+
+            const yFragment = yDoc.getXmlFragment('prosemirror')
+            const yBlock = yFragment.get(blockIndex)
+            let contributors: ContributorSummary[] = []
+            if (yBlock instanceof Y.XmlElement) {
+                const firstChild = yBlock.firstChild
+                if (firstChild instanceof Y.XmlText) {
+                    contributors = summarizeRuns(
+                        walkParagraphAuthors(firstChild, clientAuthorsRef.current)
+                    )
+                }
+            }
+            // Fallback: if we couldn't resolve a paragraph-scope Y.XmlText
+            // (nested block schema, empty paragraph, or fragment shape we
+            // didn't expect), surface the whole-doc attribution so the
+            // popover still has something to show instead of being empty.
+            if (contributors.length === 0) {
+                contributors = aggregateContributors(yFragment, clientAuthorsRef.current)
+            }
+
+            e.preventDefault()
+            onOpenRef.current({
+                x: e.clientX,
+                y: e.clientY,
+                contributors,
+            })
+        }
+
+        dom.addEventListener('contextmenu', handler)
+        return () => {
+            dom.removeEventListener('contextmenu', handler)
+        }
+    }, [tiptapEditor, yDoc])
+}
+
+// summarizeRuns collapses an ordered AuthorshipRun[] into per-author
+// ContributorSummary entries (authorId + charCount + percent). Mirrors
+// what aggregateContributors does for the whole doc but scoped to a
+// single paragraph's runs, so the popover can show per-paragraph
+// attribution without re-walking the entire fragment.
+function summarizeRuns(runs: ReturnType<typeof walkParagraphAuthors>): ContributorSummary[] {
+    const totals = new Map<string | null, number>()
+    let grandTotal = 0
+    for (const run of runs) {
+        const len = run.to - run.from
+        totals.set(run.authorId, (totals.get(run.authorId) ?? 0) + len)
+        grandTotal += len
+    }
+    const out: ContributorSummary[] = []
+    for (const [authorId, charCount] of totals.entries()) {
+        out.push({
+            authorId,
+            charCount,
+            percent: grandTotal > 0 ? Math.round((charCount / grandTotal) * 100) : 0,
+        })
+    }
+    out.sort((a, b) => b.charCount - a.charCount)
+    return out
 }
 
 // Bind ⌘P / Ctrl+P → print. Web-only: native has no equivalent

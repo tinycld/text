@@ -134,6 +134,144 @@ function markKey(entry: { type: string; attrs?: Record<string, unknown> }): stri
     return `${entry.type}:${JSON.stringify(normalized)}`
 }
 
+// isCellRange returns true iff the suggestedBlockChange entry targets
+// a tableCell or tableHeader (vs paragraph/heading/listItem/blockquote).
+// Cell entries need special handling on accept (row-level deletes) and
+// reject (row-level addition rejection).
+function isCellRange(r: BlockChangeRange): boolean {
+    const t = r.before.type ?? r.after.type
+    return t === 'tableCell' || t === 'tableHeader'
+}
+
+// groupCellsByParentRow returns a map from row-position to the
+// BlockChangeRange entries whose cells are children of that row in
+// the current doc. Used by accept (delete entire row if all its cells
+// are slated for deletion) and reject (delete entire row if all its
+// cells are slated as additions) to keep the resolved table well-
+// formed. fixTables would otherwise refill missing cells.
+function groupCellsByParentRow(
+    editor: Editor,
+    ranges: BlockChangeRange[]
+): Map<{ rowPos: number; rowSize: number; totalCells: number }, BlockChangeRange[]> {
+    // Build a position → row-summary lookup. For each cell range, find
+    // its parent row in the doc and add it under the row summary entry.
+    const byRowKey = new Map<
+        string,
+        { rowPos: number; rowSize: number; totalCells: number; cells: BlockChangeRange[] }
+    >()
+    for (const r of ranges) {
+        const $pos = editor.state.doc.resolve(r.pos)
+        // The cell's parent is the row. depth >= 1 since cells live
+        // inside rows.
+        for (let depth = $pos.depth; depth >= 0; depth--) {
+            const ancestor = $pos.node(depth)
+            if (ancestor.type.name === 'tableRow') {
+                const rowPos = $pos.before(depth)
+                const rowSize = ancestor.nodeSize
+                const key = `${rowPos}:${rowSize}`
+                let entry = byRowKey.get(key)
+                if (!entry) {
+                    entry = {
+                        rowPos,
+                        rowSize,
+                        totalCells: ancestor.childCount,
+                        cells: [],
+                    }
+                    byRowKey.set(key, entry)
+                }
+                entry.cells.push(r)
+                break
+            }
+        }
+    }
+    const out = new Map<
+        { rowPos: number; rowSize: number; totalCells: number },
+        BlockChangeRange[]
+    >()
+    for (const v of byRowKey.values()) {
+        out.set({ rowPos: v.rowPos, rowSize: v.rowSize, totalCells: v.totalCells }, v.cells)
+    }
+    return out
+}
+
+// acceptBlockChanges applies the accept-side logic for every
+// suggestedBlockChange range. Pulled out of acceptSuggestion to keep
+// the inner command body small enough for biome's cognitive-
+// complexity ceiling — the cell-handling branches (added / deleted
+// row-grouping / attr-change) add a fair amount of conditional
+// surface.
+//
+// Order: cell-row-deletes (whole-row), then individual blockchange
+// entries back-to-front so positions stay stable through the
+// remaining writes.
+function acceptBlockChanges(
+    editor: Editor,
+    tr: import('@tiptap/pm/state').Transaction,
+    state: import('@tiptap/pm/state').EditorState,
+    ranges: BlockChangeRange[]
+): void {
+    // Phase A — group cell ranges by parent row. If every cell in a
+    // row is marked deleted, delete the whole row (back-to-front so
+    // earlier rows stay positionally stable). We do the same for
+    // 'every cell added in a row' deferred to the reject path (only;
+    // accept of cell-added is a no-op aside from clearing the wrapper).
+    const cellDeleteRanges = ranges.filter(r => isCellRange(r) && r.after.deleted === true)
+    const cellsHandledByRowDelete = new Set<number>()
+    if (cellDeleteRanges.length > 0) {
+        const grouped = groupCellsByParentRow(editor, cellDeleteRanges)
+        // Back-to-front so earlier row positions stay valid.
+        const rowEntries = Array.from(grouped.entries()).sort(
+            ([rowA], [rowB]) => rowB.rowPos - rowA.rowPos
+        )
+        for (const [rowSummary, cellsInRow] of rowEntries) {
+            if (cellsInRow.length === rowSummary.totalCells) {
+                const from = tr.mapping.map(rowSummary.rowPos)
+                const to = tr.mapping.map(rowSummary.rowPos + rowSummary.rowSize)
+                tr.delete(from, to)
+                for (const c of cellsInRow) {
+                    cellsHandledByRowDelete.add(c.pos)
+                }
+            }
+        }
+    }
+
+    // Phase B — per-range application. Back-to-front.
+    for (const r of [...ranges].reverse()) {
+        if (cellsHandledByRowDelete.has(r.pos)) continue
+        const pos = tr.mapping.map(r.pos)
+        if (r.before.added === true) {
+            // The cell exists. Accept means "yes, this is now part of
+            // the doc" — drop the wrapper attribute. setNodeMarkup
+            // with the after.attrs (which mirror the cell's current
+            // attrs for an added cell) does that in one call.
+            const node = tr.doc.nodeAt(pos)
+            if (!node) continue
+            const afterType = state.schema.nodes[r.after.type]
+            if (!afterType) continue
+            tr.setNodeMarkup(pos, afterType, r.after.attrs)
+            continue
+        }
+        if (r.after.deleted === true) {
+            // The block exists in the current doc (the command layer
+            // restored it when the user proposed the delete). Honor
+            // the proposal by deleting it now. The size we stored is
+            // in the pre-resolve doc's coordinates; map the end
+            // through tr.mapping to handle any prior steps in this
+            // transaction.
+            const end = tr.mapping.map(r.pos + r.nodeSize)
+            tr.delete(pos, end)
+            continue
+        }
+        const afterType = state.schema.nodes[r.after.type]
+        if (!afterType) continue
+        // setNodeMarkup with the explicit after.attrs lets the
+        // schema's default for suggestedBlockChange (null) take over
+        // — the wrapper attribute is dropped at the same time the
+        // proposed type + attrs land.
+        tr.setNodeMarkup(pos, afterType, r.after.attrs)
+    }
+}
+
 // acceptSuggestion strips suggestedInsert marks (text becomes regular)
 // and removes text bearing suggestedDelete with the target id (text gone).
 // For suggestedFormatChange: strips the wrapper mark and applies each
@@ -173,30 +311,17 @@ export function acceptSuggestion(
                 // applies when no explicit value is passed) and lands
                 // the proposed structure.
                 //
+                // Cell-specific accept paths (Phase 5 Task 14):
+                //   - before.added=true → clear the wrapper attr; the
+                //     cell already exists and stays.
+                //   - after.deleted=true on a cell → delete the cell
+                //     range. If every cell in the parent row carries
+                //     deleted=true with this id, delete the row
+                //     instead (so fixTables doesn't refill a missing
+                //     cell into the now-empty row).
+                //
                 // Back-to-front so earlier positions stay stable.
-                for (const r of [...blockChangeRanges].reverse()) {
-                    const pos = tr.mapping.map(r.pos)
-                    if (r.after.deleted === true) {
-                        // The block exists in the current doc (the
-                        // command layer restored it when the user
-                        // proposed the delete). Honor the proposal by
-                        // deleting it now. The size we stored is in
-                        // the pre-resolve doc's coordinates; map the
-                        // end through tr.mapping to handle any prior
-                        // steps in this transaction.
-                        const end = tr.mapping.map(r.pos + r.nodeSize)
-                        tr.delete(pos, end)
-                        continue
-                    }
-                    const afterType = state.schema.nodes[r.after.type]
-                    if (!afterType) continue
-                    // setNodeMarkup with the explicit after.attrs lets
-                    // the schema's default for suggestedBlockChange
-                    // (null) take over — the wrapper attribute is
-                    // dropped at the same time the proposed type +
-                    // attrs land.
-                    tr.setNodeMarkup(pos, afterType, r.after.attrs)
-                }
+                acceptBlockChanges(editor, tr, state, blockChangeRanges)
                 // Strip insert marks (back-to-front so positions stay stable).
                 for (const r of [...insertRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
@@ -267,6 +392,62 @@ export function acceptSuggestion(
     })
 }
 
+// rejectBlockChanges applies the reject-side logic for every
+// suggestedBlockChange range. For most kinds, reject is just
+// "clear the wrapper attribute"; the doc is already in the before-
+// state because the command layer reverted the user's structural
+// change before stamping the suggestion. Cell-added entries are the
+// exception — those represent a proposed addition that, on reject,
+// must be removed from the doc.
+function rejectBlockChanges(
+    editor: Editor,
+    tr: import('@tiptap/pm/state').Transaction,
+    ranges: BlockChangeRange[]
+): void {
+    // Phase A — group cell-added ranges by parent row. If every cell
+    // in a row was added, delete the entire row (back-to-front so
+    // earlier rows stay positionally stable).
+    const cellAddRanges = ranges.filter(r => isCellRange(r) && r.before.added === true)
+    const cellsHandledByRowDelete = new Set<number>()
+    if (cellAddRanges.length > 0) {
+        const grouped = groupCellsByParentRow(editor, cellAddRanges)
+        const rowEntries = Array.from(grouped.entries()).sort(
+            ([rowA], [rowB]) => rowB.rowPos - rowA.rowPos
+        )
+        for (const [rowSummary, cellsInRow] of rowEntries) {
+            if (cellsInRow.length === rowSummary.totalCells) {
+                const from = tr.mapping.map(rowSummary.rowPos)
+                const to = tr.mapping.map(rowSummary.rowPos + rowSummary.rowSize)
+                tr.delete(from, to)
+                for (const c of cellsInRow) {
+                    cellsHandledByRowDelete.add(c.pos)
+                }
+            }
+        }
+    }
+
+    // Phase B — per-range application.
+    for (const r of [...ranges].reverse()) {
+        if (cellsHandledByRowDelete.has(r.pos)) continue
+        const pos = tr.mapping.map(r.pos)
+        if (r.before.added === true) {
+            // Cell-added: delete the cell. The row's column count
+            // may shift, but a partial reject across rows still
+            // leaves a well-formed table (each row's cell count is
+            // the same — every "before.added" cell in the row was
+            // part of the original addRow proposal).
+            const end = tr.mapping.map(r.pos + r.nodeSize)
+            tr.delete(pos, end)
+            continue
+        }
+        const node = tr.doc.nodeAt(pos)
+        if (!node) continue
+        const nextAttrs: Record<string, unknown> = { ...node.attrs }
+        nextAttrs.suggestedBlockChange = null
+        tr.setNodeMarkup(pos, null, nextAttrs)
+    }
+}
+
 // rejectSuggestion removes text bearing suggestedInsert with the target
 // id (text gone) and strips suggestedDelete marks (text stays).
 // For suggestedFormatChange: strips the wrapper mark only. The
@@ -298,23 +479,25 @@ export function rejectSuggestion(
                 // before-state on screen (the command layer reverted
                 // the user's structural change before stamping the
                 // suggestion). Clearing the suggestedBlockChange
-                // attribute is the only structural work needed.
+                // attribute is the only structural work needed for
+                // most cases.
                 //
-                // For kind='delete' specifically, we also strip the
-                // companion suggestedDelete marks the command layer
-                // added to the restored block's inline content. Without
-                // this, the text would still render strikethrough
-                // after the proposal was rejected.
+                // Cell-specific reject paths (Phase 5 Task 14):
+                //   - before.added=true → DELETE the cell. It was a
+                //     proposed addition that's being rejected, so it
+                //     shouldn't remain in the doc. If every cell in the
+                //     parent row is being rejected, delete the row
+                //     (else fixTables would re-fill missing cells).
+                //   - after.deleted=true → just clear the wrapper.
+                //     Inline text already loses its suggestedDelete
+                //     mark via the deleteRanges loop below.
+                //
+                // For kind='delete' (non-cell) specifically, the
+                // companion suggestedDelete marks on inline content
+                // are stripped by the deleteRanges loop below.
                 //
                 // Back-to-front for positional safety.
-                for (const r of [...blockChangeRanges].reverse()) {
-                    const pos = tr.mapping.map(r.pos)
-                    const node = tr.doc.nodeAt(pos)
-                    if (!node) continue
-                    const nextAttrs: Record<string, unknown> = { ...node.attrs }
-                    nextAttrs.suggestedBlockChange = null
-                    tr.setNodeMarkup(pos, null, nextAttrs)
-                }
+                rejectBlockChanges(editor, tr, blockChangeRanges)
                 // Remove insert-marked ranges (back-to-front).
                 for (const r of [...insertRanges].reverse()) {
                     const from = tr.mapping.map(r.from)

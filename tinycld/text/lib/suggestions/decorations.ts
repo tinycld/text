@@ -104,7 +104,8 @@ const BLOCK_TYPE_LABELS: Record<string, string> = {
     bulletList: 'bullet list',
     orderedList: 'ordered list',
     blockquote: 'blockquote',
-    tableCell: 'table cell',
+    tableCell: 'cell',
+    tableHeader: 'header cell',
 }
 
 function labelForBlockType(type: string, attrs?: Record<string, unknown>): string {
@@ -121,11 +122,18 @@ function labelForBlockType(type: string, attrs?: Record<string, unknown>): strin
 // Human-readable labels for common block-level attributes. The
 // suggestedBlockChange payload's attr diff is shown as
 // "<attr-label>: <value>" — e.g. "alignment: center", "heading level: 2".
+//
+// Cell-specific attrs (colspan/rowspan/colwidth) get human-readable
+// labels too, so the tooltip on a setCellAttribute proposal reads
+// "column span: 2" rather than "colspan: 2".
 const BLOCK_ATTR_LABELS: Record<string, string> = {
     level: 'heading level',
     textAlign: 'alignment',
     indent: 'indent',
     blockIndent: 'indent',
+    colspan: 'column span',
+    rowspan: 'row span',
+    colwidth: 'column width',
 }
 
 function labelForBlockAttr(attr: string): string {
@@ -151,7 +159,12 @@ function diffBlockAttrs(before: Record<string, unknown>, after: Record<string, u
 
 // summarizeBlockChange composes a brief human-readable description of
 // a block-level proposal. Cases (in priority order):
-//   - after.deleted === true → "delete <block type>" ("delete paragraph").
+//   - before.added === true → "add <block type>" ("add cell"). Phase 5
+//     table addRow / addColumn proposals carry this sentinel; the cell
+//     didn't exist before the suggestion, so the before-state has no
+//     meaningful type/attrs to summarize — only "added" matters.
+//   - after.deleted === true → "delete <block type>" ("delete paragraph"
+//     / "delete cell").
 //   - Type change with attr difference → "change to <after type> (<attr fragments>)"
 //     ("change to heading 2 (left-aligned)"). Same-type-but-different-
 //     level headings flow through this branch because the type label
@@ -161,6 +174,9 @@ function diffBlockAttrs(before: Record<string, unknown>, after: Record<string, u
 //     "heading level: 2"). Multiple attr changes join with semicolons.
 //   - Defensive fallback (no recognizable difference) → "change block".
 export function summarizeBlockChange(before: BlockChangeBefore, after: BlockChangeAfter): string {
+    if (before.added === true) {
+        return `add ${labelForBlockType(after.type, after.attrs)}`
+    }
     if (after.deleted === true) {
         return `delete ${labelForBlockType(before.type, before.attrs)}`
     }
@@ -219,6 +235,52 @@ function withAlpha(color: string, alpha: number): string {
     return color
 }
 
+// Fixed colors for cell add/delete states. Unlike the
+// paragraph/heading gutter bar (which uses the author's deterministic
+// color so multi-author docs are visually distinct), cell-level
+// add/delete proposals are shown in semantic green/red so the table
+// reader instantly recognizes the meaning without needing color-key
+// recall. Cell-attr changes retain the author color — that's a
+// structural-attribute change, not an addition or removal.
+const CELL_ADDED_COLOR = 'hsl(140, 60%, 40%)'
+const CELL_DELETED_COLOR = 'hsl(0, 70%, 45%)'
+
+// buildBlockChangeStyle composes the inline CSS string for a
+// suggestedBlockChange node decoration. Branches:
+//   - non-cell + delete   → 3px author-colored left border + opacity 0.5
+//   - non-cell + add      → 3px author-colored left border (cells use
+//                           the added sentinel; non-cell adds don't
+//                           exist in Phase 5 but the branch is safe)
+//   - non-cell + attr/swap → 3px author-colored left border, no opacity
+//   - cell + added         → 2px green left + top borders
+//   - cell + deleted       → 2px red left + bottom borders + opacity 0.5
+//   - cell + attr/swap     → 2px author-colored left border
+//
+// The 2px width on cells (vs 3px on blocks) is tighter so the gutter
+// bar doesn't visually shrink the cell's usable area too aggressively
+// in a dense table. The added/deleted edges (top for added, bottom for
+// deleted) provide a secondary directional cue without needing the
+// reader to recall the green-vs-red convention.
+function buildBlockChangeStyle(args: {
+    isCell: boolean
+    isAdded: boolean
+    isDeleted: boolean
+    color: string
+}): string {
+    const { isCell, isAdded, isDeleted, color } = args
+    if (!isCell) {
+        const base = `border-left: 3px solid ${color}; padding-left: 8px;`
+        return isDeleted ? `${base} opacity: 0.5;` : base
+    }
+    if (isAdded) {
+        return `border-left: 2px solid ${CELL_ADDED_COLOR}; border-top: 2px solid ${CELL_ADDED_COLOR};`
+    }
+    if (isDeleted) {
+        return `border-left: 2px solid ${CELL_DELETED_COLOR}; border-bottom: 2px solid ${CELL_DELETED_COLOR}; opacity: 0.5;`
+    }
+    return `border-left: 2px solid ${color};`
+}
+
 // buildDecorations walks the doc and emits inline decorations for
 // every text node carrying suggestedInsert, suggestedDelete, or
 // suggestedFormatChange marks, plus a node decoration for each
@@ -267,19 +329,23 @@ function buildDecorations(state: EditorState): DecorationSet {
                 const after = payload.after as BlockChangeAfter
                 const color = colorForUser(authorId)
                 const tooltip = buildBlockChangeTooltip(authorId, before, after)
-                // For a delete sub-case, dim the whole block to signal
-                // proposed removal. For attr/type swaps, the gutter
-                // bar is the only signal — no opacity change, no
-                // background tint.
-                const isDelete = after.deleted === true
-                const baseStyle = `border-left: 3px solid ${color}; padding-left: 8px;`
-                const style = isDelete ? `${baseStyle} opacity: 0.5;` : baseStyle
+                const isCell =
+                    node.type.name === 'tableCell' || node.type.name === 'tableHeader'
+                const style = buildBlockChangeStyle({
+                    isCell,
+                    isAdded: before.added === true,
+                    isDeleted: after.deleted === true,
+                    color,
+                })
+                const cssClass = isCell
+                    ? 'tinycld-suggestion-block-change tinycld-suggestion-cell-change'
+                    : 'tinycld-suggestion-block-change'
                 decos.push(
                     Decoration.node(
                         pos,
                         pos + node.nodeSize,
                         {
-                            class: 'tinycld-suggestion-block-change',
+                            class: cssClass,
                             style,
                             title: tooltip,
                         },

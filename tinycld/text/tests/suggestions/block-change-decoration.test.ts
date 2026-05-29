@@ -1,4 +1,8 @@
 import { getSchema } from '@tiptap/core'
+import { Table } from '@tiptap/extension-table'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
+import TableRow from '@tiptap/extension-table-row'
 import StarterKit from '@tiptap/starter-kit'
 import { EditorState } from 'prosemirror-state'
 import { describe, expect, it } from 'vitest'
@@ -309,5 +313,175 @@ describe('summarizeBlockChange', () => {
         expect(
             summarizeBlockChange({ type: 'paragraph', attrs: {} }, { type: 'paragraph', attrs: {} })
         ).toBe('change block')
+    })
+
+    // Phase 5 Task 14 — table-cell-specific summaries.
+    it("describes an added cell as 'add cell'", () => {
+        expect(
+            summarizeBlockChange(
+                {
+                    type: 'tableCell',
+                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                    added: true,
+                },
+                { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } }
+            )
+        ).toBe('add cell')
+    })
+
+    it("describes an added header cell as 'add header cell'", () => {
+        expect(
+            summarizeBlockChange(
+                {
+                    type: 'tableHeader',
+                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                    added: true,
+                },
+                { type: 'tableHeader', attrs: { colspan: 1, rowspan: 1, colwidth: null } }
+            )
+        ).toBe('add header cell')
+    })
+
+    it("describes a deleted cell as 'delete cell'", () => {
+        expect(
+            summarizeBlockChange(
+                { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+                {
+                    type: 'tableCell',
+                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                    deleted: true,
+                }
+            )
+        ).toBe('delete cell')
+    })
+
+    it("describes a colspan change as 'column span: 2'", () => {
+        expect(
+            summarizeBlockChange(
+                { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+                { type: 'tableCell', attrs: { colspan: 2, rowspan: 1, colwidth: null } }
+            )
+        ).toBe('column span: 2')
+    })
+})
+
+// makeTableStateWithCellChange builds a tiny 1x1 table doc with a
+// suggestedBlockChange attribute on the single cell, so cell-specific
+// decoration styling can be exercised without standing up the full
+// command-layer pipeline.
+function makeTableStateWithCellChange(opts: {
+    cellType: 'tableCell' | 'tableHeader'
+    suggestionId: string
+    authorId: string
+    before: BlockChangeBefore
+    after: BlockChangeAfter
+}) {
+    const schema = getSchema([
+        StarterKit,
+        Table.configure({ resizable: false }),
+        TableRow,
+        TableCell,
+        TableHeader,
+        ...buildSuggestionEditorExtensions(),
+    ])
+    const payload = {
+        suggestionId: opts.suggestionId,
+        authorId: opts.authorId,
+        ts: 1000,
+        before: opts.before,
+        after: opts.after,
+    }
+    const cellAttrs: Record<string, unknown> = {
+        colspan: 1,
+        rowspan: 1,
+        colwidth: null,
+        suggestedBlockChange: payload,
+    }
+    const cellNodeType = schema.nodes[opts.cellType]
+    const cell = cellNodeType.create(
+        cellAttrs,
+        schema.nodes.paragraph.create({}, schema.text('hi'))
+    )
+    const row = schema.nodes.tableRow.create({}, cell)
+    const table = schema.nodes.table.create({}, row)
+    const docNode = schema.nodes.doc.create({}, table)
+    return EditorState.create({
+        doc: docNode,
+        schema,
+        plugins: [createSuggestionDecorationsPlugin()],
+    })
+}
+
+function findCellChangeDeco(state: EditorState) {
+    const decoSet = getSuggestionDecorations(state)
+    return decoSet
+        .find()
+        .find(d => d.spec?.kind === 'suggestedBlockChange') as
+        | { spec: Record<string, unknown>; type: { attrs: Record<string, string> } }
+        | undefined
+}
+
+describe('SuggestionDecorations — suggestedBlockChange on table cells', () => {
+    it("added cell shows 'add cell' tooltip", () => {
+        const state = makeTableStateWithCellChange({
+            cellType: 'tableCell',
+            suggestionId: 's-cell-add',
+            authorId: 'uo_alice',
+            before: {
+                type: 'tableCell',
+                attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                added: true,
+            },
+            after: { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+        })
+        const deco = findCellChangeDeco(state)
+        expect(deco).toBeDefined()
+        const attrs = deco?.type.attrs as Record<string, string>
+        expect(attrs.title).toContain('add cell')
+        // Cells get the cell-specific class so CSS can target them.
+        expect(attrs.class).toContain('tinycld-suggestion-cell-change')
+        // Added cells use green borders on left + top — a fixed
+        // semantic color, not the author hue.
+        expect(attrs.style).toContain('border-left')
+        expect(attrs.style).toContain('border-top')
+    })
+
+    it("deleted cell shows 'delete cell' tooltip and opacity overlay", () => {
+        const state = makeTableStateWithCellChange({
+            cellType: 'tableCell',
+            suggestionId: 's-cell-del',
+            authorId: 'uo_alice',
+            before: { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+            after: {
+                type: 'tableCell',
+                attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                deleted: true,
+            },
+        })
+        const deco = findCellChangeDeco(state)
+        expect(deco).toBeDefined()
+        const attrs = deco?.type.attrs as Record<string, string>
+        expect(attrs.title).toContain('delete cell')
+        // Deleted cells get red borders on left + bottom + opacity 0.5.
+        expect(attrs.style).toContain('border-left')
+        expect(attrs.style).toContain('border-bottom')
+        expect(attrs.style).toContain('opacity: 0.5')
+    })
+
+    it('attr-change on a cell uses the author color for the left border', () => {
+        const state = makeTableStateWithCellChange({
+            cellType: 'tableCell',
+            suggestionId: 's-cell-attr',
+            authorId: 'uo_alice',
+            before: { type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+            after: { type: 'tableCell', attrs: { colspan: 2, rowspan: 1, colwidth: null } },
+        })
+        const deco = findCellChangeDeco(state)
+        expect(deco).toBeDefined()
+        const attrs = deco?.type.attrs as Record<string, string>
+        // Author-colored border, no opacity overlay.
+        expect(attrs.style).toContain(colorForUser('uo_alice'))
+        expect(attrs.style).not.toContain('opacity')
+        expect(attrs.title).toContain('column span: 2')
     })
 })

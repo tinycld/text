@@ -1,9 +1,7 @@
-import { and, eq } from '@tanstack/db'
-import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { ScrollView, Text, View } from 'react-native'
 import type { ActivityEntry } from '../../hooks/use-activity-entries'
+import { useAuthorName } from '../../hooks/use-author-name'
 import { colorForUser } from '../../lib/color-for-user'
 
 export interface ActivityTabProps {
@@ -123,32 +121,4 @@ function formatRelative(ts: number): string {
     if (hours < 24) return `${hours} hours ago`
     const days = Math.floor(hours / 24)
     return `${days} day${days === 1 ? '' : 's'} ago`
-}
-
-// Resolves the display name for a user_org id. Two-table join
-// (user_org → users) so we render the human-readable name from the
-// user record, falling back to the email if name is unset. Returns
-// null while the query is loading or when the id doesn't resolve
-// (anonymous / orphan / cross-org id), letting the row degrade to
-// "Someone made N edits".
-//
-// We don't have a `useOrgUser` hook in this codebase yet, so we model
-// the lookup after `use-mention-suggestions.ts` and inline the
-// per-author query. One subscription per row is the cost — typical
-// activity feeds have <100 rows and most reuse the same handful of
-// authorIds, so TanStack DB's caching makes this cheap in practice.
-function useAuthorName(authorId: string): string | null {
-    const [userOrgCollection, usersCollection] = useStore('user_org', 'users')
-    const { data: rows } = useOrgLiveQuery(
-        (query, { orgId }) =>
-            query
-                .from({ uo: userOrgCollection })
-                .join({ u: usersCollection }, ({ uo, u }) => eq(uo.user, u.id))
-                .where(({ uo }) => and(eq(uo.id, authorId), eq(uo.org, orgId)))
-                .select(({ u }) => ({ name: u.name, email: u.email })),
-        [authorId]
-    )
-    const row = rows?.[0] as { name: string | null; email: string | null } | undefined
-    if (!row) return null
-    return row.name || row.email || null
 }

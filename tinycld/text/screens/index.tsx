@@ -1,5 +1,6 @@
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { router } from 'expo-router'
 import { FilePlus2, FileText, LayoutTemplate } from 'lucide-react-native'
 import { useState } from 'react'
@@ -13,6 +14,7 @@ import {
 import type { TemplateId } from '../lib/templates/index'
 
 export default function TextIndex() {
+    useDocumentTitle('Text')
     const orgHref = useOrgHref()
     const { data: items = [] } = useTextDocuments()
     const blank = useCreateBlankTextDocument()

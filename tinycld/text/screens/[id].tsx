@@ -7,6 +7,7 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
+import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import { router, useLocalSearchParams } from 'expo-router'
@@ -91,6 +92,8 @@ export default function TextDetail() {
     )
 
     const item = items[0]
+
+    useDocumentTitle(item?.name ? `Text — ${item.name}` : 'Text')
 
     if (isItemLoading || !item) {
         return <CenteredMessage label="Loading document…" spinner />

@@ -70,4 +70,8 @@ func TestWriteAuthorshipEntries_DeltaApplicableToFreshPeer(t *testing.T) {
 	if v := peerAuthors.Get("42"); v != "uo-X" {
 		t.Errorf("peer clientAuthors[42] = %v, want uo-X", v)
 	}
+	peerFirstSeen, _ := peer.GetMap("clientFirstSeen").(*ycrdt.YMap)
+	if v := peerFirstSeen.Get("42"); v != int(9999) {
+		t.Errorf("peer clientFirstSeen[42] = %v (type %T), want 9999", v, v)
+	}
 }

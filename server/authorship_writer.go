@@ -1,6 +1,7 @@
 package text
 
 import (
+	"fmt"
 	"strconv"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -38,8 +39,9 @@ func writeAuthorshipEntries(doc *ycrdt.Doc, entries []authorshipEntry) ([]byte, 
 	firstSeen, _ := doc.GetMap("clientFirstSeen").(*ycrdt.YMap)
 	if authors == nil || firstSeen == nil {
 		// Should never happen — GetMap on a freshly-created root returns
-		// a usable handle. Bail safely.
-		return nil, nil
+		// a usable handle. Surface as an error so the caller (stamper)
+		// logs a breadcrumb instead of silently dropping the broadcast.
+		return nil, fmt.Errorf("text: writeAuthorshipEntries: protected root missing (corrupt doc)")
 	}
 	for _, e := range entries {
 		k := strconv.FormatUint(uint64(e.ClientID), 10)

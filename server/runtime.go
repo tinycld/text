@@ -541,6 +541,25 @@ func (h *textDocHandle) stampAuthorship(entries []authorshipEntry) ([]byte, erro
 	return writeAuthorshipEntries(h.doc, entries)
 }
 
+// publishEditEvent writes the given EditEvent into the server-side
+// Y.Doc's editEvents Y.Array and returns the bytes of a delta covering
+// only that mutation — ready to hand to Room.PublishDocUpdate for
+// broadcast.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// EncodeStateAsUpdate / stampAuthorship, so server-originated edit
+// event writes don't race with concurrent inbound updates routed from
+// other connections. Mirrors stampAuthorship's mutex pattern.
+func (h *textDocHandle) publishEditEvent(event EditEvent) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: publishEditEvent on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	return writeEditEvent(h.doc, event)
+}
+
 // EncodeStateAsUpdate returns the bytes a new joiner needs to catch
 // up to the room's current state. Wrapped by the broker in a
 // MsgSyncReply frame.

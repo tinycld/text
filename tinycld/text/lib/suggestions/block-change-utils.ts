@@ -38,30 +38,27 @@ export type BlockChange =
           beforeNode: PMNode
       }
 
-// The block-level node types the detector recognizes. Mirrors the
-// SuggestedBlockChange extension's TARGET_NODE_TYPES (paragraph,
-// heading, listItem, blockquote, tableCell, tableHeader). Nodes
-// outside this set are not considered "blocks" for the purposes of
-// block-change detection — text-level changes inside them are
-// handled by the insert/delete/format-change paths.
+// The block-level node types the detector recognizes. A strict subset
+// of the SuggestedBlockChange extension's TARGET_NODE_TYPES — the
+// extension also adds the attribute to tableCell/tableHeader, but
+// cell-level changes (addRow/deleteRow/setCellAttribute) are detected
+// by Phase 5's table-change-utils path, not here. Without that split
+// a single setCellAttribute would surface in BOTH detectors and
+// double-stamp the cell.
 //
-// tableCell/tableHeader are technically the "cells" in the table
-// hierarchy but they're treated as blocks here for the same reason:
-// changing a cell's attrs (textAlign on its inner paragraph won't
-// fire this branch — that's the cell's child) is structurally a
-// block-style change. Phase 5 table-change-utils handles addRow/
-// deleteRow/setCellAttr at the cell level via its own detection
-// path — block-change-utils only catches whole-cell deletes / type
-// swaps that match its existing AttrStep / ReplaceAroundStep /
-// whole-block-delete shape.
-const TARGET_BLOCK_TYPES = new Set([
-    'paragraph',
-    'heading',
-    'listItem',
-    'blockquote',
-    'tableCell',
-    'tableHeader',
-])
+// Nodes outside this set are not considered "blocks" for the
+// purposes of block-change detection — text-level changes inside
+// them are handled by the insert/delete/format-change paths.
+const TARGET_BLOCK_TYPES = new Set(['paragraph', 'heading', 'listItem', 'blockquote'])
+
+// Node types that mark a table subtree — block-change detection MUST
+// NOT descend into these because cells (and their inner paragraphs)
+// are owned by Phase 5 table-change-utils. Without the skip, a row
+// delete would surface as both a `cell-deleted` entry (table branch)
+// AND a `delete` entry for every paragraph inside every cell (block
+// branch), which would double-restore the paragraph and corrupt the
+// table structure.
+const TABLE_SUBTREE_TYPES = new Set(['table', 'tableRow', 'tableCell', 'tableHeader'])
 
 // isBlockDeleteStep returns true iff the given ReplaceStep would be
 // consumed by extractBlockChanges as one or more block-delete entries.
@@ -73,6 +70,9 @@ export function isBlockDeleteStep(step: ReplaceStep, originalState: EditorState)
     let found = false
     originalState.doc.nodesBetween(step.from, step.to, (node, nodePos) => {
         if (found) return false
+        // Don't descend into the table subtree — table-change-utils
+        // owns those, and extractBlockChanges agrees.
+        if (TABLE_SUBTREE_TYPES.has(node.type.name)) return false
         if (!TARGET_BLOCK_TYPES.has(node.type.name)) return true
         const startsInside = nodePos >= step.from
         const endsInside = nodePos + node.nodeSize <= step.to
@@ -235,6 +235,9 @@ function handleReplaceStepDelete(
     // == ...) must lie within [step.from, step.to].
     const fullyDeleted: Array<{ pos: number; node: PMNode }> = []
     originalState.doc.nodesBetween(step.from, step.to, (node, nodePos) => {
+        // Skip the entire table subtree — cells and their inner
+        // blocks are handled by table-change-utils.
+        if (TABLE_SUBTREE_TYPES.has(node.type.name)) return false
         if (!TARGET_BLOCK_TYPES.has(node.type.name)) return true
         const startsInside = nodePos >= step.from
         const endsInside = nodePos + node.nodeSize <= step.to

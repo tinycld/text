@@ -36,6 +36,14 @@ export interface EditEvent {
 export interface BlockChangeBefore {
     type: string
     attrs: Record<string, unknown>
+    // Phase 5 (Task 13): a sentinel for "this block didn't exist before
+    // the suggestion." Used by table operations that propose adding a
+    // cell (addRow / addColumn) — the cell is freshly inserted in the
+    // suggesting-mode flow and has no pre-existing before-state to
+    // record. Type + attrs still mirror the proposed shape so the
+    // resolve path has a complete picture when rejecting (delete the
+    // freshly-added cell).
+    added?: boolean
 }
 
 export interface BlockChangeAfter {

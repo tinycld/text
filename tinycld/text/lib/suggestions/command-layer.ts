@@ -1,13 +1,14 @@
 import { Extension } from '@tiptap/core'
-import type { MarkType, Slice } from '@tiptap/pm/model'
+import type { MarkType, Node as PMNode, Slice } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
-import { ReplaceStep } from '@tiptap/pm/transform'
+import { ReplaceAroundStep, ReplaceStep } from '@tiptap/pm/transform'
 import type * as Y from 'yjs'
 import { EDITOR_MODE_SUGGESTING, type EditorModeStore } from '../../stores/editor-mode-store'
 import { type BlockChange, extractBlockChanges, isBlockDeleteStep } from './block-change-utils'
 import { extractMarkToggles, summarizeToggles } from './format-change-utils'
 import { createSuggestionSession, type SuggestionSession } from './session-grouping'
 import { SuggestionsMap } from './suggestions-map'
+import { extractTableChanges, hasTableChanges, type TableChange } from './table-change-utils'
 
 // Shared context the per-step handlers need. Pulled out so the
 // step-loop body in appendTransaction stays small enough to keep
@@ -331,6 +332,345 @@ function applyBlockAttrOrTypeSwap(
     ctx.out.setNodeMarkup(mappedPos, beforeType, nextAttrs)
 }
 
+// applyTableChangeStep handles cell-level changes the user emitted in
+// `tr` (addRowAfter / addColumnAfter / deleteRow / deleteColumn /
+// setCellAttribute / merge / split) as per-cell suggestedBlockChange
+// node attributes. Mirrors the block-change branch's "undo + stamp"
+// pattern but operates on table cells:
+//
+//   - cell-added: the cell already exists in newState (e.g. addRowAfter
+//     inserted a fresh row with N cells). Stamp suggestedBlockChange
+//     on each cell at its newState position. before.added=true
+//     signals "this cell didn't exist before the suggestion."
+//
+//   - cell-deleted: the cell was removed by the user's transaction. Use
+//     the same slice-restoration trick the text-delete path uses
+//     (insert tr.docs[i].slice(from, to).content at the mapped position)
+//     so the cell + its enclosing structure (row, if a whole row was
+//     deleted) return. The restore-walk records each restored cell's
+//     final position and stamps it with after.deleted=true plus
+//     suggestedDelete marks on the inline content.
+//
+//   - cell-attr: revert the user's setNodeMarkup (the cell's
+//     ReplaceAroundStep) by writing setNodeMarkup on the cell with
+//     before.attrs, then bake in the suggestedBlockChange payload.
+//
+// Table changes take precedence over the block-change branch — table
+// operations emit ReplaceStep / ReplaceAroundStep shapes that the
+// block branch would mis-classify as block-deletes or block-attr
+// changes (tableCell is no longer in TARGET_BLOCK_TYPES, but
+// row-delete steps would still flow through processReplaceSteps as
+// text-deletes). Detecting tables first lets us consume those steps
+// and prevent double-handling.
+//
+// Returns the set of step indices the table-change handling consumed
+// so the caller's regular ReplaceStep / ReplaceAroundStep dispatch
+// skips them. AttrStep is never emitted by table operations (tables
+// use setNodeMarkup, which emits ReplaceAroundStep), so AttrStep
+// indices need no special handling here.
+function applyTableChangeStep(
+    ctx: StepContext,
+    tr: Transaction,
+    oldState: EditorState,
+    newState: EditorState
+): { consumedSteps: Set<number>; hadEffect: boolean } {
+    const consumed = new Set<number>()
+    if (!hasTableChanges(tr, oldState)) {
+        return { consumedSteps: consumed, hadEffect: false }
+    }
+    const changes = extractTableChanges(tr, oldState, newState)
+    if (changes.length === 0) {
+        return { consumedSteps: consumed, hadEffect: false }
+    }
+
+    // Phase 1 — restore deleted cells (and walk the restored content to
+    // stamp suggestedBlockChange + suggestedDelete marks). We walk
+    // tr's steps in order; for each ReplaceStep that's part of a
+    // table operation we re-insert its deleted slice via ctx.out and
+    // stamp the cells inside that fresh insertion before they could
+    // be displaced by a subsequent step's restore. Stamping inside
+    // this loop avoids the need to map an old-doc cell position
+    // (which is in the DELETED range) through any complex mapping —
+    // we already know exactly where each restored cell landed in
+    // ctx.out.doc.
+    const deletedCellPositions = new Set<number>()
+    for (let i = 0; i < tr.steps.length; i++) {
+        const step = tr.steps[i]
+        if (step instanceof ReplaceStep) {
+            if (isTableReplaceStep(step, tr, i, oldState)) {
+                consumed.add(i)
+                restoreAndStampDeletedCells(ctx, step, tr, i, oldState, deletedCellPositions)
+            }
+        } else if (step instanceof ReplaceAroundStep) {
+            if (isCellAroundStep(step, tr, i, oldState)) {
+                consumed.add(i)
+            }
+        }
+    }
+
+    // Phase 2 — stamp the suggestedBlockChange payload on cells that
+    // weren't already stamped during the delete restore (i.e. the
+    // cell-added and cell-attr entries). Back-to-front so earlier
+    // positions stay stable when we run setNodeMarkup on a later
+    // cell that shifts things AFTER it.
+    const otherChanges = changes.filter(c => c.kind !== 'cell-deleted')
+    const sorted = [...otherChanges].sort((a, b) => b.pos - a.pos)
+    for (const change of sorted) {
+        applyOneTableChange(ctx, change, newState.schema)
+    }
+    return { consumedSteps: consumed, hadEffect: true }
+}
+
+// isTableReplaceStep returns true iff this ReplaceStep is part of a
+// table operation (its deleted range fully encloses one or more cells
+// or its inserted slice contains cells). Used to mark the step
+// consumed so processReplaceSteps doesn't run its text-delete path
+// over the same range.
+function isTableReplaceStep(
+    step: ReplaceStep,
+    tr: Transaction,
+    stepIndex: number,
+    oldState: EditorState
+): boolean {
+    const preStepDoc = tr.docs[stepIndex] ?? oldState.doc
+    let found = false
+    preStepDoc.nodesBetween(step.from, step.to, (node, nodePos) => {
+        if (found) return false
+        if (node.type.name !== 'tableCell' && node.type.name !== 'tableHeader') return true
+        if (nodePos >= step.from && nodePos + node.nodeSize <= step.to) {
+            found = true
+            return false
+        }
+        return true
+    })
+    if (found) return true
+    if (step.slice.content.size > 0) {
+        let foundInSlice = false
+        step.slice.content.descendants(node => {
+            if (foundInSlice) return false
+            if (node.type.name === 'tableCell' || node.type.name === 'tableHeader') {
+                foundInSlice = true
+                return false
+            }
+            return true
+        })
+        if (foundInSlice) return true
+    }
+    return false
+}
+
+function isCellAroundStep(
+    step: ReplaceAroundStep,
+    tr: Transaction,
+    stepIndex: number,
+    oldState: EditorState
+): boolean {
+    const preStepDoc = tr.docs[stepIndex] ?? oldState.doc
+    const oldNode = preStepDoc.nodeAt(step.from)
+    if (oldNode && (oldNode.type.name === 'tableCell' || oldNode.type.name === 'tableHeader')) {
+        return true
+    }
+    return false
+}
+
+// restoreAndStampDeletedCells re-inserts the deleted slice from a
+// table-related ReplaceStep so the cells (and any enclosing row) come
+// back into the visible doc, then walks the restored content to
+// stamp suggestedBlockChange (with after.deleted=true) plus
+// suggestedDelete marks on each cell's inline text.
+//
+// Insert-only steps (sliceSize > 0, from === to) need no restoration:
+// the inserted cells are already in newState. The Phase 2 stamp loop
+// in applyTableChangeStep handles them. Pure-delete steps
+// (sliceSize === 0, from < to) restore the deleted content. Replace
+// steps (from < to, sliceSize > 0) restore the old content before
+// the new content — same shape as applyReplaceStep but without the
+// insert-side marking.
+//
+// `restoredPositions` carries the (out-doc) positions of every cell
+// stamped here, so the caller's Phase 2 can avoid double-stamping a
+// cell that's also recorded as cell-attr (theoretically impossible
+// for a single user transaction but defensive against future steps).
+function restoreAndStampDeletedCells(
+    ctx: StepContext,
+    step: ReplaceStep,
+    tr: Transaction,
+    stepIndex: number,
+    oldState: EditorState,
+    restoredPositions: Set<number>
+): void {
+    const isDelete = step.from < step.to && step.slice.content.size === 0
+    if (!isDelete) return
+    const preStepDoc = tr.docs[stepIndex] ?? oldState.doc
+    const deletedSlice = preStepDoc.slice(step.from, step.to)
+    if (deletedSlice.content.size === 0) return
+    const mappedFrom = ctx.out.mapping.map(step.from)
+    ctx.out.insert(mappedFrom, deletedSlice.content)
+
+    // Walk the now-restored content (in ctx.out.doc) and stamp each
+    // cell. The inserted content lives at [mappedFrom, mappedFrom +
+    // deletedSlice.content.size). We walk the doc range rather than
+    // the slice directly to get ctx.out.doc nodes (so subsequent
+    // setNodeMarkup writes see consistent state).
+    const insertEnd = mappedFrom + deletedSlice.content.size
+    stampDeletedCellsInRange(ctx, mappedFrom, insertEnd, restoredPositions)
+}
+
+// Walk a range in ctx.out.doc, stamp suggestedBlockChange (after.deleted=true)
+// on every cell, and add suggestedDelete marks across each cell's
+// inline text. Each visited cell position is added to
+// `restoredPositions` so Phase 2 can skip duplicates.
+function stampDeletedCellsInRange(
+    ctx: StepContext,
+    from: number,
+    to: number,
+    restoredPositions: Set<number>
+): void {
+    // Collect cell positions first (back-to-front order so the
+    // subsequent setNodeMarkup writes don't shift later cells).
+    const cells: Array<{ pos: number; node: PMNode; cellType: string }> = []
+    ctx.out.doc.nodesBetween(from, to, (node, pos) => {
+        if (node.type.name !== 'tableCell' && node.type.name !== 'tableHeader') return true
+        cells.push({ pos, node, cellType: node.type.name })
+        return false
+    })
+    // Stamp back-to-front. setNodeMarkup on a cell DOES NOT change the
+    // cell's own position; only later cells' positions move when an
+    // earlier cell's content grows or shrinks. setNodeMarkup with the
+    // same nodeSize is positionally stable. We still process back-
+    // to-front as a defensive discipline.
+    for (let i = cells.length - 1; i >= 0; i--) {
+        const c = cells[i]
+        restoredPositions.add(c.pos)
+        const cellNodeType = ctx.out.doc.type.schema.nodes[c.cellType]
+        if (!cellNodeType) continue
+        const cleanedAttrs = stripTrackingAttrsLocal(c.node.attrs)
+        const payload = {
+            suggestionId: ctx.suggestionId,
+            authorId: ctx.authorId,
+            ts: ctx.now,
+            before: { type: c.cellType, attrs: cleanedAttrs },
+            after: { type: c.cellType, attrs: cleanedAttrs, deleted: true },
+        }
+        const nextAttrs: Record<string, unknown> = {
+            ...cleanedAttrs,
+            suggestedBlockChange: payload,
+        }
+        ctx.out.setNodeMarkup(c.pos, cellNodeType, nextAttrs)
+        markTextInsideNode(ctx, c.node, c.pos)
+    }
+}
+
+function applyOneTableChange(
+    ctx: StepContext,
+    change: TableChange,
+    schema: EditorState['schema']
+): void {
+    if (change.kind === 'cell-added') {
+        applyCellAdded(ctx, change, schema)
+        return
+    }
+    if (change.kind === 'cell-attr') {
+        applyCellAttr(ctx, change, schema)
+        return
+    }
+    // cell-deleted entries are stamped during the restore loop in
+    // applyTableChangeStep (so the position arithmetic stays simple);
+    // they never reach this function.
+}
+
+function applyCellAdded(
+    ctx: StepContext,
+    change: Extract<TableChange, { kind: 'cell-added' }>,
+    schema: EditorState['schema']
+): void {
+    // The cell already exists at newState position `change.pos`. Stamp
+    // the suggestedBlockChange attribute via setNodeMarkup. before.added
+    // signals "this cell didn't exist pre-suggestion" so the resolve
+    // path can choose between keep-on-accept and delete-on-reject.
+    const mappedPos = ctx.out.mapping.map(change.pos)
+    const cellType = schema.nodes[change.cellType]
+    if (!cellType) return
+    const node = ctx.out.doc.nodeAt(mappedPos)
+    if (!node) return
+    if (node.type.name !== change.cellType) return
+    const cleanedAttrs = stripTrackingAttrsLocal(node.attrs)
+    const payload = {
+        suggestionId: ctx.suggestionId,
+        authorId: ctx.authorId,
+        ts: ctx.now,
+        before: { type: change.cellType, attrs: cleanedAttrs, added: true },
+        after: { type: change.cellType, attrs: cleanedAttrs },
+    }
+    const nextAttrs: Record<string, unknown> = {
+        ...cleanedAttrs,
+        suggestedBlockChange: payload,
+    }
+    ctx.out.setNodeMarkup(mappedPos, cellType, nextAttrs)
+}
+
+function applyCellAttr(
+    ctx: StepContext,
+    change: Extract<TableChange, { kind: 'cell-attr' }>,
+    schema: EditorState['schema']
+): void {
+    const mappedPos = ctx.out.mapping.map(change.pos)
+    const cellType = schema.nodes[change.cellType]
+    if (!cellType) return
+    const node = ctx.out.doc.nodeAt(mappedPos)
+    if (!node || node.type.name !== change.cellType) return
+    // Revert the attr change by writing setNodeMarkup with before-attrs,
+    // and bake in the suggestedBlockChange payload at the same time.
+    const payload = {
+        suggestionId: ctx.suggestionId,
+        authorId: ctx.authorId,
+        ts: ctx.now,
+        before: { type: change.cellType, attrs: change.beforeAttrs },
+        after: { type: change.cellType, attrs: change.afterAttrs },
+    }
+    const nextAttrs: Record<string, unknown> = {
+        ...change.beforeAttrs,
+        suggestedBlockChange: payload,
+    }
+    ctx.out.setNodeMarkup(mappedPos, cellType, nextAttrs)
+}
+
+// Strip the suggestedBlockChange tracking attr from a node's attrs
+// shallow copy. Mirror of block-change-utils's helper — duplicated
+// here to keep the module boundary clean and avoid circular imports
+// down the line.
+function stripTrackingAttrsLocal(attrs: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    for (const key in attrs) {
+        if (key === 'suggestedBlockChange') continue
+        out[key] = attrs[key]
+    }
+    return out
+}
+
+// markTextInsideNode walks the inline content of `node` (a cell that
+// was just restored) and adds a suggestedDelete mark over every text
+// node. `containerPos` is the cell's position in ctx.out.doc. Text
+// nodes inside the cell live at containerPos + 1 (open) + per-child
+// offsets.
+function markTextInsideNode(ctx: StepContext, node: PMNode, containerPos: number): void {
+    node.descendants((child, relPos) => {
+        if (!child.isText) return true
+        const absFrom = containerPos + 1 + relPos
+        const absTo = absFrom + child.nodeSize
+        ctx.out.addMark(
+            absFrom,
+            absTo,
+            ctx.deleteMarkType.create({
+                suggestionId: ctx.suggestionId,
+                authorId: ctx.authorId,
+                ts: ctx.now,
+            })
+        )
+        return true
+    })
+}
+
 function applyBlockDelete(
     ctx: StepContext,
     change: Extract<BlockChange, { kind: 'delete' }>,
@@ -502,8 +842,8 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
 }
 
 // processTransaction handles one user transaction's worth of steps:
-// block-change detection → format-change detection → text insert/
-// delete/replace fan-out. Returns true iff at least one step produced
+// table-change → block-change → format-change → text insert/delete/
+// replace fan-out. Returns true iff at least one step produced
 // observable work that should keep the appended transaction alive.
 // Pulled out of appendTransaction to keep cognitive complexity under
 // biome's noExcessiveCognitiveComplexity threshold.
@@ -515,13 +855,23 @@ function processTransaction(
 ): boolean {
     let hadEffect = false
 
+    // Phase 5 (Task 13): table-cell-level changes (addRowAfter /
+    // deleteRow / deleteColumn / setCellAttribute / merge / split)
+    // take ABSOLUTE precedence. Table operations emit multi-step
+    // transactions (a row insert + adjacent rowspan adjustments; a
+    // row delete + adjacent rowspan adjustments) that the block-
+    // change and text-delete branches would mis-classify. By
+    // detecting tables first and marking their step indices
+    // consumed, those subsequent branches see only non-table steps.
+    const table = applyTableChangeStep(ctx, tr, oldState, newState)
+    if (table.hadEffect) hadEffect = true
+
     // Phase 5: block-level changes (setBlockType, setNodeAttribute,
-    // block delete) take precedence — they can incidentally emit
-    // Add/Remove mark steps as setBlockType strips marks the new type
-    // doesn't allow, and we don't want those side-effects to fan out
-    // into a separate suggestedFormatChange entry. The block branch
-    // returns the set of ReplaceStep indices it consumed so the
-    // text-delete path below can skip them.
+    // block delete) — for the non-table block nodes (paragraph,
+    // heading, listItem, blockquote). Cells are excluded from
+    // block-change-utils's TARGET_BLOCK_TYPES, so a table row delete
+    // here would only match if a paragraph inside a cell were also
+    // fully deleted (it's not — text-delete fires for inner text).
     const block = applyBlockChangeStep(ctx, tr, oldState, newState.schema)
     if (block.hadEffect) hadEffect = true
 
@@ -531,7 +881,10 @@ function processTransaction(
     // suggestedFormatChange spanning the merged range.
     if (applyFormatChangeStep(ctx, tr, oldState, newState)) hadEffect = true
 
-    if (processReplaceSteps(ctx, tr, block.consumedReplaceSteps)) hadEffect = true
+    // Union the table + block consumed-step sets so the regular
+    // ReplaceStep dispatch skips both branches' consumed indices.
+    const consumed = new Set<number>([...table.consumedSteps, ...block.consumedReplaceSteps])
+    if (processReplaceSteps(ctx, tr, consumed)) hadEffect = true
     return hadEffect
 }
 

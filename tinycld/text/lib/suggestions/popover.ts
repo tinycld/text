@@ -2,6 +2,11 @@ import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { ulid } from 'ulid'
+import type {
+    BlockChangeAfter,
+    BlockChangeBefore,
+    SerializedMarks,
+} from '../../webview-editor/source/suggestions/suggestion-types'
 import { publishUiMessage, subscribeUiMessage } from '../anchored-overlay/ui-message-bus'
 import { getSuggestionDecorations } from './decorations'
 
@@ -211,24 +216,65 @@ export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps 
                     // click point — Case 2b/2c layered marks stack on
                     // the same range, and the popover renders one row
                     // per (suggestionId, kind) so the viewer can
-                    // Accept/Reject each independently. Filter to
-                    // suggestion kinds defensively (the decoration
-                    // plugin currently only emits those, but other
-                    // plugins could share the DecorationSet plumbing
-                    // in the future).
+                    // Accept/Reject each independently. Phase 5 adds
+                    // three more decoration kinds (format-change,
+                    // block-change, cell-change); each carries its own
+                    // before/after payload so the popover can summarize
+                    // the proposed delta inline.
                     const suggestions = decos
                         .filter(
                             d =>
                                 d.spec?.kind === 'suggestedInsert' ||
-                                d.spec?.kind === 'suggestedDelete'
+                                d.spec?.kind === 'suggestedDelete' ||
+                                d.spec?.kind === 'suggestedFormatChange' ||
+                                d.spec?.kind === 'suggestedBlockChange'
                         )
-                        .map(d => ({
-                            id: d.spec.suggestionId as string,
-                            authorId: (d.spec as { authorId?: string }).authorId ?? 'unknown',
-                            kind: (d.spec.kind === 'suggestedInsert' ? 'insert' : 'delete') as
-                                | 'insert'
-                                | 'delete',
-                        }))
+                        .map(d => {
+                            const spec = d.spec as {
+                                kind: string
+                                suggestionId: string
+                                authorId?: string
+                                before?: SerializedMarks | BlockChangeBefore
+                                after?: SerializedMarks | BlockChangeAfter
+                            }
+                            const base = {
+                                id: spec.suggestionId,
+                                authorId: spec.authorId ?? 'unknown',
+                            }
+                            if (spec.kind === 'suggestedInsert') {
+                                return { ...base, kind: 'insert' as const }
+                            }
+                            if (spec.kind === 'suggestedDelete') {
+                                return { ...base, kind: 'delete' as const }
+                            }
+                            if (spec.kind === 'suggestedFormatChange') {
+                                return {
+                                    ...base,
+                                    kind: 'format-change' as const,
+                                    beforeMarks: (spec.before as SerializedMarks) ?? [],
+                                    afterMarks: (spec.after as SerializedMarks) ?? [],
+                                }
+                            }
+                            // suggestedBlockChange. Distinguish cell vs
+                            // non-cell by the node type in the before/
+                            // after payload — the decoration plugin
+                            // tags isCell via its CSS class but doesn't
+                            // expose it through the spec, so we re-
+                            // derive from payload.type which is the
+                            // canonical source.
+                            const before = spec.before as BlockChangeBefore | undefined
+                            const after = spec.after as BlockChangeAfter | undefined
+                            const t = before?.type ?? after?.type
+                            const isCell = t === 'tableCell' || t === 'tableHeader'
+                            return {
+                                ...base,
+                                kind: (isCell ? 'cell-change' : 'block-change') as
+                                    | 'cell-change'
+                                    | 'block-change',
+                                beforeBlock: before,
+                                afterBlock: after,
+                            }
+                        })
                     if (suggestions.length === 0) return false
 
                     // Generate a fresh requestId. Displaces any

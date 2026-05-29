@@ -45,17 +45,23 @@ const TABLE_DOC = {
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a1' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'a1' }] },
+                            ],
                         },
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a2' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'a2' }] },
+                            ],
                         },
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a3' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'a3' }] },
+                            ],
                         },
                     ],
                 },
@@ -65,17 +71,23 @@ const TABLE_DOC = {
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b1' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'b1' }] },
+                            ],
                         },
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b2' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'b2' }] },
+                            ],
                         },
                         {
                             type: 'tableCell',
                             attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b3' }] }],
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'b3' }] },
+                            ],
                         },
                     ],
                 },
@@ -84,10 +96,12 @@ const TABLE_DOC = {
     ],
 }
 
-function setupEditor(opts: {
-    mode?: typeof EDITOR_MODE_SUGGESTING | typeof EDITOR_MODE_EDITING
-    authorId?: string
-} = {}) {
+function setupEditor(
+    opts: {
+        mode?: typeof EDITOR_MODE_SUGGESTING | typeof EDITOR_MODE_EDITING
+        authorId?: string
+    } = {}
+) {
     const modeStore = createEditorModeStore()
     modeStore.getState().setIdentity({ userOrgId: opts.authorId ?? 'uo_alice' })
     modeStore.getState().setMode(opts.mode ?? EDITOR_MODE_SUGGESTING)

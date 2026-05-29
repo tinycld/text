@@ -414,9 +414,7 @@ function makeTableStateWithCellChange(opts: {
 
 function findCellChangeDeco(state: EditorState) {
     const decoSet = getSuggestionDecorations(state)
-    return decoSet
-        .find()
-        .find(d => d.spec?.kind === 'suggestedBlockChange') as
+    return decoSet.find().find(d => d.spec?.kind === 'suggestedBlockChange') as
         | { spec: Record<string, unknown>; type: { attrs: Record<string, string> } }
         | undefined
 }

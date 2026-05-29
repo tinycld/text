@@ -331,8 +331,7 @@ function buildDecorations(state: EditorState): DecorationSet {
                 const after = payload.after as BlockChangeAfter
                 const color = colorForUser(authorId)
                 const tooltip = buildBlockChangeTooltip(authorId, before, after)
-                const isCell =
-                    node.type.name === 'tableCell' || node.type.name === 'tableHeader'
+                const isCell = node.type.name === 'tableCell' || node.type.name === 'tableHeader'
                 const style = buildBlockChangeStyle({
                     isCell,
                     isAdded: before.added === true,

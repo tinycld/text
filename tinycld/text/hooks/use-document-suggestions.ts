@@ -144,8 +144,7 @@ export function computeDocumentSuggestions(
                 payload.after &&
                 typeof payload.after === 'object'
             ) {
-                const isCell =
-                    node.type.name === 'tableCell' || node.type.name === 'tableHeader'
+                const isCell = node.type.name === 'tableCell' || node.type.name === 'tableHeader'
                 const kind: SuggestionKind = isCell ? 'cell-change' : 'block-change'
                 const id = payload.suggestionId
                 const key = `${id}::${kind}`

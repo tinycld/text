@@ -204,11 +204,19 @@ describe('computeDocumentSuggestions (Phase 5 — format/block/cell change)', ()
                                                 ts: 4000,
                                                 before: {
                                                     type: 'tableHeader',
-                                                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                                                    attrs: {
+                                                        colspan: 1,
+                                                        rowspan: 1,
+                                                        colwidth: null,
+                                                    },
                                                 },
                                                 after: {
                                                     type: 'tableHeader',
-                                                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                                                    attrs: {
+                                                        colspan: 1,
+                                                        rowspan: 1,
+                                                        colwidth: null,
+                                                    },
                                                     deleted: true,
                                                 },
                                             },

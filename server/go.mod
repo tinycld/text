@@ -7,7 +7,6 @@ require (
 	github.com/pocketbase/pocketbase v0.38.1
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
 	tinycld.org/core v0.0.0
-	tinycld.org/packages/drive v0.0.0
 )
 
 require (

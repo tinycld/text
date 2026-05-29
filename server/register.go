@@ -9,7 +9,7 @@ import (
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
-	driveserver "tinycld.org/packages/drive"
+	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -77,7 +77,7 @@ func Register(app *pocketbase.PocketBase) {
 	// that the docx round-trip can't preserve). Registered before the
 	// realtime block so a snapshot HTTP request that races with the very
 	// first room creation finds the hook in place.
-	driveserver.RegisterVersionHook("text", makeSnapshotVersionHook(runtime))
+	versionhooks.Register("text", makeSnapshotVersionHook(runtime))
 
 	journal := realtime.NewPocketBaseJournal(app)
 	flush := makeProductionFlush(app, runtime)

@@ -9,7 +9,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	ycrdt "github.com/skyterra/y-crdt"
 
-	driveserver "tinycld.org/packages/drive"
+	"tinycld.org/core/versionhooks"
 )
 
 // versionStateFilename is the on-disk filename used when storing the
@@ -31,8 +31,8 @@ const versionStateFilename = "yjs_state.bin"
 // apply to. The docx round-trip (which drive owns) still works for the
 // content; only the protected roots (clientAuthors / clientFirstSeen /
 // editEvents) are lost in that case.
-func makeSnapshotVersionHook(runtime *Runtime) driveserver.VersionHook {
-	return driveserver.VersionHook{
+func makeSnapshotVersionHook(runtime *Runtime) versionhooks.Hook {
+	return versionhooks.Hook{
 		OnSnapshot: makeSnapshotVersionHookFn(runtime),
 		OnRestore:  makeRestoreVersionHookFn(runtime),
 	}

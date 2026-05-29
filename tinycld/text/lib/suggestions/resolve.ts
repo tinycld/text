@@ -66,9 +66,7 @@ function collectFormatChangeRanges(editor: Editor, suggestionId: string): Format
         for (const m of node.marks) {
             if (m.type.name !== 'suggestedFormatChange') continue
             if (m.attrs.suggestionId !== suggestionId) continue
-            const before = Array.isArray(m.attrs.before)
-                ? (m.attrs.before as SerializedMarks)
-                : []
+            const before = Array.isArray(m.attrs.before) ? (m.attrs.before as SerializedMarks) : []
             const after = Array.isArray(m.attrs.after) ? (m.attrs.after as SerializedMarks) : []
             ranges.push({ from: pos, to: pos + node.nodeSize, before, after })
         }

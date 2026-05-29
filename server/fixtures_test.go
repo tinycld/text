@@ -180,6 +180,40 @@ func seedDriveItem(t *testing.T, app *tests.TestApp, name string, content []byte
 	return rec
 }
 
+// authorshipFixture bundles the records seeded by seedAuthorshipFixture
+// so tests can reference them by name (instead of re-deriving IDs from
+// raw collection queries). Mirrors how the broker's stamping path sees
+// the world: one user, one org membership, one drive_item.
+type authorshipFixture struct {
+	userID    string
+	orgID     string
+	userOrgID string
+	itemID    string
+}
+
+// seedAuthorshipFixture creates the minimum record set the user_org
+// resolver expects: one user (auth record), one drive_item tagged to
+// orgID, and one user_org tying the user to the org. Returned IDs are
+// the real PB record IDs (not the human-readable inputs) so callers
+// can assert against them.
+//
+// Distinct from the seedUserOrg / seedDriveItemInOrg helpers in that it
+// produces a coherent (user, org, user_org, item) tuple in one call —
+// the stamping tests don't care about drive_shares, only about the
+// underlying membership row.
+func seedAuthorshipFixture(t *testing.T, app *tests.TestApp, email, orgID, itemName string) authorshipFixture {
+	t.Helper()
+	user := mustCreateUser(t, app, email)
+	item := seedDriveItemInOrg(t, app, orgID, itemName)
+	userOrgID := seedUserOrg(t, app, user.Id, orgID)
+	return authorshipFixture{
+		userID:    user.Id,
+		orgID:     orgID,
+		userOrgID: userOrgID,
+		itemID:    item.Id,
+	}
+}
+
 // mustCreateUser creates a minimal _superusers record (the built-in
 // auth collection in PB's test harness) and returns it as a *core.Record
 // suitable for passing to makeAuthorize. Used by authorize_test.go's

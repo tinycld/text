@@ -40,7 +40,9 @@ import { makeWebFindReplaceController } from '../lib/find-replace-controller-web
 import { findReplacePlugin } from '../lib/find-replace-plugin'
 import { buildSuggestionEditorExtensions } from '../lib/suggestions/build-extensions'
 import { countWords } from '../lib/word-count'
+import { useAuthorshipDisplayStore } from '../stores/authorship-display-store'
 import type { EditorModeStore } from '../stores/editor-mode-store'
+import { AuthorshipExtension } from '../webview-editor/source/authorship/authorship-extension'
 import {
     CodeShortcuts,
     deriveActiveIndent,
@@ -50,6 +52,7 @@ import {
     deriveCurrentFontSize,
     deriveCurrentTextColor,
 } from '../webview-editor/source/editor-state'
+import { useClientAuthors } from './use-client-authors'
 import type { DocumentEditorResult } from './use-document-editor'
 import { createWebCommentBridge } from './web-comment-bridge'
 
@@ -267,6 +270,22 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const onRequestInsertImageRef = useRef(options.onRequestInsertImage)
     onRequestInsertImageRef.current = options.onRequestInsertImage
 
+    // Authorship-display wiring. The TipTap extension reads its
+    // enabled/yDoc/clientAuthors inputs through stable getters that
+    // dereference refs — same pattern as onRequestInsertImageRef above
+    // — so toggling the store or receiving a new clientAuthors snapshot
+    // does NOT force useEditor's dep array to invalidate. Without the
+    // ref hop, every clientAuthors observe event would tear down the
+    // editor (and the Y.Doc binding) and reset undo history.
+    const authorshipEnabledRef = useRef(false)
+    const authorshipYDocRef = useRef<Y.Doc | null>(null)
+    const authorshipClientAuthorsRef = useRef<Map<number, string>>(new Map())
+    const authorshipColoringEnabled = useAuthorshipDisplayStore(s => s.coloringEnabled)
+    const authorshipClientAuthors = useClientAuthors(options.yDoc)
+    authorshipEnabledRef.current = authorshipColoringEnabled
+    authorshipYDocRef.current = options.yDoc
+    authorshipClientAuthorsRef.current = authorshipClientAuthors
+
     const tiptapEditor = useEditor(
         {
             // Tiptap v3's useEditor defaults to NOT re-rendering on every
@@ -399,6 +418,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 ...buildSuggestionEditorExtensions({
                     modeStore: options.modeStore,
                     yDoc: options.yDoc,
+                }),
+                AuthorshipExtension.configure({
+                    getEnabled: () => authorshipEnabledRef.current,
+                    getYDoc: () => authorshipYDocRef.current,
+                    getClientAuthors: () => authorshipClientAuthorsRef.current,
                 }),
             ],
         },

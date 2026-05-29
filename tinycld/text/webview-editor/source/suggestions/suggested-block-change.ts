@@ -6,9 +6,22 @@ import type { SuggestedBlockChange as Payload } from './suggestion-types'
 // Mirrors the spec's TARGET_NODE_TYPES list. Tiptap's
 // addGlobalAttributes silently skips entries from this list that
 // aren't in the active editor's schema, so a lean editor build
-// without (e.g.) a table extension won't fail here — tableCell
-// just won't get the attribute because the node doesn't exist.
-const TARGET_NODE_TYPES = ['paragraph', 'heading', 'listItem', 'blockquote', 'tableCell']
+// without (e.g.) a table extension won't fail here — tableCell /
+// tableHeader just won't get the attribute because the nodes don't
+// exist.
+//
+// tableHeader is included alongside tableCell because Phase 5 table-
+// operation tracking treats both as cells: addRow into a header row,
+// setCellAttr on a header, and toggleHeader (cell→header type swap)
+// all need to be expressible as suggestedBlockChange entries.
+const TARGET_NODE_TYPES = [
+    'paragraph',
+    'heading',
+    'listItem',
+    'blockquote',
+    'tableCell',
+    'tableHeader',
+]
 
 /**
  * SuggestedBlockChange TipTap extension.

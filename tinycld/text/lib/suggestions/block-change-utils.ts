@@ -40,11 +40,28 @@ export type BlockChange =
 
 // The block-level node types the detector recognizes. Mirrors the
 // SuggestedBlockChange extension's TARGET_NODE_TYPES (paragraph,
-// heading, listItem, blockquote, tableCell). Nodes outside this set
-// are not considered "blocks" for the purposes of block-change
-// detection — text-level changes inside them are handled by the
-// insert/delete/format-change paths.
-const TARGET_BLOCK_TYPES = new Set(['paragraph', 'heading', 'listItem', 'blockquote', 'tableCell'])
+// heading, listItem, blockquote, tableCell, tableHeader). Nodes
+// outside this set are not considered "blocks" for the purposes of
+// block-change detection — text-level changes inside them are
+// handled by the insert/delete/format-change paths.
+//
+// tableCell/tableHeader are technically the "cells" in the table
+// hierarchy but they're treated as blocks here for the same reason:
+// changing a cell's attrs (textAlign on its inner paragraph won't
+// fire this branch — that's the cell's child) is structurally a
+// block-style change. Phase 5 table-change-utils handles addRow/
+// deleteRow/setCellAttr at the cell level via its own detection
+// path — block-change-utils only catches whole-cell deletes / type
+// swaps that match its existing AttrStep / ReplaceAroundStep /
+// whole-block-delete shape.
+const TARGET_BLOCK_TYPES = new Set([
+    'paragraph',
+    'heading',
+    'listItem',
+    'blockquote',
+    'tableCell',
+    'tableHeader',
+])
 
 // isBlockDeleteStep returns true iff the given ReplaceStep would be
 // consumed by extractBlockChanges as one or more block-delete entries.

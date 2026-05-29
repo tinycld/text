@@ -52,6 +52,21 @@ export interface SuggestedBlockChange {
     after: BlockChangeAfter
 }
 
+// SerializedMarks is the JSON-serializable shape of a ProseMirror Mark[]
+// used by suggestedFormatChange to record before/after mark sets.
+// Each entry captures the mark's type name and (optionally) its attrs.
+// Phase 5's serialize-marks helper (lib/suggestions/serialize-marks.ts)
+// converts to/from ProseMirror Mark[] via the active schema.
+export type SerializedMarks = Array<{ type: string; attrs?: Record<string, unknown> }>
+
+export interface SuggestedFormatChange {
+    suggestionId: string
+    authorId: string
+    ts: number
+    before: SerializedMarks
+    after: SerializedMarks
+}
+
 // Mirrors realtime.ProtectedYjsRootKeys (core/server/realtime/protected_yjs_keys.go).
 // The editor schema must never include these keys in any user-driven
 // transaction. Server-side, core's broker rejects any inbound update

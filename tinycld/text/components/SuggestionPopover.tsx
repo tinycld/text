@@ -97,7 +97,15 @@ interface SuggestionPopoverRowProps {
 function SuggestionPopoverRow({ entry }: SuggestionPopoverRowProps) {
     const summary = summarizeSuggestionEntry(entry)
     return (
-        <View className="flex-row items-start gap-2">
+        <View
+            // React Native's View type doesn't include the web-only
+            // data-* attributes, but react-native-web threads any
+            // unknown DOM attrs through to the underlying element.
+            // The testid lets the popover-dedup e2e count rows
+            // without coupling to the inline View/Text DOM structure.
+            {...({ 'data-testid': 'suggestion-popover-row' } as Record<string, string>)}
+            className="flex-row items-start gap-2"
+        >
             <Text className="w-4 text-sm font-semibold text-foreground">
                 {glyphForKind(entry.kind)}
             </Text>

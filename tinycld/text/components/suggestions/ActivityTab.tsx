@@ -27,8 +27,7 @@ export function ActivityTab({ entries }: ActivityTabProps) {
         return (
             <View style={{ padding: 16 }}>
                 <Text style={{ color: muted, fontSize: 13 }}>
-                    No activity yet. Edit events appear after a 60-second window of
-                    inactivity.
+                    No activity yet. Edit events appear after a 60-second window of inactivity.
                 </Text>
             </View>
         )
@@ -59,8 +58,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
     const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
     const border = useThemeColor('border')
-    const authorId =
-        entry.kind === 'edit-event' ? entry.event.authorId : entry.suggestion.authorId
+    const authorId = entry.kind === 'edit-event' ? entry.event.authorId : entry.suggestion.authorId
     const authorName = useAuthorName(authorId)
     const authorColor = colorForUser(authorId)
     const initials = (authorName ?? '?').slice(0, 2).toUpperCase()
@@ -92,12 +90,8 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
                 </Text>
             </View>
             <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: fg, fontSize: 13 }}>
-                    {summarize(entry, authorName)}
-                </Text>
-                <Text style={{ color: muted, fontSize: 11 }}>
-                    {formatRelative(entry.ts)}
-                </Text>
+                <Text style={{ color: fg, fontSize: 13 }}>{summarize(entry, authorName)}</Text>
+                <Text style={{ color: muted, fontSize: 11 }}>{formatRelative(entry.ts)}</Text>
             </View>
         </View>
     )

@@ -31,8 +31,7 @@ function parseAffectedNodes(raw: unknown): EditEventAffectedNode[] {
     for (const item of raw) {
         if (item === null || typeof item !== 'object') continue
         const entry = item as Record<string, unknown>
-        if (typeof entry.nodeId !== 'string' || typeof entry.snippet !== 'string')
-            continue
+        if (typeof entry.nodeId !== 'string' || typeof entry.snippet !== 'string') continue
         out.push({ nodeId: entry.nodeId, snippet: entry.snippet })
     }
     return out

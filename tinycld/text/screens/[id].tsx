@@ -456,6 +456,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         tiptapEditor.commands.focus(s.anchorRange.from)
                         reviewDrawerStore.getState().focusSuggestion(s.id)
                     }}
+                    yDoc={room.doc}
+                    editor={tiptapEditor ?? null}
                 />
                 {newCommentFlow.modal}
                 <SlashMenu

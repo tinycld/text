@@ -1,9 +1,16 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Pressable, ScrollView, Text, View } from 'react-native'
+import type { Editor } from '@tiptap/react'
+import { useState } from 'react'
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import type * as Y from 'yjs'
 import { useStore } from 'zustand'
+import { useActivityEntries } from '../../hooks/use-activity-entries'
 import type { AnchoredSuggestion, OrphanedSuggestion } from '../../hooks/use-document-suggestions'
 import type { ReviewDrawerStore } from '../../stores/review-drawer-store'
+import { ActivityTab } from './ActivityTab'
 import { SuggestionRow } from './SuggestionRow'
+
+type ReviewDrawerTab = 'suggestions' | 'activity'
 
 export interface ReviewDrawerProps {
     driveItemId: string
@@ -17,6 +24,15 @@ export interface ReviewDrawerProps {
     onBulkAccept: (suggestionIds: string[]) => void
     onBulkReject: (suggestionIds: string[]) => void
     onJump: (suggestion: AnchoredSuggestion) => void
+    // Phase 3b: the Activity tab observes the doc's editEvents Y.Array
+    // and the resolved-suggestions slice of the Y.Map. Both arrive
+    // through the same yDoc + editor pair the suggestion bridge already
+    // uses. They're optional so existing call sites (and tests) that
+    // only care about the Suggestions tab don't have to plumb them
+    // through; when absent the Activity tab simply has no data, and
+    // the tab control hides itself.
+    yDoc?: Y.Doc | null
+    editor?: Editor | null
 }
 
 // ReviewDrawer is the right-side panel that lists the document's
@@ -51,6 +67,8 @@ export function ReviewDrawer({
     onBulkAccept,
     onBulkReject,
     onJump,
+    yDoc,
+    editor,
 }: ReviewDrawerProps) {
     const isOpen = useStore(store, s => s.isOpen)
     const openForId = useStore(store, s => s.driveItemId)
@@ -60,6 +78,18 @@ export function ReviewDrawer({
     const muted = useThemeColor('muted-foreground')
     const bg = useThemeColor('background')
     const border = useThemeColor('border')
+    const primary = useThemeColor('primary')
+    // Active tab. Defaults to Suggestions (the established Phase 2b
+    // surface) so opening the drawer behaves identically for users who
+    // never touch the Activity tab. Local state — there's no reason
+    // to persist this across sessions or share it with other drawers.
+    const [activeTab, setActiveTab] = useState<ReviewDrawerTab>('suggestions')
+    // The Activity tab is web-only for Phase 3b. On native tiptapEditor
+    // is null (the WebView owns the editor) and the editEvents pipeline
+    // hasn't been wired through the WebView bridge yet; the spec
+    // explicitly defers that. Hide the tab control on native so the
+    // drawer reads as Suggestions-only there.
+    const showActivityTab = Platform.OS === 'web' && yDoc != null
 
     const drawerOpen = isOpen && openForId === driveItemId
     if (!drawerOpen) return null
@@ -95,7 +125,26 @@ export function ReviewDrawer({
                     alignItems: 'center',
                 }}
             >
-                <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>Suggestions</Text>
+                {showActivityTab ? (
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                        <TabButton
+                            label="Suggestions"
+                            isActive={activeTab === 'suggestions'}
+                            activeColor={primary}
+                            inactiveColor={muted}
+                            onPress={() => setActiveTab('suggestions')}
+                        />
+                        <TabButton
+                            label="Activity"
+                            isActive={activeTab === 'activity'}
+                            activeColor={primary}
+                            inactiveColor={muted}
+                            onPress={() => setActiveTab('activity')}
+                        />
+                    </View>
+                ) : (
+                    <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>Suggestions</Text>
+                )}
                 <Pressable
                     onPress={close}
                     accessibilityRole="button"
@@ -105,110 +154,175 @@ export function ReviewDrawer({
                 </Pressable>
             </View>
 
-            <View style={{ flex: 1, padding: 12, gap: 12 }}>
-                {canResolve && openIds.length > 0 && (
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <Pressable
-                            onPress={() => onBulkAccept(openIds)}
-                            disabled={isPending}
-                            style={{
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 4,
-                                backgroundColor: '#0a7',
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Accept all suggestions"
-                        >
-                            <Text style={{ color: '#fff', fontSize: 13 }}>Accept all</Text>
-                        </Pressable>
-                        <Pressable
-                            onPress={() => onBulkReject(openIds)}
-                            disabled={isPending}
-                            style={{
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 4,
-                                borderWidth: 1,
-                                borderColor: fg,
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Reject all suggestions"
-                        >
-                            <Text style={{ color: fg, fontSize: 13 }}>Reject all</Text>
-                        </Pressable>
-                    </View>
-                )}
-                <ScrollView style={{ flex: 1 }}>
-                    {openAnchored.length === 0 && orphaned.length === 0 && (
-                        <Text style={{ color: muted, padding: 12 }}>
-                            No suggestions in this document.
-                        </Text>
-                    )}
-                    {openAnchored.map(s => (
-                        <SuggestionRow
-                            key={`${s.id}-${s.kind}`}
-                            suggestion={s}
-                            isFocused={s.id === focusedId}
-                            canResolve={canResolve}
-                            isPending={isPending}
-                            onAccept={() => onAccept(s.id)}
-                            onReject={() => onReject(s.id)}
-                            onJump={() => onJump(s)}
-                        />
-                    ))}
-                    {orphaned.length > 0 && (
-                        <View style={{ marginTop: 16 }}>
-                            <Text
+            {showActivityTab && activeTab === 'activity' ? (
+                <ActivityTabContainer
+                    driveItemId={driveItemId}
+                    yDoc={yDoc ?? null}
+                    editor={editor ?? null}
+                />
+            ) : (
+                <View style={{ flex: 1, padding: 12, gap: 12 }}>
+                    {canResolve && openIds.length > 0 && (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <Pressable
+                                onPress={() => onBulkAccept(openIds)}
+                                disabled={isPending}
                                 style={{
-                                    color: muted,
-                                    fontSize: 12,
-                                    fontWeight: '600',
-                                    paddingHorizontal: 8,
-                                    paddingBottom: 4,
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 4,
+                                    backgroundColor: '#0a7',
                                 }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Accept all suggestions"
                             >
-                                Orphaned
-                            </Text>
-                            {orphaned.map(s => (
-                                <View
-                                    key={s.id}
-                                    style={{
-                                        padding: 8,
-                                        flexDirection: 'row',
-                                        gap: 8,
-                                    }}
-                                >
-                                    <Text style={{ color: fg, fontSize: 13 }}>
-                                        Suggestion by {s.authorId}
-                                    </Text>
-                                    {canResolve && (
-                                        <View
-                                            style={{
-                                                flexDirection: 'row',
-                                                gap: 4,
-                                            }}
-                                        >
-                                            <Pressable
-                                                onPress={() => onAccept(s.id)}
-                                                disabled={isPending}
-                                            >
-                                                <Text style={{ color: fg }}>Accept</Text>
-                                            </Pressable>
-                                            <Pressable
-                                                onPress={() => onReject(s.id)}
-                                                disabled={isPending}
-                                            >
-                                                <Text style={{ color: fg }}>Reject</Text>
-                                            </Pressable>
-                                        </View>
-                                    )}
-                                </View>
-                            ))}
+                                <Text style={{ color: '#fff', fontSize: 13 }}>Accept all</Text>
+                            </Pressable>
+                            <Pressable
+                                onPress={() => onBulkReject(openIds)}
+                                disabled={isPending}
+                                style={{
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 4,
+                                    borderWidth: 1,
+                                    borderColor: fg,
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Reject all suggestions"
+                            >
+                                <Text style={{ color: fg, fontSize: 13 }}>Reject all</Text>
+                            </Pressable>
                         </View>
                     )}
-                </ScrollView>
-            </View>
+                    <ScrollView style={{ flex: 1 }}>
+                        {openAnchored.length === 0 && orphaned.length === 0 && (
+                            <Text style={{ color: muted, padding: 12 }}>
+                                No suggestions in this document.
+                            </Text>
+                        )}
+                        {openAnchored.map(s => (
+                            <SuggestionRow
+                                key={`${s.id}-${s.kind}`}
+                                suggestion={s}
+                                isFocused={s.id === focusedId}
+                                canResolve={canResolve}
+                                isPending={isPending}
+                                onAccept={() => onAccept(s.id)}
+                                onReject={() => onReject(s.id)}
+                                onJump={() => onJump(s)}
+                            />
+                        ))}
+                        {orphaned.length > 0 && (
+                            <View style={{ marginTop: 16 }}>
+                                <Text
+                                    style={{
+                                        color: muted,
+                                        fontSize: 12,
+                                        fontWeight: '600',
+                                        paddingHorizontal: 8,
+                                        paddingBottom: 4,
+                                    }}
+                                >
+                                    Orphaned
+                                </Text>
+                                {orphaned.map(s => (
+                                    <View
+                                        key={s.id}
+                                        style={{
+                                            padding: 8,
+                                            flexDirection: 'row',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <Text style={{ color: fg, fontSize: 13 }}>
+                                            Suggestion by {s.authorId}
+                                        </Text>
+                                        {canResolve && (
+                                            <View
+                                                style={{
+                                                    flexDirection: 'row',
+                                                    gap: 4,
+                                                }}
+                                            >
+                                                <Pressable
+                                                    onPress={() => onAccept(s.id)}
+                                                    disabled={isPending}
+                                                >
+                                                    <Text style={{ color: fg }}>Accept</Text>
+                                                </Pressable>
+                                                <Pressable
+                                                    onPress={() => onReject(s.id)}
+                                                    disabled={isPending}
+                                                >
+                                                    <Text style={{ color: fg }}>Reject</Text>
+                                                </Pressable>
+                                            </View>
+                                        )}
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </ScrollView>
+                </View>
+            )}
         </View>
     )
+}
+
+// TabButton is a header tab. Active tab gets the primary-color text +
+// an underline; inactive uses muted-foreground with no accent. Two
+// pressables side-by-side at the top of the drawer — the visual
+// language matches the rest of the suggestions/ surface (themed colors
+// via useThemeColor, inline styles, no design-system primitive).
+interface TabButtonProps {
+    label: string
+    isActive: boolean
+    activeColor: string
+    inactiveColor: string
+    onPress: () => void
+}
+
+function TabButton({ label, isActive, activeColor, inactiveColor, onPress }: TabButtonProps) {
+    return (
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="tab"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: isActive }}
+            style={{
+                paddingVertical: 6,
+                paddingHorizontal: 8,
+                borderBottomWidth: 2,
+                borderBottomColor: isActive ? activeColor : 'transparent',
+            }}
+        >
+            <Text
+                style={{
+                    color: isActive ? activeColor : inactiveColor,
+                    fontSize: 14,
+                    fontWeight: isActive ? '600' : '500',
+                }}
+            >
+                {label}
+            </Text>
+        </Pressable>
+    )
+}
+
+// ActivityTabContainer isolates the useActivityEntries call to a child
+// component so the hook only runs when the Activity tab is mounted.
+// Calling it at the ReviewDrawer top level would subscribe to the
+// editEvents Y.Array + the suggestion bridge unconditionally, including
+// while the user is on the Suggestions tab — wasteful, and the bridge
+// would double-subscribe alongside the screen-level subscription.
+interface ActivityTabContainerProps {
+    driveItemId: string
+    yDoc: Y.Doc | null
+    editor: Editor | null
+}
+
+function ActivityTabContainer({ driveItemId, yDoc, editor }: ActivityTabContainerProps) {
+    const entries = useActivityEntries(yDoc, editor, driveItemId)
+    return <ActivityTab entries={entries} />
 }

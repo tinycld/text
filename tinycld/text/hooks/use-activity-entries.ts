@@ -8,8 +8,8 @@ import {
     SUGGESTION_STATUS_REJECTED,
     type Suggestion,
 } from '../webview-editor/source/suggestions/suggestion-types'
-import { useDocumentSuggestionBridge } from './use-suggestion-bridge'
 import { useEditEvents } from './use-edit-events'
+import { useDocumentSuggestionBridge } from './use-suggestion-bridge'
 
 // ActivityEntry is the tagged union the drawer's activity tab renders.
 // `ts` is the timestamp the entry sorts on: endedAt for edit events,

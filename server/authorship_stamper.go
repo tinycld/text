@@ -57,15 +57,11 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			return
 		}
 		cache := runtime.AuthorshipCache()
-		fresh := make([]uint32, 0, len(clientIDs))
-		for _, cid := range clientIDs {
-			if !cache.alreadyStamped(roomID, cid) {
-				fresh = append(fresh, cid)
-			}
-		}
-		if len(fresh) == 0 {
-			return
-		}
+		// Resolve user_org BEFORE the cache filter so the Phase 3b
+		// buffer.Note path can use it even when the Phase 3a stamping
+		// branch short-circuits. The resolver result is itself cached
+		// per (roomID, authID), so after the first frame from a given
+		// connection this is a pure map lookup.
 		uoID, ok := cache.lookupUserOrg(roomID, conn.AuthID())
 		if !ok {
 			resolved, err := resolveUserOrgID(app, conn.AuthID(), roomID)
@@ -77,48 +73,74 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			uoID = resolved
 			cache.rememberUserOrg(roomID, conn.AuthID(), uoID)
 		}
-		handle := runtime.handleFor(roomID)
-		room := runtime.RoomFor(roomID)
-		if handle == nil || room == nil {
-			// Room may have evicted between MsgDocUpdate accept and this
-			// hook firing. Drop silently — the next frame from this
-			// clientID re-attempts stamping if the doc has been recreated.
-			return
+		fresh := make([]uint32, 0, len(clientIDs))
+		for _, cid := range clientIDs {
+			if !cache.alreadyStamped(roomID, cid) {
+				fresh = append(fresh, cid)
+			}
 		}
-		now := nowMS()
-		entries := make([]authorshipEntry, 0, len(fresh))
-		for _, cid := range fresh {
-			entries = append(entries, authorshipEntry{
-				ClientID:    cid,
-				UserOrgID:   uoID,
-				FirstSeenMS: now,
-			})
+		// Phase 3a path: stamp + broadcast for never-stamped clientIDs.
+		// Skipped when every probed clientID is already in the stamped
+		// cache (idempotent — clientAuthors entries are written once
+		// per session). Phase 3b's buffer.Note path runs unconditionally
+		// below.
+		if len(fresh) > 0 {
+			handle := runtime.handleFor(roomID)
+			room := runtime.RoomFor(roomID)
+			if handle == nil || room == nil {
+				// Room may have evicted between MsgDocUpdate accept and
+				// this hook firing. Drop silently — the next frame from
+				// this clientID re-attempts stamping if the doc has been
+				// recreated.
+				return
+			}
+			now := nowMS()
+			entries := make([]authorshipEntry, 0, len(fresh))
+			for _, cid := range fresh {
+				entries = append(entries, authorshipEntry{
+					ClientID:    cid,
+					UserOrgID:   uoID,
+					FirstSeenMS: now,
+				})
+			}
+			delta, err := handle.stampAuthorship(entries)
+			if err != nil {
+				// Error (not Warn) because writeAuthorshipEntries only
+				// fails when the doc's protected roots ("clientAuthors"
+				// / "clientFirstSeen") cannot be obtained — that's
+				// corruption of the server-side Y.Doc, not a transient
+				// issue. An operator seeing this log should investigate
+				// the doc's structure, not assume it'll auto-recover.
+				slog.Error("text: stampAuthorship failed", "roomID", roomID, "err", err)
+				return
+			}
+			if len(delta) > 0 {
+				if err := room.PublishDocUpdate(delta); err != nil {
+					slog.Warn("text: authorship broadcast failed; not marking stamped",
+						"roomID", roomID, "err", err)
+					return
+				}
+				// Only mark stamped AFTER successful broadcast — if we
+				// noted before publish and PublishDocUpdate dropped
+				// (e.g. journal append failure), the next frame from
+				// this clientID would skip stamping and the entry would
+				// be lost.
+				for _, cid := range fresh {
+					cache.noteStamped(roomID, cid)
+				}
+			}
 		}
-		delta, err := handle.stampAuthorship(entries)
-		if err != nil {
-			// Error (not Warn) because writeAuthorshipEntries only
-			// fails when the doc's protected roots ("clientAuthors" /
-			// "clientFirstSeen") cannot be obtained — that's
-			// corruption of the server-side Y.Doc, not a transient
-			// issue. An operator seeing this log should investigate
-			// the doc's structure, not assume it'll auto-recover.
-			slog.Error("text: stampAuthorship failed", "roomID", roomID, "err", err)
-			return
-		}
-		if len(delta) == 0 {
-			return
-		}
-		if err := room.PublishDocUpdate(delta); err != nil {
-			slog.Warn("text: authorship broadcast failed; not marking stamped",
-				"roomID", roomID, "err", err)
-			return
-		}
-		// Only mark stamped AFTER successful broadcast — if we noted
-		// before publish and PublishDocUpdate dropped (e.g. journal
-		// append failure), the next frame from this clientID would
-		// skip stamping and the entry would be lost.
-		for _, cid := range fresh {
-			cache.noteStamped(roomID, cid)
+		// Phase 3b path: feed every probe-extracted clientID into the
+		// per-room editEvent buffer, including ones already stamped by
+		// Phase 3a. Edit-event windowing is per-frame (debounced 60s
+		// after the last observed update from a clientID), so unlike
+		// the idempotent authorship stamp it must run on every inbound
+		// frame regardless of cache state.
+		buffer := runtime.BufferFor(roomID)
+		if buffer != nil {
+			for _, cid := range clientIDs {
+				buffer.Note(cid, uoID, nil)
+			}
 		}
 	}
 }

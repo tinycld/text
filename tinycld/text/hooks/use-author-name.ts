@@ -3,15 +3,17 @@ import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 
 // useAuthorName resolves the display name for a user_org id. Two-table
-// join (user_org → users) so we render the human-readable name from the
-// user record, falling back to the email if name is unset. Returns null
-// while the query is loading or when the id doesn't resolve (anonymous /
-// orphan / cross-org id), letting callers degrade gracefully — Activity
-// rows render "Someone made N edits", blame rows render "Anonymous".
+// join (user_org → users) so we render the human-readable name from
+// the user record, falling back to the email if name is unset.
+// Returns null while the query is loading or when the id doesn't
+// resolve (anonymous / orphan / cross-org id), letting callers degrade
+// gracefully — Activity rows render "Someone made N edits", blame
+// rows render "Anonymous", drawer rows render the raw id.
 //
 // Originally inlined in ActivityTab.tsx (Phase 3b Task 12); extracted
-// here in Phase 3c so AuthorshipPopover and AuthorshipTab can reuse the
-// exact same lookup without duplicating the join + null-handling.
+// here in Phase 3c so AuthorshipPopover, AuthorshipTab, SuggestionRow
+// can reuse the exact same lookup without duplicating the join + the
+// null-handling.
 //
 // The hook accepts a nullable authorId so callers can pass
 // `AuthorshipRun.authorId` (which is `string | null`) directly without

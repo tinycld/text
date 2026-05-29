@@ -45,6 +45,7 @@ import type { NativeSuggestionBridge } from '../hooks/use-suggestion-bridge.nati
 import { useSuggestionPermissions } from '../hooks/use-suggestion-permissions'
 import { useTextDocument } from '../hooks/useTextDocument'
 import { typedServerHello, useTextRoom } from '../hooks/useTextRoom'
+import { subscribeUiMessage } from '../lib/anchored-overlay/ui-message-bus'
 import {
     aggregateContributors,
     type ContributorSummary,
@@ -353,6 +354,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const documentComments = useDocumentComments(driveItemId, commentBridge)
     useCommentsLifecycle(driveItemId)
     useCommentTapHandler(driveItemId, commentBridge, documentComments)
+    useSuggestionClickHandler(driveItemId, reviewDrawerStore)
     const newCommentFlow = useNewCommentFlow({
         driveItemId,
         commentBridge,
@@ -563,6 +565,30 @@ function useCommentTapHandler(
             })
         })
     }, [commentBridge, driveItemId, open])
+}
+
+// Bridges suggestion-decoration clicks to the review drawer: the click
+// plugin (lib/suggestions/click-to-focus.ts) publishes a
+// 'suggestion-clicked' ui-bus message carrying the suggestionId; here
+// we open the drawer for this doc and focus the matching row. Same
+// shape as useCommentTapHandler — both surfaces open their respective
+// drawers from an in-document tap, side-stepping the inline tooltip
+// pattern Google Docs deprecates in favor of the always-on sidebar.
+function useSuggestionClickHandler(
+    driveItemId: string,
+    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>
+) {
+    useEffect(() => {
+        return subscribeUiMessage(message => {
+            if (message.namespace !== 'ui') return
+            if (message.type !== 'suggestion-clicked') return
+            const payload = message.payload as { suggestionId?: unknown }
+            if (typeof payload.suggestionId !== 'string') return
+            const state = reviewDrawerStore.getState()
+            state.open(driveItemId)
+            state.focusSuggestion(payload.suggestionId)
+        })
+    }, [driveItemId, reviewDrawerStore])
 }
 
 interface CenteredMessageProps {

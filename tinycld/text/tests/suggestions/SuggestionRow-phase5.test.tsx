@@ -1,6 +1,16 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// SuggestionRow resolves the author user_org id to a human name via
+// useAuthorName (pbtsdb live-query). The hook needs the react-provider
+// tree wrapped via createReactProvider, which unit renders don't set
+// up — stub it so the component falls back to rendering the raw
+// authorId, which every assertion in this file pins.
+vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
+    useAuthorName: () => null,
+}))
+
 import { SuggestionRow } from '~/tinycld/text/components/suggestions/SuggestionRow'
 import type { AnchoredSuggestion } from '~/tinycld/text/hooks/use-document-suggestions'
 

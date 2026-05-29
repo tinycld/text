@@ -2,116 +2,41 @@ import type { Editor } from '@tiptap/core'
 import { useMemo } from 'react'
 import { Platform } from 'react-native'
 import type * as Y from 'yjs'
-import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
 import {
     AnchoredOverlayController,
-    type AnchoredOverlayProps,
     type AnchoredOverlayRegistry,
 } from '../lib/anchored-overlay/anchored-overlay-controller'
 import { SlashMenuPopover } from './SlashMenuPopover'
-import { SuggestionPopover } from './SuggestionPopover'
 
 // SlashMenu (native) — mounts the anchored-overlay controller and
-// registers both overlay kinds the text package uses:
-//   - 'slash-menu'  — typed-trigger command palette (lib/editor/slash-menu)
-//   - 'suggestion'  — click-anchored Accept/Reject popover for change-
-//                     tracking decorations (lib/suggestions/popover)
+// registers the 'slash-menu' overlay kind (typed-trigger command
+// palette, lib/editor/slash-menu).
 //
-// The WebView posts ui.show-popover messages for both kinds; the
-// controller routes by kind into the registry. Selections / dismissals
-// flow back via popover-result on the 'ui' namespace.
+// Earlier phases registered a 'suggestion' kind here too — a click-
+// anchored Accept/Reject popover for change-tracking decorations.
+// That popover was deleted: clicking a suggestion now opens the
+// review drawer focused on the matching row (see
+// lib/suggestions/click-to-focus.ts + useSuggestionClickHandler in
+// screens/[id].tsx). The drawer is the canonical action surface.
 //
 // Metro picks SlashMenu.web.tsx on web; this file is only loaded on
 // native. The Platform.OS guard is a belt-and-suspenders check for the
-// metro-resolver edge case where the .tsx variant gets loaded on web
-// (e.g. through a test config that doesn't honor the platform suffix
-// — see vitest's plain resolution).
+// metro-resolver edge case where the .tsx variant gets loaded on web.
 
 interface SlashMenuProps {
     webViewRef: React.RefObject<unknown> | null
-    // The Tiptap editor that owns the document. On native this is null
-    // (the WebView owns the editor); the suggestion-popover registry
-    // entry passes it through to useResolveSuggestion, which no-ops
-    // when null. Wired here so a single mount site decides whether the
-    // popover can apply resolutions locally vs. punt to a WebView
-    // message round-trip in a future phase.
     editor: Editor | null
-    // The room's Y.Doc. acceptSuggestion / rejectSuggestion both
-    // mutate the suggestions Y.Map directly to flip status from
-    // pending → accepted/rejected; we thread it through to the
-    // popover wrapper so the resolve hook can pass it down.
     yDoc: Y.Doc | null
-    // Whether the current viewer can resolve suggestions. Sourced
-    // from useSuggestionPermissions at the screen level; the popover
-    // hides Accept/Reject when false and shows the pending message.
+    // canResolve is part of the prop shape for backward compatibility
+    // with the screen's call site; the suggestion popover that
+    // consumed it has been deleted, so the value is now unused here.
     canResolve: boolean
 }
 
-// SuggestionPopoverContainer — bridges the registry's
-// (payload, respond) shape with the host-side concerns the popover
-// needs (the resolve mutations + the role gate). The registry callback
-// is a fresh wrapper closure per registry build; this component is
-// the closure body, mounted by the controller when a 'suggestion'
-// kind popover is opened.
-//
-// Phase 2b: the payload carries suggestions[] (one entry per
-// decoration found at the click position) so the popover can render
-// one row per layered mark. The service-style resolve hook accepts
-// the suggestionId per call (not at construction), so a single mount
-// can dispatch to whichever row the viewer clicks.
-function SuggestionPopoverContainer({
-    payload,
-    respond,
-    editor,
-    yDoc,
-    canResolve,
-}: AnchoredOverlayProps & {
-    editor: Editor | null
-    yDoc: Y.Doc | null
-    canResolve: boolean
-}) {
-    // The payload's suggestions[] is forwarded through to the body via
-    // `payload` — the container only needs the service hook here so the
-    // body can dispatch per row.
-    const { accept, reject, isPending } = useResolveSuggestionService({ editor, yDoc })
-
-    return (
-        <SuggestionPopover
-            payload={payload}
-            respond={respond}
-            canResolve={canResolve}
-            isPending={isPending}
-            onAccept={async (suggestionId: string) => {
-                await accept(suggestionId)
-                respond('select', { resolution: 'accept', suggestionId })
-            }}
-            onReject={async (suggestionId: string) => {
-                await reject(suggestionId)
-                respond('select', { resolution: 'reject', suggestionId })
-            }}
-        />
-    )
-}
-
-export function SlashMenu({ webViewRef, editor, yDoc, canResolve }: SlashMenuProps) {
-    // Build the registry as a closure capturing the host-side props
-    // the suggestion body needs. useMemo keeps the identity stable
-    // across renders that don't change the inputs — useEffect deps
-    // inside the controller subscribe to bus messages once, not per
-    // render, so registry identity churn would be wasted work.
+export function SlashMenu({ webViewRef, editor: _e, yDoc: _y, canResolve: _c }: SlashMenuProps) {
     const registry = useMemo<AnchoredOverlayRegistry>(
-        () => ({
-            'slash-menu': SlashMenuPopover,
-            suggestion: (props: AnchoredOverlayProps) => (
-                <SuggestionPopoverContainer
-                    {...props}
-                    editor={editor}
-                    yDoc={yDoc}
-                    canResolve={canResolve}
-                />
-            ),
-        }),
-        [editor, yDoc, canResolve]
+        () => ({ 'slash-menu': SlashMenuPopover }),
+        []
     )
 
     if (Platform.OS === 'web') return null

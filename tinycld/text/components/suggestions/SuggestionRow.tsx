@@ -1,6 +1,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Check, type LucideIcon, Minus, Pencil, Plus, X } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
+import { useAuthorName } from '../../hooks/use-author-name'
 import type { AnchoredSuggestion } from '../../hooks/use-document-suggestions'
 import { colorForUser } from '../../lib/color-for-user'
 import { summarizeBlockChange, summarizeFormatChange } from '../../lib/suggestions/decorations'
@@ -81,6 +82,12 @@ export function SuggestionRow({
     const KindIcon = kindIconFor(suggestion.kind)
     const summary = summarizeSuggestion(suggestion)
     const kindLabel = kindLabelFor(suggestion.kind)
+    // Resolve the user_org id to a human name (falls back to email,
+    // then null while the live query loads or for unresolved ids).
+    // Until the query resolves we render the raw id so the row never
+    // flashes "Loading…" — once the name lands, the row updates in
+    // place. accessibilityLabel uses the resolved name when available.
+    const authorName = useAuthorName(suggestion.authorId) ?? suggestion.authorId
 
     return (
         <Pressable
@@ -93,7 +100,7 @@ export function SuggestionRow({
                 alignItems: 'flex-start',
             }}
             accessibilityRole="button"
-            accessibilityLabel={`Suggestion by ${suggestion.authorId}`}
+            accessibilityLabel={`Suggestion by ${authorName}`}
         >
             <View
                 style={{
@@ -118,7 +125,7 @@ export function SuggestionRow({
                     </Text>
                 )}
                 <Text style={{ color: muted, fontSize: 11 }}>
-                    {kindLabel} by {suggestion.authorId}
+                    {kindLabel} by {authorName}
                 </Text>
             </View>
             {canResolve && (

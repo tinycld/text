@@ -1,21 +1,13 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import type { Editor } from '@tiptap/core'
 import type { LucideIcon } from 'lucide-react-native'
-import { useEffect, useMemo, useReducer } from 'react'
+import { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Pressable, Text, View } from 'react-native'
 import type * as Y from 'yjs'
-import { useResolveSuggestionService } from '../hooks/use-resolve-suggestion'
-import {
-    anchoredOverlayReducer,
-    decodeUiMessage,
-    initialAnchoredOverlayState,
-} from '../lib/anchored-overlay/anchored-overlay-state'
-import { publishUiMessage, subscribeUiMessage } from '../lib/anchored-overlay/ui-message-bus'
 import { resolveSlashMenuIcon } from '../lib/editor/slash-menu-icon-lookup'
 import type { SlashMenuAnchor } from '../lib/stores/slash-menu-store'
 import { useSlashMenuStore } from '../lib/stores/slash-menu-store'
-import { SuggestionPopover } from './SuggestionPopover'
 
 // Vertical gap between the caret and the popover so the menu doesn't
 // crowd the line of text the user is typing on. Tuned by eye.
@@ -26,11 +18,6 @@ const POPOVER_GAP_PX = 4
 // for v1 and matches how Tiptap's built-in tippy positioning behaves.
 const POPOVER_HEIGHT_ESTIMATE_PX = 320
 const POPOVER_WIDTH_PX = 260
-// Suggestion popover is much shorter than the slash menu (two buttons
-// or a small "pending" line). The flip threshold for the suggestion
-// kind uses a smaller estimate so it doesn't flip above the caret
-// unnecessarily.
-const SUGGESTION_POPOVER_HEIGHT_ESTIMATE_PX = 80
 
 // resolvePosition picks { top, left } in viewport coords given the
 // anchor rect. Flips above the caret when the estimated popover
@@ -54,109 +41,33 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
     return { top, left }
 }
 
-// Web equivalent of the AnchoredOverlayController's position math for
-// rects that already live in viewport coords (which the in-process
-// suggestion plugin posts — see lib/suggestions/popover.ts's
-// rectFromClick). We don't have a WebView origin to add on web, so
-// rect.top + rect.height IS the viewport y of the rect's bottom.
-function resolveSuggestionPosition(rect: {
-    top: number
-    left: number
-    width: number
-    height: number
-}): { top: number; left: number } {
-    if (typeof window === 'undefined') {
-        return { top: rect.top + rect.height + POPOVER_GAP_PX, left: rect.left }
-    }
-    const viewportHeight = window.innerHeight
-    const viewportWidth = window.innerWidth
-    const anchorBottom = rect.top + rect.height
-    const wouldOverflowBottom =
-        anchorBottom + POPOVER_GAP_PX + SUGGESTION_POPOVER_HEIGHT_ESTIMATE_PX > viewportHeight
-    const top = wouldOverflowBottom
-        ? Math.max(8, rect.top - POPOVER_GAP_PX - SUGGESTION_POPOVER_HEIGHT_ESTIMATE_PX)
-        : anchorBottom + POPOVER_GAP_PX
-    const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - POPOVER_WIDTH_PX - 8))
-    return { top, left }
-}
-
-// SuggestionPopoverContainer — web counterpart to the host wrapper in
-// SlashMenu.tsx. Identical contract: bridges the registry's
-// (payload, respond) callback shape with the resolve mutation + the
-// role gate. The reason this lives next to the native wrapper rather
-// than being shared is that the native controller is RN-Modal-based
-// (its render path is Platform.OS guarded) and the web mount uses DOM
-// portals — keeping the two near their respective overlay routers
-// keeps the dependency direction obvious.
-function SuggestionPopoverContainer({
-    payload,
-    respond,
-    editor,
-    yDoc,
-    canResolve,
-}: {
-    payload: unknown
-    respond: (action: 'select' | 'dismiss', payload?: unknown) => void
-    editor: Editor | null
-    yDoc: Y.Doc | null
-    canResolve: boolean
-}) {
-    // The payload's suggestions[] is forwarded through to the body via
-    // `payload` — the container only needs the service hook here so the
-    // body can dispatch per row. The service hook produces accept(id) /
-    // reject(id) — a single mount can dispatch to any of the (possibly
-    // multiple) layered marks.
-    const { accept, reject, isPending } = useResolveSuggestionService({ editor, yDoc })
-
-    return (
-        <SuggestionPopover
-            payload={payload}
-            respond={respond}
-            canResolve={canResolve}
-            isPending={isPending}
-            onAccept={async (suggestionId: string) => {
-                await accept(suggestionId)
-                respond('select', { resolution: 'accept', suggestionId })
-            }}
-            onReject={async (suggestionId: string) => {
-                await reject(suggestionId)
-                respond('select', { resolution: 'reject', suggestionId })
-            }}
-        />
-    )
-}
-
 interface SlashMenuProps {
     webViewRef?: React.RefObject<unknown> | null
+    // editor / yDoc / canResolve are part of the prop shape for
+    // backward compatibility with the screen's call site; the
+    // suggestion popover that consumed them has been deleted
+    // (suggestion clicks now open the drawer focused on the matching
+    // row instead of an inline popover). Unused here.
     editor?: Editor | null
     yDoc?: Y.Doc | null
     canResolve?: boolean
 }
 
-// SlashMenu renders both the floating popover for the `/`-trigger command
-// palette (from the Zustand store) AND the suggestion popover surfaced
-// by clicks on suggestedInsert / suggestedDelete decorations (via the
-// in-process ui-message-bus). Web-only: portals to the document body
-// so both overlays float over the editor surface without being clipped
-// by the editor's scroll container.
+// SlashMenu renders the floating popover for the `/`-trigger command
+// palette (from the Zustand store driven by the SlashMenu Tiptap
+// extension). Web-only: portals to the document body so the overlay
+// floats over the editor surface without being clipped by the editor's
+// scroll container.
 //
-// The native variant takes a `webViewRef` prop the controller needs
-// for .measure() / .postMessage(); the web mount accepts the same
-// prop signature and ignores it so the screen-level mount is
-// platform-agnostic. editor / yDoc / canResolve drive the suggestion
-// popover's resolve mutations + the role gate.
-export function SlashMenu({ editor = null, yDoc = null, canResolve = false }: SlashMenuProps = {}) {
-    return (
-        <>
-            <SlashMenuPalette />
-            <SuggestionOverlay editor={editor} yDoc={yDoc} canResolve={canResolve} />
-        </>
-    )
+// The suggestion popover that used to live here was deleted —
+// clicking a suggestion decoration now opens the review drawer
+// focused on the matching row via the ui-bus 'suggestion-clicked'
+// event (see lib/suggestions/click-to-focus.ts +
+// useSuggestionClickHandler in screens/[id].tsx).
+export function SlashMenu(_props: SlashMenuProps = {}) {
+    return <SlashMenuPalette />
 }
 
-// SlashMenuPalette renders the `/`-trigger command palette. Listens to
-// the Zustand store driven by the SlashMenu Tiptap extension (see
-// lib/editor/slash-menu.ts and slash-menu-render-store.ts).
 function SlashMenuPalette() {
     const isOpen = useSlashMenuStore(s => s.isOpen)
     const items = useSlashMenuStore(s => s.items)
@@ -225,120 +136,6 @@ function SlashMenuPalette() {
                     />
                 ))}
             </View>
-        </View>,
-        document.body
-    )
-}
-
-// SuggestionOverlay — subscribes to the in-process ui-message-bus for
-// 'show-popover' messages of kind='suggestion' and renders the
-// SuggestionPopover when one arrives. The bus is the web counterpart
-// to the native AnchoredOverlayController's bus subscription (see
-// lib/anchored-overlay/anchored-overlay-controller.tsx); we use the
-// same reducer + decode helpers to keep the protocol semantics in
-// lockstep across platforms.
-//
-// We don't reuse the native controller directly because:
-//   - it returns null on Platform.OS === 'web' (intentional — native
-//     RN Modal isn't the right primitive for browser overlays)
-//   - it uses .measure() on a WebView ref to translate viewport →
-//     screen coords; on web, viewport === screen and there's no
-//     WebView ref
-//   - it renders a transparent <Modal>; on web we portal to
-//     document.body directly
-function SuggestionOverlay({
-    editor,
-    yDoc,
-    canResolve,
-}: {
-    editor: Editor | null
-    yDoc: Y.Doc | null
-    canResolve: boolean
-}) {
-    const [state, dispatch] = useReducer(anchoredOverlayReducer, initialAnchoredOverlayState)
-
-    // Subscribe to the bus once on mount. The native controller does
-    // the same; the only difference is we filter to kind='suggestion'
-    // at the render boundary (the slash menu kind is handled via the
-    // Zustand store path, not the bus).
-    useEffect(() => {
-        const unsubscribe = subscribeUiMessage(message => {
-            const action = decodeUiMessage(message)
-            if (action) dispatch(action)
-        })
-        return unsubscribe
-    }, [])
-
-    const isOpenSuggestion = state.open?.kind === 'suggestion'
-    const openRequestId = state.open?.requestId
-
-    // Click-outside dismiss. Matches the SlashMenuPalette pattern above
-    // (a pointerdown listener with capture=true so the popover closes
-    // before the click also reaches the editor and could re-fire a new
-    // popover trigger). Scoped via the data attribute on the popover
-    // wrapper so clicks INSIDE the popover (Accept/Reject buttons)
-    // don't dismiss.
-    useEffect(() => {
-        if (!isOpenSuggestion || typeof document === 'undefined') return
-        if (!openRequestId) return
-        const onPointerDown = (event: MouseEvent) => {
-            const target = event.target
-            if (!(target instanceof Element)) return
-            if (target.closest('[data-tinycld-suggestion-popover]')) return
-            publishUiMessage({
-                namespace: 'ui',
-                type: 'popover-result',
-                requestId: openRequestId,
-                payload: { action: 'dismiss' as const },
-            })
-            dispatch({ type: 'dismiss-external' })
-        }
-        document.addEventListener('mousedown', onPointerDown, true)
-        return () => document.removeEventListener('mousedown', onPointerDown, true)
-    }, [isOpenSuggestion, openRequestId])
-
-    if (!state.open) return null
-    if (state.open.kind !== 'suggestion') return null
-    if (typeof document === 'undefined') return null
-
-    const open = state.open
-    const position = resolveSuggestionPosition(open.rect)
-
-    const respond = (action: 'select' | 'dismiss', payload?: unknown) => {
-        publishUiMessage({
-            namespace: 'ui',
-            type: 'popover-result',
-            requestId: open.requestId,
-            payload: { action, payload: payload ?? undefined },
-        })
-        dispatch({ type: 'respond', requestId: open.requestId })
-    }
-
-    // The popover is a single positioned View; no backdrop element.
-    // Click-outside is wired by the pointerdown listener above so we
-    // don't introduce an interactive non-button element (which biome
-    // a11y rules — correctly — flag, and which would also intercept
-    // clicks the slash menu's overlay needs).
-    return createPortal(
-        <View
-            data-tinycld-suggestion-popover="true"
-            style={
-                {
-                    position: 'fixed',
-                    top: position.top,
-                    left: position.left,
-                    width: POPOVER_WIDTH_PX,
-                    zIndex: 1000,
-                } as object
-            }
-        >
-            <SuggestionPopoverContainer
-                payload={open.payload}
-                respond={respond}
-                editor={editor}
-                yDoc={yDoc}
-                canResolve={canResolve}
-            />
         </View>,
         document.body
     )

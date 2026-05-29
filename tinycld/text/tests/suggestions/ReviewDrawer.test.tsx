@@ -1,6 +1,15 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// Drawer rows resolve authors via useAuthorName (pbtsdb live-query).
+// Stub it so happy-dom renders don't need the createReactProvider
+// wrapper. The component falls back to the raw authorId, which the
+// assertions don't rely on either way.
+vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
+    useAuthorName: () => null,
+}))
+
 import { ReviewDrawer } from '~/tinycld/text/components/suggestions/ReviewDrawer'
 import { createReviewDrawerStore } from '~/tinycld/text/stores/review-drawer-store'
 

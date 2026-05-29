@@ -9,6 +9,7 @@ import (
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
+	driveserver "tinycld.org/packages/drive"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -68,6 +69,15 @@ func Register(app *pocketbase.PocketBase) {
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 	runtime.StartJanitor()
+
+	// Cross-package version hooks: when drive snapshots or restores a
+	// drive_item_versions row for an item of type "text", call into the
+	// text runtime to capture / apply the live Y.Doc state (which carries
+	// the protected roots — clientAuthors, clientFirstSeen, editEvents —
+	// that the docx round-trip can't preserve). Registered before the
+	// realtime block so a snapshot HTTP request that races with the very
+	// first room creation finds the hook in place.
+	driveserver.RegisterVersionHook("text", makeSnapshotVersionHook(runtime))
 
 	journal := realtime.NewPocketBaseJournal(app)
 	flush := makeProductionFlush(app, runtime)

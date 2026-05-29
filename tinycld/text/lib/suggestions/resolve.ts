@@ -1,7 +1,11 @@
 import type { Editor } from '@tiptap/core'
 import type { Mark } from '@tiptap/pm/model'
 import type * as Y from 'yjs'
-import type { SerializedMarks } from '../../webview-editor/source/suggestions/suggestion-types'
+import type {
+    BlockChangeAfter,
+    BlockChangeBefore,
+    SerializedMarks,
+} from '../../webview-editor/source/suggestions/suggestion-types'
 import {
     SUGGESTION_STATUS_ACCEPTED,
     SUGGESTION_STATUS_REJECTED,
@@ -17,6 +21,18 @@ export interface ResolveOptions {
 interface Range {
     from: number
     to: number
+}
+
+// BlockChangeRange carries the block's position + size plus the
+// proposed before/after payload so accept can decide whether to apply
+// an attr change (same type, different attrs), a type swap (different
+// types), or a full block delete (after.deleted === true). Reject only
+// needs to know the position to clear the suggestedBlockChange attr.
+interface BlockChangeRange {
+    pos: number
+    nodeSize: number
+    before: BlockChangeBefore
+    after: BlockChangeAfter
 }
 
 // FormatChangeRange carries the mark range plus the proposed before/
@@ -74,6 +90,40 @@ function collectFormatChangeRanges(editor: Editor, suggestionId: string): Format
     return ranges
 }
 
+// collectBlockChangeRanges walks the doc and returns every block-level
+// node carrying a suggestedBlockChange node attribute with the target
+// suggestionId. Each entry includes the node's position, its size, and
+// the parsed before/after payload that drives accept/reject.
+//
+// The attribute payload is JSON-serializable but stored as a plain
+// object on the node. We treat any non-object as null (silent-drop
+// matching the rest of the suggestion stack) and skip the entry rather
+// than throwing — bad payloads should leave the doc usable, not crash
+// the resolver.
+function collectBlockChangeRanges(editor: Editor, suggestionId: string): BlockChangeRange[] {
+    const ranges: BlockChangeRange[] = []
+    editor.state.doc.descendants((node, pos) => {
+        const raw = node.attrs.suggestedBlockChange
+        if (!raw || typeof raw !== 'object') return true
+        const payload = raw as {
+            suggestionId?: unknown
+            before?: unknown
+            after?: unknown
+        }
+        if (payload.suggestionId !== suggestionId) return true
+        if (!payload.before || typeof payload.before !== 'object') return true
+        if (!payload.after || typeof payload.after !== 'object') return true
+        ranges.push({
+            pos,
+            nodeSize: node.nodeSize,
+            before: payload.before as BlockChangeBefore,
+            after: payload.after as BlockChangeAfter,
+        })
+        return true
+    })
+    return ranges
+}
+
 // markKey deterministically hashes a serialized mark (type + attrs) so
 // before/after sets can be diffed by membership. Attr key order is
 // normalized to handle PM's mark attr round-trip.
@@ -105,6 +155,7 @@ export function acceptSuggestion(
     const insertRanges = collectRanges(editor, 'suggestedInsert', suggestionId)
     const deleteRanges = collectRanges(editor, 'suggestedDelete', suggestionId)
     const formatChangeRanges = collectFormatChangeRanges(editor, suggestionId)
+    const blockChangeRanges = collectBlockChangeRanges(editor, suggestionId)
 
     options.yDoc.transact(() => {
         editor
@@ -112,15 +163,53 @@ export function acceptSuggestion(
             .command(({ tr, state }) => {
                 const insertMarkType = state.schema.marks.suggestedInsert
                 const formatChangeMarkType = state.schema.marks.suggestedFormatChange
+                // Resolve block-changes FIRST. A kind='delete' entry
+                // deletes the entire block (including text bearing
+                // suggestedDelete marks with the same id); processing
+                // it before the suggestedDelete loop avoids that loop
+                // touching text that's about to vanish. For attr/
+                // type-swap entries, setNodeMarkup with after.attrs
+                // both clears the wrapper attribute (default null
+                // applies when no explicit value is passed) and lands
+                // the proposed structure.
+                //
+                // Back-to-front so earlier positions stay stable.
+                for (const r of [...blockChangeRanges].reverse()) {
+                    const pos = tr.mapping.map(r.pos)
+                    if (r.after.deleted === true) {
+                        // The block exists in the current doc (the
+                        // command layer restored it when the user
+                        // proposed the delete). Honor the proposal by
+                        // deleting it now. The size we stored is in
+                        // the pre-resolve doc's coordinates; map the
+                        // end through tr.mapping to handle any prior
+                        // steps in this transaction.
+                        const end = tr.mapping.map(r.pos + r.nodeSize)
+                        tr.delete(pos, end)
+                        continue
+                    }
+                    const afterType = state.schema.nodes[r.after.type]
+                    if (!afterType) continue
+                    // setNodeMarkup with the explicit after.attrs lets
+                    // the schema's default for suggestedBlockChange
+                    // (null) take over — the wrapper attribute is
+                    // dropped at the same time the proposed type +
+                    // attrs land.
+                    tr.setNodeMarkup(pos, afterType, r.after.attrs)
+                }
                 // Strip insert marks (back-to-front so positions stay stable).
                 for (const r of [...insertRanges].reverse()) {
-                    tr.removeMark(r.from, r.to, insertMarkType)
+                    const from = tr.mapping.map(r.from)
+                    const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
+                    tr.removeMark(from, to, insertMarkType)
                 }
                 // Remove delete-marked ranges (back-to-front, re-mapping
                 // through any prior steps in this transaction).
                 for (const r of [...deleteRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
                     const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
                     tr.delete(from, to)
                 }
                 // Resolve format-change marks: strip the suggestion
@@ -144,6 +233,7 @@ export function acceptSuggestion(
                 for (const r of [...formatChangeRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
                     const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
                     tr.removeMark(from, to, formatChangeMarkType)
 
                     const beforeKeys = new Set(r.before.map(markKey))
@@ -196,6 +286,7 @@ export function rejectSuggestion(
     const insertRanges = collectRanges(editor, 'suggestedInsert', suggestionId)
     const deleteRanges = collectRanges(editor, 'suggestedDelete', suggestionId)
     const formatChangeRanges = collectFormatChangeRanges(editor, suggestionId)
+    const blockChangeRanges = collectBlockChangeRanges(editor, suggestionId)
 
     options.yDoc.transact(() => {
         editor
@@ -203,16 +294,43 @@ export function rejectSuggestion(
             .command(({ tr, state }) => {
                 const deleteMarkType = state.schema.marks.suggestedDelete
                 const formatChangeMarkType = state.schema.marks.suggestedFormatChange
+                // Reject block-changes: the block is already in its
+                // before-state on screen (the command layer reverted
+                // the user's structural change before stamping the
+                // suggestion). Clearing the suggestedBlockChange
+                // attribute is the only structural work needed.
+                //
+                // For kind='delete' specifically, we also strip the
+                // companion suggestedDelete marks the command layer
+                // added to the restored block's inline content. Without
+                // this, the text would still render strikethrough
+                // after the proposal was rejected.
+                //
+                // Back-to-front for positional safety.
+                for (const r of [...blockChangeRanges].reverse()) {
+                    const pos = tr.mapping.map(r.pos)
+                    const node = tr.doc.nodeAt(pos)
+                    if (!node) continue
+                    const nextAttrs: Record<string, unknown> = { ...node.attrs }
+                    nextAttrs.suggestedBlockChange = null
+                    tr.setNodeMarkup(pos, null, nextAttrs)
+                }
                 // Remove insert-marked ranges (back-to-front).
                 for (const r of [...insertRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
                     const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
                     tr.delete(from, to)
                 }
                 // Strip delete marks (re-mapped through any prior deletes).
+                // This also strips the suggestedDelete marks the command
+                // layer added to inline content inside a rejected
+                // block-delete, restoring the text to its visible state
+                // without strikethrough.
                 for (const r of [...deleteRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
                     const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
                     tr.removeMark(from, to, deleteMarkType)
                 }
                 // Strip format-change wrapper marks. The original
@@ -223,6 +341,7 @@ export function rejectSuggestion(
                 for (const r of [...formatChangeRanges].reverse()) {
                     const from = tr.mapping.map(r.from)
                     const to = tr.mapping.map(r.to)
+                    if (to <= from) continue
                     tr.removeMark(from, to, formatChangeMarkType)
                 }
                 return true

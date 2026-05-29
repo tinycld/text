@@ -49,7 +49,7 @@ type suggestionEntryXML struct {
 // recovered from the customXml part. Each docx revision kind has its
 // OWN w:id sequence (Word allocates them independently), so the parser
 // keeps a separate map per kind. Phase 2c shipped with Insert/Delete
-// only; Phase 5 adds FormatChange.
+// only; Phase 5 adds FormatChange (Task 18) and BlockChange (Task 19).
 type suggestionMappings struct {
 	// Insert maps the w:id from a <w:ins ...> element to the suggestionId.
 	Insert map[int]string
@@ -58,6 +58,13 @@ type suggestionMappings struct {
 	// FormatChange maps the w:id from a <w:rPrChange ...> element to
 	// the suggestionId.
 	FormatChange map[int]string
+	// BlockChange maps the w:id from a <w:pPrChange ...> element to
+	// the suggestionId. Unlike Insert/Delete (which the legacy
+	// fallback also populates for backwards-compat), BlockChange only
+	// gets populated by the modern kind="blockChange" entries — a
+	// Word-authored docx that only carries Word's own <w:pPrChange>
+	// elements (no tinycld customXml) synthesizes ids at parse time.
+	BlockChange map[int]string
 }
 
 // writeSuggestionsCustomXML serializes the spans (for the
@@ -67,6 +74,7 @@ type suggestionMappings struct {
 func writeSuggestionsCustomXML(
 	spans []suggestionSpan,
 	formatChangeSpans []formatChangeSpan,
+	blockChangeSpans []blockChangeSpan,
 	entries []SuggestionMapEntry,
 ) ([]byte, error) {
 	root := suggestionsXMLRoot{}
@@ -86,6 +94,13 @@ func writeSuggestionsCustomXML(
 			RevisionID:   s.DocxRevisionID,
 			SuggestionID: s.SuggestionID,
 			Kind:         "formatChange",
+		})
+	}
+	for _, s := range blockChangeSpans {
+		root.Mappings = append(root.Mappings, suggestionMappingXML{
+			RevisionID:   s.DocxRevisionID,
+			SuggestionID: s.SuggestionID,
+			Kind:         "blockChange",
 		})
 	}
 	for _, e := range entries {
@@ -148,6 +163,7 @@ func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, suggestionMap
 		Insert:       map[int]string{},
 		Delete:       map[int]string{},
 		FormatChange: map[int]string{},
+		BlockChange:  map[int]string{},
 	}
 	for _, m := range root.Mappings {
 		switch m.Kind {
@@ -157,11 +173,15 @@ func parseSuggestionsCustomXML(data []byte) ([]SuggestionMapEntry, suggestionMap
 			maps.Delete[m.RevisionID] = m.SuggestionID
 		case "formatChange":
 			maps.FormatChange[m.RevisionID] = m.SuggestionID
+		case "blockChange":
+			maps.BlockChange[m.RevisionID] = m.SuggestionID
 		default:
 			// Backwards-compat: pre-Phase-5 emitter set Kind to
 			// "insert" or "delete"; an empty / unknown kind landed in
 			// the legacy single-map flow. Stash into BOTH insert and
-			// delete maps so old docs keep parsing identically.
+			// delete maps so old docs keep parsing identically. Phase-5
+			// FormatChange and BlockChange kinds are NOT in the legacy
+			// fallback — only Insert/Delete have a pre-Phase-5 history.
 			maps.Insert[m.RevisionID] = m.SuggestionID
 			maps.Delete[m.RevisionID] = m.SuggestionID
 		}

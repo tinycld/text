@@ -157,6 +157,30 @@ var SupportedMarks = map[string]bool{
 	MarkTypeCode:                  true,
 }
 
+// Node attribute keys.
+//
+// Unlike marks (which apply to inline runs and have well-defined Type
+// strings in SupportedMarks), some PM features live as node-level
+// attributes on a block-level node — they don't have a "type" of their
+// own, they're a key inside the node's Attrs map.
+const (
+	// NodeAttrSuggestedBlockChange is the attribute key on block-level
+	// nodes (paragraph, heading, listItem, blockquote, tableCell,
+	// tableHeader) that carries a proposed paragraph-property change.
+	// Attrs map entries:
+	//   - suggestionId: tinycld id of the proposal
+	//   - authorId:     userOrgId of the proposer
+	//   - ts:           unix-ms timestamp of the proposal
+	//   - before:       { type, attrs[, added] } — block shape before
+	//   - after:        { type, attrs[, deleted] } — proposed block shape
+	//
+	// On docx export the wrapper is <w:pPrChange w:id="N" w:author="..."
+	// w:date="..."> nested inside the paragraph's <w:pPr>, carrying the
+	// BEFORE state in a nested <w:pPr>. Phase 5 round-trip for
+	// paragraphs / headings (tableCell handling lands in Task 20).
+	NodeAttrSuggestedBlockChange = "suggestedBlockChange"
+)
+
 // Paragraph alignment + indent. textAlign is "left" | "center" |
 // "right" | "justify" on paragraph and heading nodes; indent is a
 // non-negative integer level (0..MaxIndentLevel) on the same nodes.

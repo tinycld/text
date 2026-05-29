@@ -676,6 +676,12 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 	var textAlign string
 	var indentLevel int
 	var dropCapFrame bool
+	// blockChange is the parsed <w:pPrChange> payload extracted from
+	// inside <w:pPr>. Nil when no pPrChange is present. The AFTER
+	// state's type and attrs are determined from the OUTER pPr
+	// siblings (pStyle/jc/ind/numPr) — captured by assembleParagraph
+	// after the runs are collected so we know the resolved type.
+	var blockChange map[string]any
 	var runs []PMNode
 
 	for {
@@ -687,7 +693,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
-				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame); err != nil {
+				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame, &blockChange); err != nil {
 					return nil, err
 				}
 			case "r":
@@ -747,7 +753,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, runs), nil
+				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, blockChange, runs), nil
 			}
 		}
 	}
@@ -764,21 +770,23 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 // intentionally do NOT carry these — Word's <w:jc> on a list item is
 // uncommon and would complicate the list round-trip; blockquote
 // formatting is owned by the wrapper.
-func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, dropCapFrame bool, runs []PMNode) *PMNode {
+func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, dropCapFrame bool, blockChange map[string]any, runs []PMNode) *PMNode {
 	// Empty paragraph (no runs) is still a valid PM paragraph node;
 	// blank lines in OOXML translate to empty PM paragraphs.
 	if numID != "" {
 		// List item — emit a bare paragraph carrying list metadata
 		// in Attrs; groupListParagraphs will gather these and rebuild
 		// the bulletList/orderedList tree.
+		attrs := map[string]any{
+			"_listNumId": numID,
+			"_listLevel": ilvlToInt(ilvl),
+			"_listFmt":   p.numbering[numID],
+		}
+		attachBlockChangeAttr(attrs, blockChange, NodeTypeParagraph, textAlign, indentLevel)
 		return &PMNode{
 			Type:    NodeTypeParagraph,
 			Content: runs,
-			Attrs: map[string]any{
-				"_listNumId": numID,
-				"_listLevel": ilvlToInt(ilvl),
-				"_listFmt":   p.numbering[numID],
-			},
+			Attrs:   attrs,
 		}
 	}
 
@@ -799,6 +807,9 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		}
 		attrs := map[string]any{"level": float64(level)}
 		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		afterAttrs := map[string]any{"level": float64(level)}
+		applyAlignIndentAttrs(afterAttrs, textAlign, indentLevel)
+		attachBlockChangeAttrWithAfter(attrs, blockChange, NodeTypeHeading, afterAttrs)
 		return &PMNode{
 			Type:    NodeTypeHeading,
 			Attrs:   attrs,
@@ -806,21 +817,31 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		}
 	case pStyle == "Quote" || pStyle == "IntenseQuote":
 		// Wrap a quote paragraph in a blockquote with one paragraph child.
-		return &PMNode{
+		bq := &PMNode{
 			Type: NodeTypeBlockquote,
 			Content: []PMNode{
 				{Type: NodeTypeParagraph, Content: runs},
 			},
 		}
+		if blockChange != nil {
+			bq.Attrs = map[string]any{}
+			attachBlockChangeAttrWithAfter(bq.Attrs, blockChange, NodeTypeBlockquote, map[string]any{})
+		}
+		return bq
 	case isCodeBlockStyle(pStyle):
 		// Collapse the paragraph's runs into a single plain-text child;
 		// the PM codeBlock schema doesn't carry inline marks, so any
 		// bold/italic/code marks from the source are dropped (visually
 		// they would not survive the monospace verbatim render anyway).
-		return &PMNode{
+		cb := &PMNode{
 			Type:    NodeTypeCodeBlock,
 			Content: codeBlockChildren(runs),
 		}
+		if blockChange != nil {
+			cb.Attrs = map[string]any{}
+			attachBlockChangeAttrWithAfter(cb.Attrs, blockChange, NodeTypeCodeBlock, map[string]any{})
+		}
+		return cb
 	case pStyle != "" && !isDefaultParagraphStyle(pStyle):
 		// Unknown style — fall back to plain paragraph with a warning.
 		p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("paragraph style %q normalized to default paragraph", pStyle))
@@ -837,10 +858,43 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		// attr. The marker is stripped there, so it never reaches PM JSON.
 		attrs["_dropCapFrame"] = true
 	}
+	attachBlockChangeAttr(attrs, blockChange, NodeTypeParagraph, textAlign, indentLevel)
 	if len(attrs) == 0 {
 		return &PMNode{Type: NodeTypeParagraph, Content: runs}
 	}
 	return &PMNode{Type: NodeTypeParagraph, Attrs: attrs, Content: runs}
+}
+
+// attachBlockChangeAttr fills the suggestedBlockChange entry on a
+// paragraph attrs map, deriving the AFTER state from the resolved
+// (type, textAlign, indent) of the surrounding paragraph. The BEFORE
+// state was already populated by parsePPrChange; this only adds the
+// (suggestionId, authorId, ts, before, after) bundle to the node attrs.
+//
+// Skips when blockChange is nil — most paragraphs don't carry one.
+func attachBlockChangeAttr(attrs map[string]any, blockChange map[string]any, blockType, textAlign string, indentLevel int) {
+	if blockChange == nil {
+		return
+	}
+	afterAttrs := map[string]any{}
+	applyAlignIndentAttrs(afterAttrs, textAlign, indentLevel)
+	attachBlockChangeAttrWithAfter(attrs, blockChange, blockType, afterAttrs)
+}
+
+// attachBlockChangeAttrWithAfter is the heading/blockquote-specific
+// variant — they need to attach a distinct after.attrs map (level for
+// headings, empty for blockquote) rather than only textAlign/indent.
+func attachBlockChangeAttrWithAfter(attrs map[string]any, blockChange map[string]any, afterType string, afterAttrs map[string]any) {
+	if blockChange == nil {
+		return
+	}
+	// Fill in the after state. Before state was already populated by
+	// parsePPrChange from the nested <w:pPr>.
+	blockChange["after"] = map[string]any{
+		"type":  afterType,
+		"attrs": afterAttrs,
+	}
+	attrs[NodeAttrSuggestedBlockChange] = blockChange
 }
 
 // applyAlignIndentAttrs adds textAlign + indent entries to the given
@@ -958,7 +1012,13 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 // "center", "right", or "justify" ("both" is Word's name for what PM
 // calls "justify"). Indent maps <w:ind w:left="…"/> twips through
 // twipsToIndentLevel (720 twips per level, half-inch each).
-func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool) error {
+//
+// blockChange is populated when a <w:pPrChange> child is encountered;
+// it carries the BEFORE state extracted from the nested <w:pPr> plus
+// the (suggestionId, authorId, ts) bundle. The AFTER state is filled
+// in by assembleParagraph once the outer pPr has been resolved into
+// a (type, attrs) shape.
+func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool, blockChange *map[string]any) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1009,6 +1069,21 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}
+			case "pPrChange":
+				// <w:pPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:pPr> ... before-state pPr children ... </w:pPr>
+				// </w:pPrChange>
+				// Captures the BEFORE pPr in nested form. The AFTER state
+				// (resolved type + textAlign + indent + level) comes from
+				// assembling the outer pPr siblings — assembleParagraph
+				// fills it in once the paragraph type is known.
+				bc, perr := p.parsePPrChange(dec, t)
+				if perr != nil {
+					return perr
+				}
+				if bc != nil {
+					*blockChange = bc
+				}
 			default:
 				if err := skipElement(dec, t); err != nil {
 					return err
@@ -1020,6 +1095,127 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 			}
 		}
 	}
+}
+
+// parsePPrChange consumes a <w:pPrChange> element, returning the
+// half-built suggestedBlockChange attribute (suggestionId, authorId,
+// ts, before — without after, which assembleParagraph fills in).
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping (when present, from the tinycld customXml part) or
+// synthesized as "docx:ppr:<id>:<author>" when absent (Word-authored
+// docx). Mirrors parseRPrChange's id-synthesis convention.
+//
+// Returns nil when the pPrChange element is malformed (e.g. no nested
+// pPr) — the parser falls back to "no block-change attr on this
+// paragraph", matching the silent-drop convention used by other
+// suggestion paths.
+func (p *docxParser) parsePPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.BlockChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:ppr:%d:%s", wID, wAuthor)
+	}
+
+	beforeType := NodeTypeParagraph
+	beforeAttrs := map[string]any{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "pPr" {
+				// Nested <w:pPr> carries the BEFORE state. Parse it like a
+				// regular paragraph properties block — we reuse the same
+				// extractor, then resolve the resulting pStyle/numID/jc/ind
+				// into the (type, attrs) shape the resolver expects.
+				var bPStyle, bNumID, bIlvl, bTextAlign string
+				var bIndent int
+				var bDropCap bool
+				var nestedChange map[string]any
+				if perr := p.parseParagraphProperties(dec, t, &bPStyle, &bNumID, &bIlvl, &bTextAlign, &bIndent, &bDropCap, &nestedChange); perr != nil {
+					return nil, perr
+				}
+				beforeType, beforeAttrs = p.resolveBlockTypeFromPPr(bPStyle, bNumID, bIlvl, bTextAlign, bIndent)
+				_ = bDropCap
+				_ = nestedChange
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before": map[string]any{
+						"type":  beforeType,
+						"attrs": beforeAttrs,
+					},
+				}, nil
+			}
+		}
+	}
+}
+
+// resolveBlockTypeFromPPr maps parsed <w:pPr> contents to a PM
+// block-type / attrs pair. Mirrors the dispatch in assembleParagraph
+// but without the run-content / dropCap / warning layers.
+//
+// Heading pStyle ("Heading1".."Heading6") → heading with level attr.
+// "Quote" / "IntenseQuote" → blockquote.
+// Code-block style → codeBlock.
+// numPr (numID != "") → bulletList / orderedList based on numbering
+// format if known; falls back to "bulletList" (PM treats unrecognized
+// numbering as a bulletList).
+// Otherwise → paragraph with textAlign / indent attrs.
+func (p *docxParser) resolveBlockTypeFromPPr(pStyle, numID, ilvl, textAlign string, indentLevel int) (string, map[string]any) {
+	_ = ilvl
+	attrs := map[string]any{}
+	if numID != "" {
+		// A numbered/bulleted item. The BEFORE state's listItem-ness is
+		// what we capture; a transition from "paragraph" → "listItem"
+		// shows up as before.type=paragraph, after.type=listItem (or
+		// the parent list type). We use the bulletList/orderedList
+		// container type as a coarse proxy since the resolver doesn't
+		// reconstruct a full PM tree from inside parsePPrChange.
+		fmtKind := NodeTypeBulletList
+		if format := p.numbering[numID]; format == "decimal" {
+			fmtKind = NodeTypeOrderedList
+		}
+		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		return fmtKind, attrs
+	}
+	if strings.HasPrefix(pStyle, "Heading") {
+		level := headingLevel(pStyle)
+		if level == 0 {
+			level = 1
+		}
+		if level < 1 {
+			level = 1
+		}
+		if level > 6 {
+			level = 6
+		}
+		attrs["level"] = float64(level)
+		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		return NodeTypeHeading, attrs
+	}
+	if pStyle == "Quote" || pStyle == "IntenseQuote" {
+		return NodeTypeBlockquote, attrs
+	}
+	if isCodeBlockStyle(pStyle) {
+		return NodeTypeCodeBlock, attrs
+	}
+	applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+	return NodeTypeParagraph, attrs
 }
 
 // normalizeJustification maps OOXML <w:jc w:val=…> values onto the PM

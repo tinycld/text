@@ -199,7 +199,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMap
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -259,6 +259,14 @@ type emitter struct {
 	// three rev-kinds is perfectly legal and matches what Word emits.
 	formatChangeSpans   []formatChangeSpan
 	formatChangeSpanSeq int
+	// blockChangeSpans tracks every suggestedBlockChange attribute
+	// the emitter encountered on a paragraph/heading/blockquote/etc.
+	// The post-process pass uses them to splice <w:pPrChange> wrappers
+	// into the affected paragraphs' <w:pPr> blocks. Same independent-
+	// counter rule as formatChangeSpanSeq: <w:pPrChange> has its own
+	// w:id sequence, separate from <w:ins>/<w:del>/<w:rPrChange>.
+	blockChangeSpans   []blockChangeSpan
+	blockChangeSpanSeq int
 	// suggestionEntries is populated from the Yjs suggestions Y.Map by
 	// the caller (PMJSONToDocxWithSuggestions /
 	// PMJSONToDocxWithResolverAndSuggestions). The post-process pass
@@ -460,7 +468,26 @@ func (em *emitter) emitParagraph(node PMNode, listLevel int, parentList string) 
 	}
 	p := em.doc.AddParagraph("")
 	applyAlignIndent(p, node.Attrs)
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
+}
+
+// emitBlockChangeMarker plants a single anchor marker run at the front
+// of the paragraph when the node carries a suggestedBlockChange attr.
+// The post-process pass uses the marker to locate the enclosing <w:p>,
+// inject <w:pPrChange> into its <w:pPr>, and strip the marker run.
+//
+// Placing the marker as the FIRST run keeps the rewriter's enclosing-
+// paragraph search short (the paragraph open tag is immediately before
+// the marker) and avoids interactions with later inline-run rewriters
+// (link, suggestion, format-change) that walk runs at the END of the
+// paragraph.
+func (em *emitter) emitBlockChangeMarker(p *document.Paragraph, attrs map[string]any) {
+	span := em.queueBlockChangeAttrs(attrs)
+	if span == nil {
+		return
+	}
+	p.AddFormattedText(span.Marker, &document.TextFormat{})
 }
 
 // emitDropCapParagraph splits a PM dropCap paragraph into Word's native
@@ -617,6 +644,7 @@ func (em *emitter) emitListParagraph(node PMNode, listLevel int, parentList stri
 		p = em.appendFirstListParagraph(parentList, listLevel)
 		em.recordListNumID(listLevel, extractNumID(p))
 	}
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
 }
 
@@ -685,6 +713,7 @@ func (em *emitter) emitHeading(node PMNode) error {
 	}
 	p := em.doc.AddHeadingParagraph("", level)
 	applyAlignIndent(p, node.Attrs)
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
 }
 
@@ -773,12 +802,23 @@ func makeFreshScope(prev []string, level int) []string {
 // applying the "Quote" pStyle to each one. PM nests paragraphs
 // inside the blockquote; OOXML has no real container element for
 // blockquotes, so we mark each paragraph individually.
+//
+// The block-change attr is attached at the blockquote level in PM; we
+// apply the marker to the first inner paragraph (the most consistent
+// docx-side anchor — pPrChange on a Quote-styled paragraph is what
+// Word would emit if you proposed converting a normal paragraph to a
+// blockquote in the UI).
 func (em *emitter) emitBlockquote(node PMNode) error {
+	first := true
 	for _, child := range node.Content {
 		switch child.Type {
 		case NodeTypeParagraph:
 			p := em.doc.AddParagraph("")
 			p.SetStyle("Quote")
+			if first {
+				em.emitBlockChangeMarker(p, node.Attrs)
+				first = false
+			}
 			if err := em.emitInlineRuns(p, child.Content); err != nil {
 				return err
 			}

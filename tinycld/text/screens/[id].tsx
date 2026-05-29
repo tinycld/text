@@ -212,6 +212,14 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         onSuggestionMessage,
     })
     commandsRef.current = commands
+    // Dev-only window hook exposing the live Tiptap editor for e2e
+    // specs to drive deterministically via .chain() commands. Same
+    // gating + cleanup pattern as useDevYDocWindowHook above. The e2e
+    // suite uses this to position the caret and select ranges without
+    // relying on platform-specific keyboard shortcut behavior (⌘+End
+    // on Mac, for instance, can be preempted by the OS-level binding
+    // and land at end-of-line rather than end-of-doc).
+    useDevTiptapEditorWindowHook(tiptapEditor)
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
     const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
@@ -604,6 +612,27 @@ function useDevYDocWindowHook(yDoc: unknown): void {
             if (w.__tinyTextDoc === yDoc) delete w.__tinyTextDoc
         }
     }, [yDoc])
+}
+
+// Dev-only window hook exposing the live Tiptap editor instance to
+// e2e specs. Mirrors useDevYDocWindowHook's gating: only attaches in
+// dev builds (__DEV__), only on web (no `window` on native), and
+// cleans up on unmount or editor swap. e2e specs that need to drive
+// the editor deterministically (focus end, select a known text range,
+// run a command) reach through `window.__tinyTextEditor` rather than
+// fighting keyboard shortcuts whose OS-level bindings may preempt
+// Tiptap's keymap (notably ⌘+End on macOS).
+function useDevTiptapEditorWindowHook(editor: unknown): void {
+    useEffect(() => {
+        if (!__DEV__) return
+        if (typeof window === 'undefined') return
+        if (!editor) return
+        ;(window as unknown as { __tinyTextEditor?: unknown }).__tinyTextEditor = editor
+        return () => {
+            const w = window as unknown as { __tinyTextEditor?: unknown }
+            if (w.__tinyTextEditor === editor) delete w.__tinyTextEditor
+        }
+    }, [editor])
 }
 
 // Authorship blame popover trigger. Installs a `contextmenu` listener

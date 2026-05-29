@@ -131,6 +131,12 @@ interface DocumentScreenProps {
 }
 
 function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
+    // Dev-only window hook exposing the live Y.Doc for e2e specs to
+    // page.evaluate against (e.g. the Phase 3a authorship-stamping spec
+    // reads doc.getMap('clientAuthors')). Gated on __DEV__ so production
+    // bundles ship without the hook. Web-only — native runs the editor
+    // inside a WebView and doesn't expose a host-side `window`.
+    useDevYDocWindowHook(room.doc)
     // The slash menu's "Image" entry routes through the same picker +
     // drive-upload pipeline the toolbar's image button uses. The picker
     // resolves async, by which point `commands` will have been bound;
@@ -275,11 +281,21 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // this, a pure viewer (no edit, no suggest) sees the trigger read
     // 'Editing' until they open the dropdown, even though every option
     // except Viewing is hidden.
+    //
+    // Force Viewing only when the server's hello.readOnly flag is
+    // truthy. The client-side useSuggestionPermissions hook returns
+    // canEdit=false during the initial render window before
+    // drive_shares rows have loaded; without the hello.readOnly gate
+    // we'd flip every editor user into Viewing on first paint and
+    // they'd be stuck there (the effect doesn't fire back when
+    // canEdit later becomes true). hello.readOnly is server-authoritative
+    // and arrives in the first SyncReply, so it's both the right
+    // signal and racier-than-the-rows.
     useEffect(() => {
-        if (!canEdit && !canSuggest) {
+        if (isReadOnly) {
             modeStore.getState().setMode(EDITOR_MODE_VIEWING)
         }
-    }, [canEdit, canSuggest, modeStore])
+    }, [isReadOnly, modeStore])
 
     // Print routes through the server's /api/text/render endpoint
     // — no longer needs the editor handle. Print works even if the
@@ -519,6 +535,30 @@ function FindReplaceShell() {
     const isOpen = useFindReplaceStore(s => s.isOpen)
     useFindReplaceShortcuts()
     return <FindReplaceBar isVisible={isOpen} />
+}
+
+// __DEV__ is Metro/Expo's globally-injected dev gate (`true` for the
+// dev server, `false` for production bundles). Declare it locally so
+// TypeScript accepts the reference without a global ambient.
+declare const __DEV__: boolean
+
+// Exposes the room's Y.Doc on window as a dev-tool hook for Playwright
+// specs that need to inspect Y.Doc state via page.evaluate (e.g. the
+// authorship-stamping spec asserts on doc.getMap('clientAuthors')).
+// Gated on __DEV__ + window so the hook stays out of production bundles
+// and out of the native runtime (RN has no DOM window). The yDoc
+// identity is stable across renders within a mounted room, so the
+// effect runs once on mount.
+function useDevYDocWindowHook(yDoc: unknown): void {
+    useEffect(() => {
+        if (!__DEV__) return
+        if (typeof window === 'undefined') return
+        ;(window as unknown as { __tinyTextDoc?: unknown }).__tinyTextDoc = yDoc
+        return () => {
+            const w = window as unknown as { __tinyTextDoc?: unknown }
+            if (w.__tinyTextDoc === yDoc) delete w.__tinyTextDoc
+        }
+    }, [yDoc])
 }
 
 // Bind ⌘P / Ctrl+P → print. Web-only: native has no equivalent

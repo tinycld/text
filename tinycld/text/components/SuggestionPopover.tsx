@@ -1,4 +1,3 @@
-import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { Text, View } from 'react-native'
 import type { AnchoredOverlayProps } from '../lib/anchored-overlay/anchored-overlay-controller'
 import {
@@ -18,131 +17,62 @@ interface SuggestionPopoverPayload {
     suggestions: SuggestionPopoverEntry[]
 }
 
-// Props the registry mount supplies on top of the wire payload. The
-// AnchoredOverlayController's registry entries are
-// (props: AnchoredOverlayProps) => ReactNode — so to thread host-side
-// state (canResolve, the resolve callbacks) into the body we wrap the
-// body in a host-side closure that captures them. The SlashMenu host
-// mount (components/SlashMenu.tsx) builds this closure when it
-// registers the 'suggestion' kind.
-//
-// The host wrapper owns the mutation lifecycle via
-// useResolveSuggestionService (see hooks/use-resolve-suggestion.ts);
-// this component just renders the rows and forwards presses. Keeping
-// the mutation outside makes the popover unit-testable without
-// standing up a QueryClient and keeps SuggestionPopover focused on
-// layout + a11y.
+// Props the registry mount supplies on top of the wire payload.
+// Kept for compatibility with existing registry closures; the popover
+// body no longer consumes these fields (resolve actions live in the
+// review drawer). New mounts should still pass them so a future
+// recombination of the surfaces doesn't require a callsite-wide
+// migration.
 export interface SuggestionPopoverHostProps {
-    // Whether the current viewer can resolve (accept / reject)
-    // suggestions. The screen-level mount sources this from
-    // useSuggestionPermissions; when false, only the pending message
-    // shows and the buttons are hidden.
     canResolve: boolean
-    // Called when the viewer taps Accept on a specific row. The host
-    // wrapper builds this around useResolveSuggestionService.accept
-    // and forwards any popover-result dispatch (closing the overlay)
-    // afterwards.
     onAccept: (suggestionId: string) => void | Promise<void>
-    // Symmetric counterpart to onAccept for the Reject path.
     onReject: (suggestionId: string) => void | Promise<void>
-    // True while a resolve mutation is in flight. ALL row buttons are
-    // disabled during the pending window so the viewer can't fire a
-    // second mutation while the first hasn't applied — the resolve
-    // functions are idempotent against the mark structure, but the
-    // Y.Map update double-stamps the resolution and would leak
-    // history. Coarse-grained gating (whole popover) is fine because
-    // a typical pending window is sub-frame.
     isPending: boolean
 }
 
 // SuggestionPopover — the native body for the anchored-overlay
-// registry's 'suggestion' kind. The controller positions and frames
-// us; we render Accept / Reject buttons when the viewer can resolve,
-// or a pending message otherwise. Backdrop taps already route through
-// the controller's dismissExternal path without coming through this
-// body, so the only path through this component is button presses
-// or programmatic close from outside.
+// registry's 'suggestion' kind. Renders a compact Google-Docs-style
+// summary of the suggestion(s) at the click position: author name +
+// what's proposed (e.g. "Delete: 'test'", "Add: 'note this'",
+// "Proposed: add bold").
 //
-// Layered marks: when the click position has multiple overlapping
-// suggestions (Case 2b/2c), we render one row per entry with a
-// compact author + kind glyph + Accept/Reject set. The single-
-// suggestion case still renders the same compact buttons as Phase 2a
-// (no per-row header) to keep the common case visually unchanged —
-// except for Phase 5 kinds (format-change/block-change/cell-change),
-// where the summary line ("Proposed: add bold") is rendered above
-// the buttons so the viewer knows what's being proposed before
-// committing to an action.
-export function SuggestionPopover({
-    payload,
-    canResolve,
-    onAccept,
-    onReject,
-    isPending,
-}: AnchoredOverlayProps & SuggestionPopoverHostProps) {
+// Intentionally READ-ONLY: no Accept / Reject buttons. The viewer
+// takes action from the review drawer, which carries the full
+// per-document context (other suggestions, bulk actions, author
+// avatars, timestamps). Acting from an inline popover forces the
+// viewer to resolve one suggestion at a time without that context,
+// which is the wrong default for any non-trivial document.
+//
+// canResolve / onAccept / onReject / isPending props are kept on the
+// host-props interface for backwards compatibility with the registry
+// mount's closure but are no longer consumed here. The drawer owns the
+// resolve lifecycle end-to-end.
+export function SuggestionPopover({ payload }: AnchoredOverlayProps & SuggestionPopoverHostProps) {
+    // Google-Docs-style tooltip: a compact, read-only summary that names
+    // the author + describes the proposed change. Accept / Reject is
+    // intentionally NOT here — those actions live in the review drawer
+    // where the viewer sees the full suggestion set in context. A small
+    // inline popover forces the viewer to act on one item at a time
+    // without the doc-level overview, which is the wrong default.
+    //
+    // Each row corresponds to one (suggestionId, kind) pair the popover
+    // plugin found at the click point. The plugin dedupes by that key
+    // upstream so layered (Case 2c) marks don't multi-render here.
     const suggestions = (payload as SuggestionPopoverPayload | null)?.suggestions ?? []
-    const isMulti = suggestions.length > 1
-    const single = suggestions[0]
-    const singleSummary = single ? summarizeSuggestionEntry(single) : null
-
+    if (suggestions.length === 0) {
+        return null
+    }
     return (
         <View
             className="rounded-lg border border-border bg-background p-3 shadow-lg"
-            accessibilityRole="menu"
-            accessibilityLabel="Suggestion actions"
+            accessibilityRole="summary"
+            accessibilityLabel="Suggestion details"
         >
-            {canResolve ? (
-                isMulti ? (
-                    <View className="gap-2">
-                        {suggestions.map(entry => (
-                            <SuggestionPopoverRow
-                                key={`${entry.id}-${entry.kind}`}
-                                entry={entry}
-                                isPending={isPending}
-                                onAccept={onAccept}
-                                onReject={onReject}
-                            />
-                        ))}
-                    </View>
-                ) : (
-                    <View className="gap-2">
-                        {singleSummary && (
-                            <Text className="text-xs text-muted-foreground">{singleSummary}</Text>
-                        )}
-                        <View className="flex-row gap-2">
-                            <Button
-                                onPress={() => {
-                                    const id = single?.id
-                                    if (!id) return
-                                    void onAccept(id)
-                                }}
-                                disabled={isPending || suggestions.length === 0}
-                                variant="default"
-                                size="sm"
-                                accessibilityLabel="Accept suggestion"
-                            >
-                                <ButtonText>Accept</ButtonText>
-                            </Button>
-                            <Button
-                                onPress={() => {
-                                    const id = single?.id
-                                    if (!id) return
-                                    void onReject(id)
-                                }}
-                                disabled={isPending || suggestions.length === 0}
-                                variant="outline"
-                                size="sm"
-                                accessibilityLabel="Reject suggestion"
-                            >
-                                <ButtonText>Reject</ButtonText>
-                            </Button>
-                        </View>
-                    </View>
-                )
-            ) : (
-                <Text className="text-sm text-muted-foreground">
-                    Pending — editor role required to resolve
-                </Text>
-            )}
+            <View className="gap-1.5">
+                {suggestions.map(entry => (
+                    <SuggestionPopoverRow key={`${entry.id}-${entry.kind}`} entry={entry} />
+                ))}
+            </View>
         </View>
     )
 }
@@ -162,58 +92,33 @@ function glyphForKind(kind: SuggestionPopoverEntry['kind']): string {
 
 interface SuggestionPopoverRowProps {
     entry: SuggestionPopoverEntry
-    isPending: boolean
-    onAccept: (suggestionId: string) => void | Promise<void>
-    onReject: (suggestionId: string) => void | Promise<void>
 }
 
-function SuggestionPopoverRow({ entry, isPending, onAccept, onReject }: SuggestionPopoverRowProps) {
+function SuggestionPopoverRow({ entry }: SuggestionPopoverRowProps) {
     const summary = summarizeSuggestionEntry(entry)
     return (
-        <View className="gap-1">
-            <View className="flex-row items-center gap-2">
-                <Text className="w-4 text-sm font-semibold text-foreground">
-                    {glyphForKind(entry.kind)}
-                </Text>
+        <View className="flex-row items-start gap-2">
+            <Text className="w-4 text-sm font-semibold text-foreground">
+                {glyphForKind(entry.kind)}
+            </Text>
+            <View className="flex-1">
                 <Text
-                    className="flex-1 text-xs text-muted-foreground"
+                    className="text-xs font-medium text-foreground"
                     numberOfLines={1}
                     ellipsizeMode="tail"
                 >
                     {entry.authorId}
                 </Text>
-                <Button
-                    onPress={() => {
-                        void onAccept(entry.id)
-                    }}
-                    disabled={isPending}
-                    variant="default"
-                    size="sm"
-                    accessibilityLabel={`Accept ${entry.kind} suggestion by ${entry.authorId}`}
-                >
-                    <ButtonText>Accept</ButtonText>
-                </Button>
-                <Button
-                    onPress={() => {
-                        void onReject(entry.id)
-                    }}
-                    disabled={isPending}
-                    variant="outline"
-                    size="sm"
-                    accessibilityLabel={`Reject ${entry.kind} suggestion by ${entry.authorId}`}
-                >
-                    <ButtonText>Reject</ButtonText>
-                </Button>
+                {summary && (
+                    <Text
+                        className="text-xs text-muted-foreground"
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                    >
+                        {summary}
+                    </Text>
+                )}
             </View>
-            {summary && (
-                <Text
-                    className="ml-6 text-xs text-muted-foreground"
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                >
-                    {summary}
-                </Text>
-            )}
         </View>
     )
 }

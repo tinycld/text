@@ -1,6 +1,7 @@
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import type { Decoration } from '@tiptap/pm/view'
 import { ulid } from 'ulid'
 import type {
     BlockChangeAfter,
@@ -99,6 +100,52 @@ function rectFromClick(event: MouseEvent) {
 export interface SuggestionPopoverPluginDeps {
     post?: (message: object) => void
     newRequestId?: () => string
+}
+
+// toSuggestionEntry maps one decoration spec into the typed entry the
+// host renders in the popover. Pulled out of createSuggestionPopoverPlugin
+// so the dedupe loop can call it cleanly; same return shapes as before.
+function toSuggestionEntry(d: Decoration) {
+    const spec = d.spec as {
+        kind: string
+        suggestionId: string
+        authorId?: string
+        before?: SerializedMarks | BlockChangeBefore
+        after?: SerializedMarks | BlockChangeAfter
+    }
+    const base = {
+        id: spec.suggestionId,
+        authorId: spec.authorId ?? 'unknown',
+    }
+    if (spec.kind === 'suggestedInsert') {
+        return { ...base, kind: 'insert' as const }
+    }
+    if (spec.kind === 'suggestedDelete') {
+        return { ...base, kind: 'delete' as const }
+    }
+    if (spec.kind === 'suggestedFormatChange') {
+        return {
+            ...base,
+            kind: 'format-change' as const,
+            beforeMarks: (spec.before as SerializedMarks) ?? [],
+            afterMarks: (spec.after as SerializedMarks) ?? [],
+        }
+    }
+    // suggestedBlockChange. Distinguish cell vs non-cell by the node
+    // type carried in the before/after payload — the decoration plugin
+    // tags isCell via its CSS class but doesn't expose it through the
+    // spec, so we re-derive from payload.type which is the canonical
+    // source.
+    const before = spec.before as BlockChangeBefore | undefined
+    const after = spec.after as BlockChangeAfter | undefined
+    const t = before?.type ?? after?.type
+    const isCell = t === 'tableCell' || t === 'tableHeader'
+    return {
+        ...base,
+        kind: (isCell ? 'cell-change' : 'block-change') as 'cell-change' | 'block-change',
+        beforeBlock: before,
+        afterBlock: after,
+    }
 }
 
 export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps = {}) {
@@ -212,69 +259,38 @@ export function createSuggestionPopoverPlugin(deps: SuggestionPopoverPluginDeps 
                     const decoSet = getSuggestionDecorations(view.state)
                     const decos = decoSet.find(coords.pos, coords.pos)
 
-                    // Enumerate ALL suggestion decorations at the
-                    // click point — Case 2b/2c layered marks stack on
-                    // the same range, and the popover renders one row
-                    // per (suggestionId, kind) so the viewer can
-                    // Accept/Reject each independently. Phase 5 adds
-                    // three more decoration kinds (format-change,
-                    // block-change, cell-change); each carries its own
-                    // before/after payload so the popover can summarize
-                    // the proposed delta inline.
-                    const suggestions = decos
-                        .filter(
-                            d =>
-                                d.spec?.kind === 'suggestedInsert' ||
-                                d.spec?.kind === 'suggestedDelete' ||
-                                d.spec?.kind === 'suggestedFormatChange' ||
-                                d.spec?.kind === 'suggestedBlockChange'
-                        )
-                        .map(d => {
-                            const spec = d.spec as {
-                                kind: string
-                                suggestionId: string
-                                authorId?: string
-                                before?: SerializedMarks | BlockChangeBefore
-                                after?: SerializedMarks | BlockChangeAfter
-                            }
-                            const base = {
-                                id: spec.suggestionId,
-                                authorId: spec.authorId ?? 'unknown',
-                            }
-                            if (spec.kind === 'suggestedInsert') {
-                                return { ...base, kind: 'insert' as const }
-                            }
-                            if (spec.kind === 'suggestedDelete') {
-                                return { ...base, kind: 'delete' as const }
-                            }
-                            if (spec.kind === 'suggestedFormatChange') {
-                                return {
-                                    ...base,
-                                    kind: 'format-change' as const,
-                                    beforeMarks: (spec.before as SerializedMarks) ?? [],
-                                    afterMarks: (spec.after as SerializedMarks) ?? [],
-                                }
-                            }
-                            // suggestedBlockChange. Distinguish cell vs
-                            // non-cell by the node type in the before/
-                            // after payload — the decoration plugin
-                            // tags isCell via its CSS class but doesn't
-                            // expose it through the spec, so we re-
-                            // derive from payload.type which is the
-                            // canonical source.
-                            const before = spec.before as BlockChangeBefore | undefined
-                            const after = spec.after as BlockChangeAfter | undefined
-                            const t = before?.type ?? after?.type
-                            const isCell = t === 'tableCell' || t === 'tableHeader'
-                            return {
-                                ...base,
-                                kind: (isCell ? 'cell-change' : 'block-change') as
-                                    | 'cell-change'
-                                    | 'block-change',
-                                beforeBlock: before,
-                                afterBlock: after,
-                            }
-                        })
+                    // Enumerate suggestion decorations at the click
+                    // point and dedupe by (suggestionId, kind). One
+                    // logical suggestion frequently spans many Yjs
+                    // item ranges (a typing session emits one item per
+                    // character or paste run), and decoSet.find returns
+                    // one Decoration per item range — without dedupe
+                    // the popover renders one row per character and
+                    // emits duplicate React keys downstream.
+                    //
+                    // Case 2b/2c layered marks still produce separate
+                    // rows (different suggestionIds), as do insert +
+                    // delete that share a suggestionId (different
+                    // kinds — the consumer can group them visually as
+                    // "Replace 'X' with 'Y'" if both are present).
+                    const dedupeByKey = new Map<string, ReturnType<typeof toSuggestionEntry>>()
+                    for (const d of decos) {
+                        const k = d.spec?.kind
+                        if (
+                            k !== 'suggestedInsert' &&
+                            k !== 'suggestedDelete' &&
+                            k !== 'suggestedFormatChange' &&
+                            k !== 'suggestedBlockChange'
+                        ) {
+                            continue
+                        }
+                        const entry = toSuggestionEntry(d)
+                        const dedupeKey = `${entry.id}::${entry.kind}`
+                        if (!dedupeByKey.has(dedupeKey)) {
+                            dedupeByKey.set(dedupeKey, entry)
+                        }
+                    }
+                    const suggestions = Array.from(dedupeByKey.values())
                     if (suggestions.length === 0) return false
 
                     // Generate a fresh requestId. Displaces any

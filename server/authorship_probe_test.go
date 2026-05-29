@@ -35,6 +35,15 @@ func TestExtractWritingClientIDs_MultipleClientsInOneUpdate(t *testing.T) {
 	mB, _ := b.GetMap("x").(*ycrdt.YMap)
 	mB.Set("from-b", true)
 
+	// Capture the source clientIDs BEFORE merging, so the assertion
+	// catches any regression that returns the right *count* but wrong
+	// *identities* (e.g. a seen-set bug that emits the same ID twice).
+	wantA := uint32(a.ClientID)
+	wantB := uint32(b.ClientID)
+	if wantA == wantB {
+		t.Fatalf("test precondition failed: two fresh docs minted the same clientID (%d)", wantA)
+	}
+
 	// Merge into one doc; encode against an empty SV to get a single
 	// update carrying items from BOTH client IDs.
 	merged := ycrdt.NewDoc("merged", false, nil, nil, false)
@@ -48,8 +57,71 @@ func TestExtractWritingClientIDs_MultipleClientsInOneUpdate(t *testing.T) {
 		t.Fatalf("extractWritingClientIDs: %v", err)
 	}
 	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
-	if len(got) != 2 {
-		t.Errorf("expected 2 clientIDs, got %v", got)
+
+	want := []uint32{wantA, wantB}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("expected exact clientIDs %v, got %v", want, got)
+	}
+}
+
+// TestExtractWritingClientIDs_NestedTypeRecursion exercises the
+// nestedTypeOf / walkBlocksCollectingClientIDs recursion path: a
+// nested YMap is written *into* a parent YMap key, and the only
+// items written by the nested-doc clientID live inside the nested
+// type — not at the top level of the parent. If the recursion
+// regressed (e.g. nestedTypeOf returned nil, or the walker stopped
+// at root depth), the nested clientID would never surface and the
+// stamper would mis-attribute the inner write.
+func TestExtractWritingClientIDs_NestedTypeRecursion(t *testing.T) {
+	// Doc A: build a parent YMap with a nested YMap value. Both the
+	// parent key and the nested-type item are authored by clientA.
+	a := ycrdt.NewDoc("a", false, nil, nil, false)
+	installYXmlElementPatcher(a)
+	parentA, _ := a.GetMap("parent").(*ycrdt.YMap)
+	nestedA := ycrdt.NewYMap(nil)
+	parentA.Set("nested", nestedA)
+
+	// Doc B: load A's state so the parent + nested structure exists
+	// at B's clientID's perspective, then write a key INSIDE the
+	// nested YMap. The only items carrying clientB live one level
+	// down from the root — surfacing clientB requires recursion.
+	b := ycrdt.NewDoc("b", false, nil, nil, false)
+	installYXmlElementPatcher(b)
+	ycrdt.ApplyUpdate(b, ycrdt.EncodeStateAsUpdate(a, nil), nil)
+	parentB, _ := b.GetMap("parent").(*ycrdt.YMap)
+	nestedFromBVal := parentB.Get("nested")
+	nestedFromB, ok := nestedFromBVal.(*ycrdt.YMap)
+	if !ok {
+		t.Fatalf("expected nested value to be *YMap after merge, got %T", nestedFromBVal)
+	}
+	nestedFromB.Set("inner", "written-by-b")
+
+	// Capture clientIDs BEFORE encoding, so we can assert exact
+	// identity rather than just count.
+	wantA := uint32(a.ClientID)
+	wantB := uint32(b.ClientID)
+	if wantA == wantB {
+		t.Fatalf("test precondition failed: two fresh docs minted the same clientID (%d)", wantA)
+	}
+
+	// Encode B's full state. The single update payload now carries:
+	//   - the parent key item authored by clientA
+	//   - the nested-type ContentType item authored by clientA
+	//   - the "inner" key item authored by clientB — only reachable
+	//     by descending into the nested type via nestedTypeOf.
+	combined := ycrdt.EncodeStateAsUpdate(b, nil)
+
+	got, err := extractWritingClientIDs(combined)
+	if err != nil {
+		t.Fatalf("extractWritingClientIDs: %v", err)
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+
+	want := []uint32{wantA, wantB}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("expected nested-recursion clientIDs %v, got %v", want, got)
 	}
 }
 

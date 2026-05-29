@@ -2,7 +2,11 @@ import { Extension } from '@tiptap/core'
 import type { EditorState } from '@tiptap/pm/state'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import type { SerializedMarks } from '../../webview-editor/source/suggestions/suggestion-types'
+import type {
+    BlockChangeAfter,
+    BlockChangeBefore,
+    SerializedMarks,
+} from '../../webview-editor/source/suggestions/suggestion-types'
 import { colorForUser } from '../color-for-user'
 
 const PLUGIN_KEY = new PluginKey<DecorationSet>('tinycld:suggestion-decorations')
@@ -89,6 +93,123 @@ function buildFormatChangeTooltip(
     return `Proposed by ${authorId}: ${summarizeFormatChange(before, after)}`
 }
 
+// Human-readable labels for the block-level node types that
+// suggestedBlockChange targets. Mirrors TARGET_BLOCK_TYPES in
+// block-change-utils. If a future schema introduces a new block type
+// without a label here, the raw type name is used as a fallback.
+const BLOCK_TYPE_LABELS: Record<string, string> = {
+    paragraph: 'paragraph',
+    heading: 'heading',
+    listItem: 'list item',
+    bulletList: 'bullet list',
+    orderedList: 'ordered list',
+    blockquote: 'blockquote',
+    tableCell: 'table cell',
+}
+
+function labelForBlockType(type: string, attrs?: Record<string, unknown>): string {
+    const base = BLOCK_TYPE_LABELS[type] ?? type
+    // Heading gets the level appended ("heading 2") so the tooltip
+    // distinguishes between heading levels — they're the most common
+    // type-swap target and the distinction matters to the reader.
+    if (type === 'heading' && attrs && typeof attrs.level === 'number') {
+        return `heading ${attrs.level}`
+    }
+    return base
+}
+
+// Human-readable labels for common block-level attributes. The
+// suggestedBlockChange payload's attr diff is shown as
+// "<attr-label>: <value>" — e.g. "alignment: center", "heading level: 2".
+const BLOCK_ATTR_LABELS: Record<string, string> = {
+    level: 'heading level',
+    textAlign: 'alignment',
+    indent: 'indent',
+    blockIndent: 'indent',
+}
+
+function labelForBlockAttr(attr: string): string {
+    return BLOCK_ATTR_LABELS[attr] ?? attr
+}
+
+// diffBlockAttrs returns the keys whose values differ between before
+// and after. Used by summarizeBlockChange to compose the "attr: value"
+// fragments. We compare via JSON.stringify rather than deep equality —
+// block attrs are always JSON-serializable (level: number, textAlign:
+// string, indent: number) so the round-trip is safe and the stringify
+// catches null/undefined parity cleanly.
+function diffBlockAttrs(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>
+): string[] {
+    const keys = new Set<string>([...Object.keys(before), ...Object.keys(after)])
+    const changed: string[] = []
+    for (const key of keys) {
+        if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+            changed.push(key)
+        }
+    }
+    return changed
+}
+
+// summarizeBlockChange composes a brief human-readable description of
+// a block-level proposal. Cases (in priority order):
+//   - after.deleted === true → "delete <block type>" ("delete paragraph").
+//   - Type change with attr difference → "change to <after type> (<attr fragments>)"
+//     ("change to heading 2 (left-aligned)"). Same-type-but-different-
+//     level headings flow through this branch because the type label
+//     ("heading 2") already captures the level distinction.
+//   - Type change only → "change to <after type>" ("change to bullet list").
+//   - Attr change only → "<attr label>: <value>" ("alignment: center",
+//     "heading level: 2"). Multiple attr changes join with semicolons.
+//   - Defensive fallback (no recognizable difference) → "change block".
+export function summarizeBlockChange(before: BlockChangeBefore, after: BlockChangeAfter): string {
+    if (after.deleted === true) {
+        return `delete ${labelForBlockType(before.type, before.attrs)}`
+    }
+    if (before.type !== after.type) {
+        const targetLabel = labelForBlockType(after.type, after.attrs)
+        // Don't list the level under "(…)" for heading swaps — it's
+        // already in the target label ("heading 2").
+        const diffKeys = diffBlockAttrs(before.attrs, after.attrs).filter(
+            k => !(after.type === 'heading' && k === 'level')
+        )
+        if (diffKeys.length === 0) {
+            return `change to ${targetLabel}`
+        }
+        const fragments = diffKeys
+            .map(k => `${labelForBlockAttr(k)}: ${formatAttrValue(after.attrs[k])}`)
+            .join(', ')
+        return `change to ${targetLabel} (${fragments})`
+    }
+    // Same type — pure attr change.
+    const diffKeys = diffBlockAttrs(before.attrs, after.attrs)
+    if (diffKeys.length === 0) return 'change block'
+    return diffKeys
+        .map(k => `${labelForBlockAttr(k)}: ${formatAttrValue(after.attrs[k])}`)
+        .join('; ')
+}
+
+// formatAttrValue renders an attr value for display in the tooltip.
+// Strings ("center", "left") render verbatim; numbers stringify;
+// null/undefined render as "default" (so "alignment: default" is a
+// legible way to say "reset to the document default"). Other types
+// fall back to JSON for legibility.
+function formatAttrValue(value: unknown): string {
+    if (value === null || value === undefined) return 'default'
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+    return JSON.stringify(value)
+}
+
+function buildBlockChangeTooltip(
+    authorId: string,
+    before: BlockChangeBefore,
+    after: BlockChangeAfter
+): string {
+    return `Proposed by ${authorId}: ${summarizeBlockChange(before, after)}`
+}
+
 // colorForUser returns 'hsl(<hue>, 70%, 45%)'. For the background tint
 // we want a low-opacity version of the same hue; rewriting the prefix
 // to 'hsla(' and appending an alpha component yields a valid CSS color
@@ -103,9 +224,11 @@ function withAlpha(color: string, alpha: number): string {
 
 // buildDecorations walks the doc and emits inline decorations for
 // every text node carrying suggestedInsert, suggestedDelete, or
-// suggestedFormatChange marks. Co-existing marks (the spec's Case 2b
-// layered scenario) produce stacked decorations — they render on the
-// same range with their own spec.kind for later querying.
+// suggestedFormatChange marks, plus a node decoration for each
+// block-level node carrying a suggestedBlockChange attribute.
+// Co-existing marks (the spec's Case 2b layered scenario) produce
+// stacked decorations — they render on the same range with their own
+// spec.kind for later querying.
 //
 // suggestedFormatChange gets a thin colored underline (the author's
 // color) with a hover tooltip summarizing the before→after delta. The
@@ -113,9 +236,67 @@ function withAlpha(color: string, alpha: number): string {
 // when it stamped the suggestion, so the underline is what tells the
 // reader "a format change is pending here" without prematurely
 // rendering the change as if accepted.
+//
+// suggestedBlockChange gets a colored left-gutter bar on the affected
+// block (a 3px solid border in the author's color). For "delete" sub-
+// case, the gutter bar is combined with a 0.5 opacity overlay on the
+// block content to visually signal proposed removal. Type/attr swaps
+// render with only the gutter bar — the user's structural change was
+// reverted by the command layer, so the gutter is the sole signal.
 function buildDecorations(state: EditorState): DecorationSet {
     const decos: Decoration[] = []
     state.doc.descendants((node, pos) => {
+        // Block-level nodes can carry a suggestedBlockChange attribute
+        // even though they aren't text. We check this branch first; the
+        // remaining mark-based branches only apply to text nodes.
+        const blockChange = node.attrs.suggestedBlockChange as unknown
+        if (blockChange && typeof blockChange === 'object') {
+            const payload = blockChange as {
+                suggestionId?: unknown
+                authorId?: unknown
+                before?: unknown
+                after?: unknown
+            }
+            if (
+                typeof payload.suggestionId === 'string' &&
+                typeof payload.authorId === 'string' &&
+                payload.before &&
+                typeof payload.before === 'object' &&
+                payload.after &&
+                typeof payload.after === 'object'
+            ) {
+                const authorId = payload.authorId
+                const before = payload.before as BlockChangeBefore
+                const after = payload.after as BlockChangeAfter
+                const color = colorForUser(authorId)
+                const tooltip = buildBlockChangeTooltip(authorId, before, after)
+                // For a delete sub-case, dim the whole block to signal
+                // proposed removal. For attr/type swaps, the gutter
+                // bar is the only signal — no opacity change, no
+                // background tint.
+                const isDelete = after.deleted === true
+                const baseStyle = `border-left: 3px solid ${color}; padding-left: 8px;`
+                const style = isDelete ? `${baseStyle} opacity: 0.5;` : baseStyle
+                decos.push(
+                    Decoration.node(
+                        pos,
+                        pos + node.nodeSize,
+                        {
+                            class: 'tinycld-suggestion-block-change',
+                            style,
+                            title: tooltip,
+                        },
+                        {
+                            kind: 'suggestedBlockChange',
+                            suggestionId: payload.suggestionId,
+                            authorId,
+                            before,
+                            after,
+                        }
+                    )
+                )
+            }
+        }
         if (!node.isText) return
         for (const mark of node.marks) {
             if (mark.type.name === 'suggestedInsert') {

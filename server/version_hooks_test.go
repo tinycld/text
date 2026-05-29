@@ -8,9 +8,6 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 )
 
-// Tests in this file cover the Task 4 surface: computeMetadata's
-// suggestion counting and clientAuthors deduplication. The
-// applyVersionRestore round-trip lives in Task 5.
 
 // TestComputeMetadata_EmptyDoc verifies a doc with no clientAuthors and
 // no suggestions yields a metadata struct with zero suggestionsOpen, an
@@ -125,3 +122,86 @@ func TestComputeMetadata_AuthorsDeduplicateAcrossClientIDs(t *testing.T) {
 	}
 }
 
+// TestApplyVersionRestore_DeltaApplicableToFreshPeer is the round-trip
+// proof: encode state from one doc, apply to a separate live handle,
+// verify the returned delta replays the source's contents into a third
+// peer that started empty. Covers the broadcast contract — what we
+// return is what a never-saw-it client needs to converge.
+func TestApplyVersionRestore_DeltaApplicableToFreshPeer(t *testing.T) {
+	source := ycrdt.NewDoc("apply-source", false, nil, nil, false)
+	installYXmlElementPatcher(source)
+	srcAuthors, _ := source.GetMap("clientAuthors").(*ycrdt.YMap)
+	srcAuthors.Set("100", "uo-A")
+	srcAuthors.Set("200", "uo-B")
+	srcSuggestions, _ := source.GetMap("suggestions").(*ycrdt.YMap)
+	srcSuggestions.Set("s1", map[string]any{
+		"id":     "s1",
+		"status": "open",
+	})
+	stateBytes := ycrdt.EncodeStateAsUpdate(source, nil)
+
+	target := ycrdt.NewDoc("apply-target", false, nil, nil, false)
+	installYXmlElementPatcher(target)
+	handle := &textDocHandle{
+		runtime:      NewRuntime(),
+		id:           "apply-target",
+		doc:          target,
+		lastActivity: now(),
+	}
+
+	delta, err := handle.applyVersionRestore(stateBytes)
+	if err != nil {
+		t.Fatalf("applyVersionRestore: %v", err)
+	}
+	if len(delta) == 0 {
+		t.Fatalf("expected non-empty delta from fresh-to-populated apply")
+	}
+
+	// Target should now mirror the source.
+	tgtAuthors, _ := target.GetMap("clientAuthors").(*ycrdt.YMap)
+	if v := tgtAuthors.Get("100"); v != "uo-A" {
+		t.Errorf("target clientAuthors[100] = %v, want uo-A", v)
+	}
+	if v := tgtAuthors.Get("200"); v != "uo-B" {
+		t.Errorf("target clientAuthors[200] = %v, want uo-B", v)
+	}
+
+	// Delta should fold into a third never-saw-it peer.
+	peer := ycrdt.NewDoc("apply-peer", false, nil, nil, false)
+	installYXmlElementPatcher(peer)
+	ycrdt.ApplyUpdate(peer, delta, nil)
+	peerAuthors, _ := peer.GetMap("clientAuthors").(*ycrdt.YMap)
+	if v := peerAuthors.Get("100"); v != "uo-A" {
+		t.Errorf("peer clientAuthors[100] = %v, want uo-A", v)
+	}
+	peerSuggestions, _ := peer.GetMap("suggestions").(*ycrdt.YMap)
+	got := peerSuggestions.Get("s1")
+	gotMap, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("peer suggestions[s1] = %#v, want map", got)
+	}
+	if gotMap["status"] != "open" {
+		t.Errorf("peer suggestions[s1].status = %v, want open", gotMap["status"])
+	}
+}
+
+// TestApplyVersionRestore_OnClosedHandle verifies a closed handle
+// surfaces an error rather than silently dropping the restore. The
+// restore path checks handle != nil before calling this, but a race
+// between the eviction janitor and the HTTP handler is possible — we
+// want a clear failure mode in that window.
+func TestApplyVersionRestore_OnClosedHandle(t *testing.T) {
+	doc := ycrdt.NewDoc("apply-closed", false, nil, nil, false)
+	installYXmlElementPatcher(doc)
+	handle := &textDocHandle{
+		runtime:      NewRuntime(),
+		id:           "apply-closed",
+		doc:          doc,
+		lastActivity: now(),
+		closed:       true,
+	}
+	_, err := handle.applyVersionRestore([]byte{0x00, 0x00})
+	if err == nil {
+		t.Fatalf("expected error on closed handle, got nil")
+	}
+}

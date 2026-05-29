@@ -22,19 +22,19 @@ const versionStateFilename = "yjs_state.bin"
 
 // makeSnapshotVersionHook returns the drive VersionHook that captures
 // the live server doc's Yjs state into drive_item_versions.yjs_state +
-// drive_item_versions.version_metadata on snapshot. The OnRestore
-// implementation is added in Task 5; for now the field is left nil so
-// drive's existing docx-only restore continues to run unaltered.
+// drive_item_versions.version_metadata on snapshot, and reverses the
+// dance on restore.
 //
-// OnSnapshot gracefully no-ops when the room isn't live — a text doc
-// whose collaboration session has been evicted from memory (or never
-// opened) has no in-memory Y.Doc to capture from. The docx round-trip
-// (which drive owns) still works for the content; only the protected
-// roots (clientAuthors / clientFirstSeen / editEvents) are lost in
-// that case.
+// Both OnSnapshot and OnRestore gracefully no-op when the room isn't
+// live — a text doc whose collaboration session has been evicted from
+// memory (or never opened) has no in-memory Y.Doc to capture from /
+// apply to. The docx round-trip (which drive owns) still works for the
+// content; only the protected roots (clientAuthors / clientFirstSeen /
+// editEvents) are lost in that case.
 func makeSnapshotVersionHook(runtime *Runtime) driveserver.VersionHook {
 	return driveserver.VersionHook{
 		OnSnapshot: makeSnapshotVersionHookFn(runtime),
+		OnRestore:  makeRestoreVersionHookFn(runtime),
 	}
 }
 
@@ -66,6 +66,74 @@ func makeSnapshotVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *c
 		}
 		return nil
 	}
+}
+
+// makeRestoreVersionHookFn returns the OnRestore implementation. Reads
+// the version's yjs_state file, applies it to the live server doc under
+// the handle mutex, then broadcasts the delta over the room so existing
+// peers converge.
+//
+// No-ops when the version has no yjs_state (pre-Phase 4 versions, or a
+// version snapshotted while the room was dormant) or the room isn't
+// currently live. The docx-based restore (drive's part) has already
+// rebuilt the doc content from the docx blob; the protected roots are
+// the only thing we'd recover here, and absent yjs_state we can't.
+func makeRestoreVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *core.Record) error {
+	return func(app core.App, item *core.Record, version *core.Record) error {
+		stateBytes, err := readYjsStateBytes(app, version)
+		if err != nil {
+			return fmt.Errorf("text: read yjs_state: %w", err)
+		}
+		if len(stateBytes) == 0 {
+			slog.Info("text: restore version has no yjs_state; protected roots not recovered",
+				"itemID", item.Id, "versionID", version.Id)
+			return nil
+		}
+		handle := runtime.handleFor(item.Id)
+		if handle == nil {
+			slog.Info("text: restore room not live; yjs_state not applied",
+				"itemID", item.Id, "versionID", version.Id)
+			return nil
+		}
+		room := runtime.RoomFor(item.Id)
+		if room == nil {
+			return fmt.Errorf("text: restore room missing for live handle %s", item.Id)
+		}
+		delta, err := handle.applyVersionRestore(stateBytes)
+		if err != nil {
+			return fmt.Errorf("text: restore apply: %w", err)
+		}
+		if len(delta) == 0 {
+			return nil
+		}
+		if err := room.PublishDocUpdate(delta); err != nil {
+			return fmt.Errorf("text: restore broadcast: %w", err)
+		}
+		return nil
+	}
+}
+
+// readYjsStateBytes reads the version's yjs_state file via the
+// PocketBase filesystem. Returns nil bytes (with nil error) when the
+// field is empty — older versions pre-date Phase 4. A genuine read
+// failure surfaces an error so the restore path can log it.
+func readYjsStateBytes(app core.App, version *core.Record) ([]byte, error) {
+	filename := version.GetString("yjs_state")
+	if filename == "" {
+		return nil, nil
+	}
+	fsys, err := app.NewFilesystem()
+	if err != nil {
+		return nil, fmt.Errorf("open filesystem: %w", err)
+	}
+	defer fsys.Close()
+	key := version.BaseFilesPath() + "/" + filename
+	rdr, err := fsys.GetReader(key)
+	if err != nil {
+		return nil, fmt.Errorf("get reader for %s: %w", key, err)
+	}
+	defer rdr.Close()
+	return readCappedBytes(rdr, MaxDocxBytes)
 }
 
 // captureYjsStateAndMetadata reads the live doc under h.mu and returns

@@ -636,6 +636,46 @@ func (h *textDocHandle) publishEditEvent(event EditEvent) ([]byte, error) {
 	return writeEditEvent(h.doc, event)
 }
 
+// applyVersionRestore folds a previously-captured Yjs state (as written
+// by captureYjsStateAndMetadata) into the live server doc and returns
+// the bytes of a delta covering only the converging mutations — ready
+// to hand to Room.PublishDocUpdate for broadcast.
+//
+// Captures the doc's state vector BEFORE applying the snapshot so the
+// returned delta is the minimal set of items the doc didn't already
+// have. Connected peers can fold the broadcast directly without
+// retransmitting state they already know.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// stampAuthorship / publishEditEvent — restoring a version while a
+// peer is mid-edit would otherwise interleave operations and corrupt
+// the doc. Wraps the apply in a recover so a malformed snapshot
+// (corrupt yjs_state row, mismatched version) surfaces an error
+// instead of panicking the broker goroutine.
+func (h *textDocHandle) applyVersionRestore(stateBytes []byte) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: applyVersionRestore on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	beforeSV := ycrdt.EncodeStateVector(h.doc, nil, ycrdt.NewUpdateEncoderV1())
+	var applyErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				applyErr = fmt.Errorf("text: applyVersionRestore panic for room %s: %v", h.id, r)
+			}
+		}()
+		ycrdt.ApplyUpdate(h.doc, stateBytes, nil)
+	}()
+	if applyErr != nil {
+		return nil, applyErr
+	}
+	delta := ycrdt.EncodeStateAsUpdate(h.doc, beforeSV)
+	return delta, nil
+}
+
 // EncodeStateAsUpdate returns the bytes a new joiner needs to catch
 // up to the room's current state. Wrapped by the broker in a
 // MsgSyncReply frame.

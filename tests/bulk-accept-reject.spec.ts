@@ -1,10 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // End-to-end flow for the drawer's bulk-resolve affordances:
 // after several suggestions land in the doc, the "Accept all" /

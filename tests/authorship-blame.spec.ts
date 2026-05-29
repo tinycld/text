@@ -92,9 +92,7 @@ test.describe('Text — Authorship blame', () => {
             expect(entries.length).toBeGreaterThanOrEqual(2)
 
             // Open Alice's review drawer.
-            await alicePage
-                .getByRole('button', { name: 'Open suggestion review drawer' })
-                .click()
+            await alicePage.getByRole('button', { name: 'Open suggestion review drawer' }).click()
             await expect(alicePage.getByText('Suggestions').first()).toBeVisible({
                 timeout: 5_000,
             })

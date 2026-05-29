@@ -78,10 +78,7 @@ test.describe('Text — Block-change flow', () => {
                     state: {
                         doc: {
                             descendants: (
-                                cb: (
-                                    n: { isText?: boolean; text?: string },
-                                    pos: number
-                                ) => void
+                                cb: (n: { isText?: boolean; text?: string }, pos: number) => void
                             ) => void
                         }
                     }

@@ -105,12 +105,8 @@ test.describe('Text — Viewer cannot resolve', () => {
             // drawer-gating layer and the canResolve gating layer —
             // simultaneously: a regression in either would surface a
             // button in the page DOM.
-            await expect(
-                bobPage.getByRole('button', { name: 'Accept suggestion' })
-            ).toHaveCount(0)
-            await expect(
-                bobPage.getByRole('button', { name: 'Reject suggestion' })
-            ).toHaveCount(0)
+            await expect(bobPage.getByRole('button', { name: 'Accept suggestion' })).toHaveCount(0)
+            await expect(bobPage.getByRole('button', { name: 'Reject suggestion' })).toHaveCount(0)
 
             // Same logic for the drawer's bulk affordances — gated by
             // ReviewDrawer.tsx:177 on canResolve, and unreachable for

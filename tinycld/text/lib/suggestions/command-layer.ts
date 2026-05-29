@@ -791,6 +791,19 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             // plugins re-emit our appended transactions).
             if (transactions.some(tr => tr.getMeta(PLUGIN_KEY))) return null
 
+            // Skip y-prosemirror sync transactions. When a peer (or
+            // OUR OWN edit pipeline like the resolver's mark-strip
+            // commit) generates a Yjs update, y-prosemirror replays
+            // it back into the editor as a fresh PM transaction
+            // tagged with the 'y-sync$' meta. Without this guard, the
+            // command layer would treat that replay as a fresh user
+            // edit, re-stamp the affected range with suggestedInsert
+            // marks, and recreate the suggestions Y.Map entry — the
+            // resolved suggestion would silently respawn as 'open'.
+            // The guard is intentionally broad: any transaction with
+            // a y-sync$ meta is not user-driven.
+            if (transactions.some(tr => tr.getMeta('y-sync$') != null)) return null
+
             // Only act on user-driven content changes.
             if (!transactions.some(tr => tr.docChanged)) return null
 

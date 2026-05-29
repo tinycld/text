@@ -6,10 +6,13 @@ import { SuggestionsMap } from '../../../lib/suggestions/suggestions-map'
 // computeSuggestionsForBridge walks the editor's doc + the Y.Map and
 // returns the DocumentSuggestionsResult shape. Identical to Phase 2b's
 // data layer; extracted here so the WebView's message handler can
-// call it without pulling in the React hook.
+// call it without pulling in the React hook. Returns only the public
+// surface (anchored / orphaned) — the orphan-cleanup is a side-effect
+// of installSuggestionListBridge, not of this pure helper.
 export function computeSuggestionsForBridge(editor: Editor, yDoc: Y.Doc) {
     const map = new SuggestionsMap(yDoc)
-    return computeDocumentSuggestions(editor.state.doc, map)
+    const compute = computeDocumentSuggestions(editor.state.doc, map)
+    return { anchored: compute.anchored, orphaned: compute.orphaned }
 }
 
 // Wire shape:
@@ -30,10 +33,24 @@ export function installSuggestionListBridge(
     driveItemId: string,
     post: (kind: string, payload: unknown) => void
 ): () => void {
-    // Push the current snapshot to the host
+    const map = new SuggestionsMap(yDoc)
+    // hasSettled flips true on the first observed editor transaction.
+    // Until then we skip the orphan-cleanup pass — Yjs sync is async
+    // and a freshly-bootstrapped editor may not have the marks loaded
+    // yet, so a naive cleanup would delete legitimate open suggestions.
+    let hasSettled = false
+    // Compute + push current snapshot to the host. Triggers the
+    // orphan-cleanup pass (deleting Y.Map rows with no doc anchor)
+    // when the parser flags them — same logic the web bridge uses,
+    // mirrored here so the native path (snapshots pushed FROM the
+    // WebView to the host's NativeSuggestionBridge) gets cleanup too.
     const pushSnapshot = () => {
-        const result = computeSuggestionsForBridge(editor, yDoc)
+        const compute = computeDocumentSuggestions(editor.state.doc, map)
+        const result = { anchored: compute.anchored, orphaned: compute.orphaned }
         post('suggestion.changed', { driveItemId, result })
+        if (hasSettled && compute.orphanedIds.length > 0) {
+            map.deleteMany(compute.orphanedIds, yDoc)
+        }
     }
 
     // Initial push so the host's bridge has data immediately on
@@ -43,9 +60,11 @@ export function installSuggestionListBridge(
 
     // Subscribe to editor transactions (PM doc changes) and Y.Map
     // observer (other peers' changes to the suggestions map).
-    const onTr = () => pushSnapshot()
+    const onTr = () => {
+        hasSettled = true
+        pushSnapshot()
+    }
     editor.on('transaction', onTr)
-    const map = new SuggestionsMap(yDoc)
     const unobserve = map.observe(pushSnapshot)
 
     // Listen for explicit host-side list requests (rare; mostly used

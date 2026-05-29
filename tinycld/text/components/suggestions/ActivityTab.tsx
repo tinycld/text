@@ -41,10 +41,7 @@ export function ActivityTab({ entries }: ActivityTabProps) {
 }
 
 function rowKey(entry: ActivityEntry): string {
-    if (entry.kind === 'edit-event') {
-        return `e:${entry.event.clientId}:${entry.event.endedAt}`
-    }
-    return `s:${entry.suggestion.id}`
+    return `e:${entry.event.clientId}:${entry.event.endedAt}`
 }
 
 // ActivityRow renders one entry. Avatar (colored initials chip via
@@ -56,7 +53,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
     const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
     const border = useThemeColor('border')
-    const authorId = entry.kind === 'edit-event' ? entry.event.authorId : entry.suggestion.authorId
+    const authorId = entry.event.authorId
     const authorName = useAuthorName(authorId)
     const authorColor = colorForUser(authorId)
     const initials = (authorName ?? '?').slice(0, 2).toUpperCase()
@@ -97,12 +94,8 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
 
 function summarize(entry: ActivityEntry, name: string | null): string {
     const who = name ?? 'Someone'
-    if (entry.kind === 'edit-event') {
-        const { editCount } = entry.event
-        return `${who} made ${editCount} edit${editCount === 1 ? '' : 's'}`
-    }
-    const action = entry.suggestion.status === 'accepted' ? 'accepted' : 'rejected'
-    return `${who} ${action} a suggestion`
+    const { editCount } = entry.event
+    return `${who} made ${editCount} edit${editCount === 1 ? '' : 's'}`
 }
 
 // formatRelative renders a UNIX-millis timestamp as a human-friendly

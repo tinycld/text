@@ -61,7 +61,12 @@ export function ReviewDrawer({
     driveItemId,
     store,
     anchored,
-    orphaned,
+    // orphaned is part of the prop shape for backward compatibility
+    // with existing call sites + tests; the drawer no longer renders
+    // it (the parent's useDocumentSuggestions auto-deletes orphans
+    // before they reach the bridge / drawer). Underscore-prefixed so
+    // biome's noUnusedFunctionParameters stays quiet.
+    orphaned: _orphaned,
     canResolve,
     isPending,
     onAccept,
@@ -70,7 +75,10 @@ export function ReviewDrawer({
     onBulkReject,
     onJump,
     yDoc,
-    editor,
+    // editor is part of the prop shape for the same backward-compat
+    // reason — the drawer's only consumer was the Activity tab merging
+    // resolved suggestions, which is gone now.
+    editor: _editor,
 }: ReviewDrawerProps) {
     const isOpen = useStore(store, s => s.isOpen)
     const openForId = useStore(store, s => s.driveItemId)
@@ -165,11 +173,7 @@ export function ReviewDrawer({
             </View>
 
             {showExtendedTabs && activeTab === 'activity' ? (
-                <ActivityTabContainer
-                    driveItemId={driveItemId}
-                    yDoc={yDoc ?? null}
-                    editor={editor ?? null}
-                />
+                <ActivityTabContainer yDoc={yDoc ?? null} />
             ) : showExtendedTabs && activeTab === 'authorship' ? (
                 <AuthorshipTabContainer yDoc={yDoc ?? null} />
             ) : (
@@ -208,7 +212,7 @@ export function ReviewDrawer({
                         </View>
                     )}
                     <ScrollView style={{ flex: 1 }}>
-                        {openAnchored.length === 0 && orphaned.length === 0 && (
+                        {openAnchored.length === 0 && (
                             <Text style={{ color: muted, padding: 12 }}>
                                 No suggestions in this document.
                             </Text>
@@ -225,56 +229,11 @@ export function ReviewDrawer({
                                 onJump={() => onJump(s)}
                             />
                         ))}
-                        {orphaned.length > 0 && (
-                            <View style={{ marginTop: 16 }}>
-                                <Text
-                                    style={{
-                                        color: muted,
-                                        fontSize: 12,
-                                        fontWeight: '600',
-                                        paddingHorizontal: 8,
-                                        paddingBottom: 4,
-                                    }}
-                                >
-                                    Orphaned
-                                </Text>
-                                {orphaned.map(s => (
-                                    <View
-                                        key={s.id}
-                                        style={{
-                                            padding: 8,
-                                            flexDirection: 'row',
-                                            gap: 8,
-                                        }}
-                                    >
-                                        <Text style={{ color: fg, fontSize: 13 }}>
-                                            Suggestion by {s.authorId}
-                                        </Text>
-                                        {canResolve && (
-                                            <View
-                                                style={{
-                                                    flexDirection: 'row',
-                                                    gap: 4,
-                                                }}
-                                            >
-                                                <Pressable
-                                                    onPress={() => onAccept(s.id)}
-                                                    disabled={isPending}
-                                                >
-                                                    <Text style={{ color: fg }}>Accept</Text>
-                                                </Pressable>
-                                                <Pressable
-                                                    onPress={() => onReject(s.id)}
-                                                    disabled={isPending}
-                                                >
-                                                    <Text style={{ color: fg }}>Reject</Text>
-                                                </Pressable>
-                                            </View>
-                                        )}
-                                    </View>
-                                ))}
-                            </View>
-                        )}
+                        {/* Orphaned suggestions were entries in the Y.Map */}
+                        {/* with no doc anchor (Accept / Reject had nothing */}
+                        {/* to operate on). useDocumentSuggestions now auto- */}
+                        {/* deletes them on observation so they never reach */}
+                        {/* the drawer; this section has been removed. */}
                     </ScrollView>
                 </View>
             )}
@@ -325,17 +284,14 @@ function TabButton({ label, isActive, activeColor, inactiveColor, onPress }: Tab
 // ActivityTabContainer isolates the useActivityEntries call to a child
 // component so the hook only runs when the Activity tab is mounted.
 // Calling it at the ReviewDrawer top level would subscribe to the
-// editEvents Y.Array + the suggestion bridge unconditionally, including
-// while the user is on the Suggestions tab — wasteful, and the bridge
-// would double-subscribe alongside the screen-level subscription.
+// editEvents Y.Array unconditionally, including while the user is on
+// the Suggestions tab — wasteful.
 interface ActivityTabContainerProps {
-    driveItemId: string
     yDoc: Y.Doc | null
-    editor: Editor | null
 }
 
-function ActivityTabContainer({ driveItemId, yDoc, editor }: ActivityTabContainerProps) {
-    const entries = useActivityEntries(yDoc, editor, driveItemId)
+function ActivityTabContainer({ yDoc }: ActivityTabContainerProps) {
+    const entries = useActivityEntries(yDoc)
     return <ActivityTab entries={entries} />
 }
 

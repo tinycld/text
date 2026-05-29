@@ -47,6 +47,11 @@ export interface AnchoredSuggestion {
     afterBlock?: BlockChangeAfter
 }
 
+// OrphanedSuggestion is the public shape kept for type compatibility
+// with consumers that destructure the result (the suggestion bridge's
+// snapshot type). The orphaned array is always empty now — the parser
+// detects orphans (Y.Map entries with no doc anchor — see ComputeResult
+// below) and the hook auto-deletes them so they never reach the UI.
 export interface OrphanedSuggestion {
     id: string
     status: SuggestionStatus
@@ -57,6 +62,14 @@ export interface OrphanedSuggestion {
 export interface DocumentSuggestionsResult {
     anchored: AnchoredSuggestion[]
     orphaned: OrphanedSuggestion[]
+}
+
+// ComputeResult adds an internal orphanedIds list the hook consumes to
+// trigger the auto-cleanup pass. Kept separate from the public
+// DocumentSuggestionsResult so the bridge / drawer surface stays free
+// of unactionable rows.
+export interface ComputeResult extends DocumentSuggestionsResult {
+    orphanedIds: string[]
 }
 
 // computeDocumentSuggestions walks the editor doc and the suggestions
@@ -243,11 +256,9 @@ function recordMarkChange(
 }
 
 // Pure function so tests can drive it directly. The hook wraps it
-// with subscriptions to the editor + Y.Map.
-export function computeDocumentSuggestions(
-    doc: PMNode,
-    map: SuggestionsMap
-): DocumentSuggestionsResult {
+// with subscriptions to the editor + Y.Map plus the orphan-cleanup
+// pass that deletes any Y.Map entries with no doc anchor.
+export function computeDocumentSuggestions(doc: PMNode, map: SuggestionsMap): ComputeResult {
     const seenInDoc = new Map<string, DocRange>()
 
     doc.descendants((node, pos) => {
@@ -288,25 +299,51 @@ export function computeDocumentSuggestions(
     // Document order: sort by the anchor's from position.
     anchored.sort((a, b) => a.anchorRange.from - b.anchorRange.from)
 
-    // Orphan pass: any map entry whose id isn't keyed in seenInDoc.
+    // Orphan pass: a Y.Map entry whose id isn't keyed in seenInDoc
+    // is unactionable from the drawer (no anchor for Accept / Reject
+    // to operate on). We queue it for auto-deletion, but ONLY when
+    // its status is 'accepted' or 'rejected' — i.e. the resolve
+    // transaction already stripped the mark and the row's purpose is
+    // done.
+    //
+    // status === 'open' entries WITHOUT an anchor are NOT queued: the
+    // command layer creates the map row synchronously inside its
+    // appendTransaction callback, microseconds before the appended PM
+    // transaction commits. The map observer fires immediately on the
+    // create; if a recompute kicked off by that observer reads the
+    // doc BEFORE the appended PM tr lands, the doc walk transiently
+    // sees no suggestedInsert/Delete/FormatChange marks while the map
+    // already has the new row. Deleting on that race would wipe the
+    // user's in-progress suggestion. The common, intended case —
+    // resolved entries lingering after Accept/Reject — is fully
+    // covered by the status filter. A truly destructively-edited open
+    // entry (peer deletes the marked text in Editing mode) stays
+    // until next resolve, which is acceptable.
+    //
+    // We always return an empty `orphaned` array on the public surface
+    // so the drawer and bridge never render unactionable rows; the
+    // `orphanedIds` list is internal and feeds the hook's cleanup
+    // transaction.
     const seenIds = new Set(Array.from(seenInDoc.values()).map(r => r.id))
-    const orphaned: OrphanedSuggestion[] = []
+    const orphanedIds: string[] = []
     for (const entry of map.list()) {
         if (seenIds.has(entry.id)) continue
-        orphaned.push({
-            id: entry.id,
-            status: entry.status,
-            authorId: entry.authorId,
-            ts: entry.createdAt,
-        })
+        if (entry.status === SUGGESTION_STATUS_OPEN) continue
+        orphanedIds.push(entry.id)
     }
 
-    return { anchored, orphaned }
+    return { anchored, orphaned: [], orphanedIds }
 }
 
 // useDocumentSuggestions subscribes to both the editor's transactions
 // and the suggestions Y.Map, recomputing on either change. Returns
 // empty lists until the editor + yDoc are ready.
+//
+// Auto-cleanup of orphaned Y.Map rows lives in createWebSuggestionBridge
+// (the production observer), NOT here — duplicating it would cause two
+// concurrent cleanup passes and double-delete safe entries. This hook
+// is retained for tests + non-bridge call sites that still want the
+// raw observation surface.
 export function useDocumentSuggestions(
     editor: Editor | null,
     yDoc: Y.Doc | null
@@ -322,16 +359,14 @@ export function useDocumentSuggestions(
             return
         }
         const map = new SuggestionsMap(yDoc)
-        const recompute = () => setResult(computeDocumentSuggestions(editor.state.doc, map))
+        const recompute = () => {
+            const compute = computeDocumentSuggestions(editor.state.doc, map)
+            setResult({ anchored: compute.anchored, orphaned: compute.orphaned })
+        }
 
-        // Initial population.
         recompute()
-
-        // Recompute when the editor's doc changes.
         const onTr = () => recompute()
         editor.on('transaction', onTr)
-
-        // Recompute when the Y.Map changes (other peers).
         const unobserve = map.observe(recompute)
 
         return () => {

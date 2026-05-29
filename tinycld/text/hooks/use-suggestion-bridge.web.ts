@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import { SuggestionsMap } from '../lib/suggestions/suggestions-map'
-import { computeDocumentSuggestions } from './use-document-suggestions'
+import {
+    computeDocumentSuggestions,
+    type DocumentSuggestionsResult,
+} from './use-document-suggestions'
 import type { DocumentSuggestionBridge, SuggestionBridgeOptions } from './use-suggestion-bridge.d'
 
 // EMPTY_RESULT is a stable identity returned by no-op bridges (null
@@ -36,21 +39,44 @@ export function createWebSuggestionBridge(
         }
     }
     const map = new SuggestionsMap(yDoc)
-    let cached = computeDocumentSuggestions(editor.state.doc, map)
+    const initial = computeDocumentSuggestions(editor.state.doc, map)
+    let cached: DocumentSuggestionsResult = {
+        anchored: initial.anchored,
+        orphaned: initial.orphaned,
+    }
     let dirty = false
+    // hasSettled flips true on the first observed editor transaction.
+    // Until then we skip the orphan-cleanup pass — Yjs sync is async
+    // and a freshly-bootstrapped editor may not have the marks loaded
+    // yet, so a naive cleanup would delete legitimate open suggestions
+    // whose marks are about to arrive on the next sync packet.
+    let hasSettled = false
     const invalidate = () => {
         dirty = true
     }
+    // recompute reads the latest doc + map state, refreshes the
+    // public-facing cache (anchored only), AND triggers the orphan-
+    // cleanup pass when the parser flags map rows with no doc anchor.
+    // The cleanup runs in a single yDoc.transact (via deleteMany) so
+    // it lands as one MsgDocUpdate; its observer fires immediately
+    // afterward and triggers another recompute that propagates the
+    // cleaned state through subscribers.
+    const recompute = () => {
+        const compute = computeDocumentSuggestions(editor.state.doc, map)
+        cached = { anchored: compute.anchored, orphaned: compute.orphaned }
+        dirty = false
+        if (hasSettled && compute.orphanedIds.length > 0) {
+            map.deleteMany(compute.orphanedIds, yDoc)
+        }
+    }
     return {
         getSnapshot: () => {
-            if (dirty) {
-                cached = computeDocumentSuggestions(editor.state.doc, map)
-                dirty = false
-            }
+            if (dirty) recompute()
             return cached
         },
         subscribe: handler => {
             const onChange = () => {
+                hasSettled = true
                 invalidate()
                 handler()
             }

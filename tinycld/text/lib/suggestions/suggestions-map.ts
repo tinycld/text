@@ -83,6 +83,28 @@ export class SuggestionsMap {
         return Array.from(this.map.values())
     }
 
+    // Drop a suggestion entry by id. Used by the orphan-cleanup pass in
+    // useDocumentSuggestions when a Y.Map row has no matching mark/attr
+    // in the doc — that state is unrecoverable (Accept / Reject have no
+    // anchor to operate on) so the row is silently removed to keep the
+    // drawer clean. Idempotent: deleting an absent id is a no-op.
+    delete(id: string): void {
+        this.map.delete(id)
+    }
+
+    // Batch-delete a set of ids inside a single Yjs transaction. The
+    // single-transaction wrapper matters for the journal + fan-out: a
+    // 5-entry cleanup lands as one MsgDocUpdate instead of five, and
+    // peers observe one observe-callback fire instead of five.
+    deleteMany(ids: readonly string[], doc: Y.Doc): void {
+        if (ids.length === 0) return
+        doc.transact(() => {
+            for (const id of ids) {
+                this.map.delete(id)
+            }
+        })
+    }
+
     observe(handler: () => void): () => void {
         const observer = () => handler()
         this.map.observe(observer)

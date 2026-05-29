@@ -116,7 +116,13 @@ describe('computeDocumentSuggestions', () => {
         editor.destroy()
     })
 
-    it('lists Y.Map entries whose marks are absent from the doc as orphaned', () => {
+    it('queues resolved Y.Map entries with no doc anchor for auto-deletion', () => {
+        // Auto-deletion semantics replace the previous "orphaned" surface.
+        // A map entry whose mark/attribute is absent from the doc AND whose
+        // status is 'accepted' or 'rejected' is unactionable (Accept / Reject
+        // already happened — the row's purpose is done), so the parser
+        // returns it in orphanedIds for the hook to drop in its next Yjs
+        // transaction. The public `orphaned` array is always empty.
         const yDoc = new Y.Doc()
         const editor = makeEditor({
             type: 'doc',
@@ -128,12 +134,39 @@ describe('computeDocumentSuggestions', () => {
             ],
         })
         const map = new SuggestionsMap(yDoc)
-        // Map entry exists, but no mark on the doc references it.
         map.create({ id: 's-orphan', authorId: 'uo_gone', createdAt: 500 })
+        map.resolve('s-orphan', { status: 'accepted', by: 'uo_carol', at: 1000 })
 
         const result = computeDocumentSuggestions(editor.state.doc, map)
         expect(result.anchored).toHaveLength(0)
-        expect(result.orphaned.map(r => r.id)).toEqual(['s-orphan'])
+        expect(result.orphaned).toEqual([])
+        expect(result.orphanedIds).toEqual(['s-orphan'])
+        editor.destroy()
+    })
+
+    it('does NOT queue open Y.Map entries with no doc anchor (race protection)', () => {
+        // An open entry with no anchor more often means the doc walk hasn't
+        // caught up to a freshly-created map entry (the command layer
+        // writes the map row synchronously inside its appendTransaction
+        // callback, microseconds before the appended PM transaction
+        // commits). Deleting would wipe the user's in-progress suggestion.
+        const yDoc = new Y.Doc()
+        const editor = makeEditor({
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'just plain text' }],
+                },
+            ],
+        })
+        const map = new SuggestionsMap(yDoc)
+        map.create({ id: 's-open-no-anchor', authorId: 'uo_gone', createdAt: 500 })
+
+        const result = computeDocumentSuggestions(editor.state.doc, map)
+        expect(result.anchored).toHaveLength(0)
+        expect(result.orphaned).toEqual([])
+        expect(result.orphanedIds).toEqual([])
         editor.destroy()
     })
 

@@ -83,4 +83,46 @@ describe('SuggestionsMap', () => {
         map.resolve('s1', { status: SUGGESTION_STATUS_ACCEPTED, by: 'uo_carol', at: 5000 })
         expect(fired).toBe(1)
     })
+
+    it('delete removes the entry; idempotent on absent ids', () => {
+        const doc = new Y.Doc()
+        const map = new SuggestionsMap(doc)
+        map.create({ id: 's1', authorId: 'uo_alice', createdAt: 1000 })
+        expect(map.get('s1')).toBeDefined()
+        map.delete('s1')
+        expect(map.get('s1')).toBeUndefined()
+        map.delete('s1')
+        map.delete('never-existed')
+        expect(map.list()).toHaveLength(0)
+    })
+
+    it('deleteMany batches into a single Yjs transaction', () => {
+        const doc = new Y.Doc()
+        const map = new SuggestionsMap(doc)
+        map.create({ id: 's1', authorId: 'uo_alice', createdAt: 1000 })
+        map.create({ id: 's2', authorId: 'uo_bob', createdAt: 2000 })
+        map.create({ id: 's3', authorId: 'uo_carol', createdAt: 3000 })
+        // A single transaction wrapping three deletes fires the
+        // observer once; three bare delete()s would fire it three times.
+        let fired = 0
+        map.observe(() => {
+            fired++
+        })
+        map.deleteMany(['s1', 's2', 's3'], doc)
+        expect(fired).toBe(1)
+        expect(map.list()).toHaveLength(0)
+    })
+
+    it('deleteMany on empty list is a no-op', () => {
+        const doc = new Y.Doc()
+        const map = new SuggestionsMap(doc)
+        map.create({ id: 's1', authorId: 'uo_alice', createdAt: 1000 })
+        let fired = 0
+        map.observe(() => {
+            fired++
+        })
+        map.deleteMany([], doc)
+        expect(fired).toBe(0)
+        expect(map.get('s1')).toBeDefined()
+    })
 })

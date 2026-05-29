@@ -133,10 +133,18 @@ describe('Phase 2b smoke', () => {
         })
         expect(map.get('s-bob')?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
         // Bob's delete-accept removed the text. Carol's mark was on
-        // the deleted range and is gone too — but her Y.Map entry is
-        // still open (orphaned).
+        // the deleted range and is gone too. Bob's row (status:
+        // 'accepted', no anchor) gets queued for the hook's auto-
+        // cleanup. Carol's row stays as status: 'open' with no anchor
+        // — the parser intentionally does NOT queue open entries with
+        // no anchor (that pattern protects against a microsecond race
+        // between map.create and the appended PM transaction). The
+        // resolver in production would clean Carol's row up via a
+        // future Accept / Reject on her id.
         const result2 = computeDocumentSuggestions(editor.state.doc, map)
-        expect(result2.orphaned.map(o => o.id)).toContain('s-carol')
+        expect(result2.orphaned).toEqual([])
+        expect(result2.orphanedIds).toContain('s-bob')
+        expect(result2.orphanedIds).not.toContain('s-carol')
 
         editor.destroy()
     })

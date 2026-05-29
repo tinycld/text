@@ -8,48 +8,69 @@ import (
 // returns the distinct Yjs clientIDs that wrote any item carried by
 // the update.
 //
-// Implementation: applies the update to a fresh probe doc (same
-// pattern as suggestions_authz::validateUpdate) and walks every root
-// the apply populated. Each item in each root's blocks has an ID.Client
-// field — we collect those into a set and return the keys.
+// Implementation: decodes only the wire-format header for each client
+// section (clientID + struct count + starting clock + struct refs)
+// via the y-crdt decoder. We don't try to integrate the struct refs
+// into a probe Y.Doc, because incremental deltas reference items not
+// present in a fresh doc — those items end up in PendingStructs and
+// never appear in Share, so a walk would return zero IDs for every
+// realistic delta. The wire format records each writing clientID
+// directly, so reading the header yields the same answer for full and
+// incremental updates alike.
 //
-// Pure-delete payloads populate the delete set but not the blocks
-// list, so they return the empty slice. That is the correct behavior
-// for the stamper: deleting items belonging to a clientID we've never
-// seen doesn't establish authorship for that clientID.
+// Pure-delete payloads carry zero clients in the struct-refs section
+// (only the delete set is populated). They return the empty slice.
+// That is the correct behavior for the stamper: deleting items
+// belonging to a clientID we've never seen doesn't establish
+// authorship for that clientID.
 //
-// Malformed input does NOT return an error — the broker's downstream
-// ApplyUpdate would also drop the frame on bad bytes; returning empty
-// here lets the stamper continue with no-op.
+// Malformed input returns an error wrapped from the decoder; the
+// stamper logs and continues with no-op. The broker's own
+// ApplyUpdate would also reject the bytes; treating decode failures
+// here as no-stamp matches that behavior.
 //
-// ID.Client is a y-crdt Number (= int) on the wire; we narrow to uint32
-// to match Yjs's documented 32-bit clientID space and what the
+// ID.Client is a y-crdt Number on the wire; we narrow to uint32 to
+// match Yjs's documented 32-bit clientID space and what the
 // authorship entries in the Y.Doc are keyed by elsewhere in this
 // package.
 func extractWritingClientIDs(update []byte) ([]uint32, error) {
 	if len(update) == 0 {
 		return nil, nil
 	}
-	probe := ycrdt.NewDoc("authorship-probe", false, nil, nil, false)
-	// Same XmlElement-observer patch the validator installs — without
-	// it a legitimate write that triggers observer fan-out during
-	// ApplyUpdate would panic, the recover guard would convert that
-	// into "no IDs seen", and the stamper would silently skip
-	// perfectly valid frames.
-	installYXmlElementPatcher(probe)
-	if err := applyForProbe(probe, update); err != nil {
-		// Convert to "no clientIDs seen" rather than surfacing — the
-		// broker's own apply will also reject the bytes; the stamper
-		// is a no-op for unstampable frames.
-		return nil, nil
-	}
 	seen := map[uint32]struct{}{}
-	for _, root := range probe.Share {
-		if root == nil {
-			continue
+	// The decoder reads through ReadVarUint and friends; on malformed
+	// bytes y-crdt's helpers panic rather than returning errors, so a
+	// recover() converts any blow-up into a no-stamp result. The
+	// broker's own ApplyUpdate already drops malformed frames; the
+	// probe matches that behavior — return whatever clientIDs were
+	// collected before the panic, swallow the error so the stamper
+	// continues with a no-op rather than surfacing alarming logs for
+	// ordinary well-formed-but-only-partly-parseable updates.
+	func() {
+		defer func() { _ = recover() }()
+		decoder := ycrdt.NewUpdateDecoderV1(update)
+		numClients := ycrdt.ReadVarUint(decoder.RestDecoder)
+		for i := uint64(0); i < numClients; i++ {
+			// Each section in the structs region records, in order:
+			//   - structs-in-this-client (varuint)
+			//   - clientID                (varuint)
+			//   - starting clock          (varuint)
+			//   - the structs themselves  (variable)
+			// We only need the clientID; we then skip past the structs
+			// using the y-crdt decoder so the next iteration aligns
+			// with the following client's header.
+			numStructs := ycrdt.ReadVarUint(decoder.RestDecoder)
+			client, _ := decoder.ReadClient()
+			_ = ycrdt.ReadVarUint(decoder.RestDecoder) // clock
+			seen[uint32(client)] = struct{}{}
+			if !skipStructsForClient(decoder, numStructs) {
+				// Decoder ran off the end mid-section. Stop iterating
+				// — the remaining clients in this update are
+				// unparseable.
+				return
+			}
 		}
-		walkBlocksCollectingClientIDs(root, seen)
-	}
+	}()
 	out := make([]uint32, 0, len(seen))
 	for cid := range seen {
 		out = append(out, cid)
@@ -57,81 +78,51 @@ func extractWritingClientIDs(update []byte) ([]uint32, error) {
 	return out, nil
 }
 
-// walkBlocksCollectingClientIDs inspects an AbstractType-bearing root
-// and recursively collects ID.Client from every Item in its blocks
-// (Start linked-list) and from every Item in nested child types.
+// skipStructsForClient walks past `n` struct refs in the decoder by
+// reading each ref's info byte and conditionally consuming the rest
+// of its fields. Mirrors the per-ref branches in y-crdt's
+// ReadClientsStructRefs, but discards rather than allocates Item
+// values — the probe only needs the clientID header at this layer.
 //
-// Why both Start and Map: Yjs items live either on a positional linked
-// list (Start → right → right …) or in a Map keyed by string property
-// names (for YMap roots). Both paths reach the same Item struct.
-func walkBlocksCollectingClientIDs(root any, seen map[uint32]struct{}) {
-	at := embeddedAbstractType(root)
-	if at == nil {
-		return
-	}
-	for item := at.Start; item != nil; item = item.Right {
-		seen[uint32(item.ID.Client)] = struct{}{}
-		if child := nestedTypeOf(item); child != nil {
-			walkBlocksCollectingClientIDs(child, seen)
+// Returns false on EOF mid-ref (decoder ran out of bytes); the caller
+// stops iterating and returns whatever clientIDs were already seen.
+func skipStructsForClient(decoder *ycrdt.UpdateDecoderV1, n uint64) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ok = false
+		}
+	}()
+	for i := uint64(0); i < n; i++ {
+		info, _ := decoder.ReadInfo()
+		switch ycrdt.BITS5 & info {
+		case 0: // GC ref: <length>
+			_, _ = decoder.ReadLen()
+		case 10: // Skip ref: <length>
+			_ = ycrdt.ReadVarUint(decoder.RestDecoder)
+		default: // Item ref
+			cantCopyParentInfo := (info & (ycrdt.BIT7 | ycrdt.BIT8)) == 0
+			if info&ycrdt.BIT8 == ycrdt.BIT8 {
+				_, _ = decoder.ReadLeftID()
+			}
+			if info&ycrdt.BIT7 == ycrdt.BIT7 {
+				_, _ = decoder.ReadRightID()
+			}
+			if cantCopyParentInfo {
+				hasYKey, _ := decoder.ReadParentInfo()
+				if hasYKey {
+					_, _ = decoder.ReadString()
+				} else {
+					_, _ = decoder.ReadLeftID()
+				}
+			}
+			if cantCopyParentInfo && (info&ycrdt.BIT6) == ycrdt.BIT6 {
+				_, _ = decoder.ReadString()
+			}
+			// Skip the content payload via the library's reader; the
+			// returned Content value is discarded.
+			_ = ycrdt.ReadItemContent(decoder, info)
 		}
 	}
-	for _, item := range at.Map {
-		if item == nil {
-			continue
-		}
-		seen[uint32(item.ID.Client)] = struct{}{}
-		if child := nestedTypeOf(item); child != nil {
-			walkBlocksCollectingClientIDs(child, seen)
-		}
-	}
+	return true
 }
 
-// embeddedAbstractType returns the embedded *ycrdt.AbstractType of a
-// concrete Y* value, or nil if the argument isn't a known type. The
-// concrete-Y* branch list mirrors the typeRefs table in y-crdt's
-// content_type.go (and patchAbstractType in runtime.go) — every
-// concrete type the library can mint during update decoding.
-//
-// The bare *AbstractType branch matters specifically for the probe.
-// When ApplyUpdate integrates an item targeting a root key whose
-// constructor has never been requested via doc.Get*, y-crdt
-// auto-creates a bare *AbstractType placeholder in doc.Share (see
-// doc.go::Get) rather than a typed wrapper. Probe docs by definition
-// never call Get, so root entries land as bare *AbstractType — that's
-// the common case here, not an edge case.
-func embeddedAbstractType(t any) *ycrdt.AbstractType {
-	switch v := t.(type) {
-	case *ycrdt.AbstractType:
-		return v
-	case *ycrdt.YMap:
-		return &v.AbstractType
-	case *ycrdt.YArray:
-		return &v.AbstractType
-	case *ycrdt.YText:
-		return &v.AbstractType
-	case *ycrdt.YXmlElement:
-		return &v.AbstractType
-	case *ycrdt.YXmlFragment:
-		return &v.AbstractType
-	case *ycrdt.YXmlText:
-		return &v.AbstractType
-	case *ycrdt.YXmlHook:
-		return &v.AbstractType
-	}
-	return nil
-}
-
-// nestedTypeOf returns the child IAbstractType-shaped value an Item's
-// content might carry (for ContentType — items that hold a nested Y*
-// type, e.g. an entry in a YMap whose value is a YMap). Returns nil
-// for plain content (text, JSON, binary).
-func nestedTypeOf(item *ycrdt.Item) any {
-	if item == nil || item.Content == nil {
-		return nil
-	}
-	ct, ok := item.Content.(*ycrdt.ContentType)
-	if !ok {
-		return nil
-	}
-	return ct.Type
-}

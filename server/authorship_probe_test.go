@@ -153,3 +153,40 @@ func TestExtractWritingClientIDs_MalformedBytes(t *testing.T) {
 		t.Errorf("malformed bytes should not surface an error; got %v", err)
 	}
 }
+
+// TestExtractWritingClientIDs_IncrementalDelta covers the realistic
+// hot-path case: a live keystroke produces an update encoded against
+// the SERVER's current state vector, not against an empty SV. Those
+// updates carry items whose Origin / RightOrigin reference items the
+// probe doc has never seen, so an Integrate-based probe (e.g. one
+// that walks Share after ApplyUpdate) would surface zero clientIDs
+// because the struct refs land in PendingStructs rather than being
+// integrated into Share. The wire-format-only decoder this file ships
+// reads the per-client header (numStructs, clientID, clock) WITHOUT
+// integrating, so it returns the writing clientID even when the
+// referenced items are missing. This test pins that contract — a
+// regression to integration-based probing would surface here as a
+// clientID count of zero.
+func TestExtractWritingClientIDs_IncrementalDelta(t *testing.T) {
+	src := ycrdt.NewDoc("src", false, nil, nil, false)
+	installYXmlElementPatcher(src)
+	m, _ := src.GetMap("ctx").(*ycrdt.YMap)
+	m.Set("seed", "v0")
+	// Capture the SV at the point both sides are in sync. The next
+	// write is encoded against this SV — that's the incremental delta
+	// the broker would route on every keystroke after first sync.
+	syncedSV := ycrdt.EncodeStateVector(src, nil, ycrdt.NewUpdateEncoderV1())
+	m.Set("incremental", "v1")
+	delta := ycrdt.EncodeStateAsUpdate(src, syncedSV)
+
+	got, err := extractWritingClientIDs(delta)
+	if err != nil {
+		t.Fatalf("extractWritingClientIDs on incremental delta: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 clientID on incremental delta; got %v", got)
+	}
+	if want := uint32(src.ClientID); got[0] != want {
+		t.Errorf("expected clientID %d, got %d", want, got[0])
+	}
+}

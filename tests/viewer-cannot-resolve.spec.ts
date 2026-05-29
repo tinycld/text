@@ -61,7 +61,7 @@ test.describe('Text — Viewer cannot resolve', () => {
             // Alice switches to Suggesting mode and types a marker.
             await alicePage.getByRole('button', { name: 'Editor mode' }).click()
             await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
-            await expect(alicePage.getByLabel('Suggesting mode')).toBeVisible({
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
                 timeout: 10_000,
             })
 

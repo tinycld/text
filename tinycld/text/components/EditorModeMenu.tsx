@@ -53,6 +53,14 @@ export function EditorModeMenu({ modeStore, canEdit, canSuggest }: EditorModeMen
     const mode = useStore(modeStore, s => s.mode)
     const fgColor = useThemeColor('foreground')
     const mutedColor = useThemeColor('muted-foreground')
+    // Theme tokens for the non-Editing highlight. `primary` is the
+    // app-wide accent (teal by default); `primary-foreground` is its
+    // contrast token. Using theme tokens (not the per-user author
+    // color) here because the dropdown is global UI chrome — the
+    // author color belongs to the document's inline decorations and
+    // would clash with the toolbar's visual language.
+    const primaryColor = useThemeColor('primary')
+    const primaryFg = useThemeColor('primary-foreground')
 
     const handleSelect = (next: EditorMode) => {
         modeStore.getState().setMode(next)
@@ -66,19 +74,42 @@ export function EditorModeMenu({ modeStore, canEdit, canSuggest }: EditorModeMen
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
             : {}
 
+    // Non-Editing modes (Suggesting / Viewing) get the primary-color
+    // pill treatment so the writer can see at a glance that their
+    // edits aren't behaving like default Editing-mode edits. The
+    // dropdown trigger itself doubles as the mode indicator — replaces
+    // the separate Suggesting chip we used to render below the toolbar.
+    const isNonDefault = mode !== EDITOR_MODE_EDITING
+    const triggerBg = isNonDefault ? primaryColor : 'transparent'
+    const triggerFg = isNonDefault ? primaryFg : fgColor
+    const chevronColor = isNonDefault ? primaryFg : mutedColor
+    // accessibilityLabel stays "Editor mode" across modes so callers
+    // (Playwright specs, screen readers) refer to the control by its
+    // role consistently. The current mode is exposed via the visible
+    // Text child and via accessibilityValue.text — separates "what
+    // control is this" (label) from "what is its current value"
+    // (mode name). data-current-mode threads the mode through to the
+    // DOM so e2e specs can pin the visual state with a stable
+    // selector instead of trying to read accessibilityValue.
+    const dataAttrs =
+        Platform.OS === 'web' ? ({ 'data-current-mode': mode } as Record<string, string>) : {}
+
     return (
         <Menu>
             <Menu.Trigger>
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Editor mode"
+                    accessibilityValue={{ text: MODE_LABELS[mode] }}
                     {...webProps}
+                    {...dataAttrs}
                     className="flex-row items-center gap-1 rounded-md px-2 py-1.5"
+                    style={{ backgroundColor: triggerBg }}
                 >
-                    <Text style={{ color: fgColor, fontSize: 13, fontWeight: '500' }}>
+                    <Text style={{ color: triggerFg, fontSize: 13, fontWeight: '500' }}>
                         {MODE_LABELS[mode]}
                     </Text>
-                    <ChevronDown size={14} color={mutedColor} />
+                    <ChevronDown size={14} color={chevronColor} />
                 </Pressable>
             </Menu.Trigger>
             <Menu.Portal>

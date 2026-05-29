@@ -76,7 +76,7 @@ test.describe('Text — Bulk accept / reject', () => {
         // as format-change-flow / block-change-flow.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.getByLabel('Suggesting mode')).not.toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
 
         // Open the drawer; expect 3 rows.
         await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()
@@ -128,7 +128,7 @@ async function makeThreeSuggestions(page: Page, prefix: string): Promise<string[
     // separate the typed runs.
     await page.getByRole('button', { name: 'Editor mode' }).click()
     await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-    await expect(page.getByLabel('Suggesting mode')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({ timeout: 10_000 })
 
     for (let i = 0; i < 3; i++) {
         // Drop caret at end of doc + new paragraph, then type a unique

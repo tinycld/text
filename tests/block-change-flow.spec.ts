@@ -66,7 +66,9 @@ test.describe('Text — Block-change flow', () => {
         // Switch into Suggesting mode via the toolbar dropdown.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.getByLabel('Suggesting mode')).toBeVisible({ timeout: 10_000 })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
+            timeout: 10_000,
+        })
 
         // Place the caret inside the phrase's paragraph. setBlockType
         // (used by toggleHeading) operates on the block containing
@@ -151,7 +153,7 @@ test.describe('Text — Block-change flow', () => {
         // another block-change.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.getByLabel('Suggesting mode')).not.toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
 
         // Click Accept all to resolve the block-change row. The
         // resolver runs setNodeMarkup(pos, headingType, {level:2}) on

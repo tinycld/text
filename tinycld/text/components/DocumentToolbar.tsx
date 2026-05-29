@@ -36,7 +36,6 @@ import type { EditorModeStore } from '../stores/editor-mode-store'
 import type { ReviewDrawerStore } from '../stores/review-drawer-store'
 import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
-import { EditorModeChip } from './EditorModeChip'
 import { EditorModeMenu } from './EditorModeMenu'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
@@ -427,7 +426,9 @@ export function DocumentToolbar({
                     </View>
                 </View>
             </ToolbarRow>
-            {modeStore ? <EditorModeChip modeStore={modeStore} /> : null}
+            {/* The Suggesting chip used to render here; the EditorModeMenu */}
+            {/* dropdown now doubles as the mode indicator (primary-color pill */}
+            {/* when not in Editing). */}
 
             <LinkPopover
                 isOpen={linkOpen}

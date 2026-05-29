@@ -65,7 +65,9 @@ test.describe('Text — Format-change flow', () => {
         // Switch into Suggesting mode via the toolbar dropdown.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.getByLabel('Suggesting mode')).toBeVisible({ timeout: 10_000 })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
+            timeout: 10_000,
+        })
 
         // Select the just-typed phrase via the editor's command chain
         // again. We use the dev hook because driving selection via the
@@ -165,7 +167,7 @@ test.describe('Text — Format-change flow', () => {
         // same discipline — see tests/suggestions/format-change-resolve.test.ts:115.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.getByLabel('Suggesting mode')).not.toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
 
         // Click Accept all to resolve the format-change row. The
         // resolver strips the suggestedFormatChange wrapper and

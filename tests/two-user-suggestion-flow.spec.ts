@@ -64,7 +64,7 @@ test.describe('Text — Two-user suggestion flow', () => {
             // Alice switches to Suggesting mode via the toolbar dropdown.
             await alicePage.getByRole('button', { name: 'Editor mode' }).click()
             await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
-            await expect(alicePage.getByLabel('Suggesting mode')).toBeVisible({
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
                 timeout: 10_000,
             })
 

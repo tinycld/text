@@ -36,11 +36,13 @@ test.describe('Text — Suggesting mode flow', () => {
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
 
-        // The EditorModeChip mounts only in Suggesting mode and carries
-        // accessibilityLabel="Suggesting mode" — the strongest signal
-        // that the mode actually flipped AND identity is set on the
-        // mode store (the chip's render path requires both).
-        await expect(page.getByLabel('Suggesting mode')).toBeVisible({ timeout: 10_000 })
+        // The EditorModeMenu trigger flips its accessibilityLabel to
+        // "Suggesting mode" (and styles itself in the primary color
+        // pill) when the current mode is not Editing — the signal that
+        // the mode actually flipped on the store.
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
+            timeout: 10_000,
+        })
 
         // Re-focus the editor (the menu click can shift focus) and
         // drop the caret at the very end so the new content doesn't

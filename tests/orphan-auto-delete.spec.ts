@@ -39,7 +39,9 @@ test.describe('Text — Orphan auto-delete', () => {
         // command layer has accepted the mode + identity is set.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.getByLabel('Suggesting mode')).toBeVisible({ timeout: 10_000 })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
+            timeout: 10_000,
+        })
 
         // Re-focus the editor (menu click shifts focus) and drop the
         // caret at the very end of the doc so the new content doesn't
@@ -76,7 +78,7 @@ test.describe('Text — Orphan auto-delete', () => {
         // block-change e2e specs document the same discipline).
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.getByLabel('Suggesting mode')).not.toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
 
         // Open the drawer and accept the suggestion.
         await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()

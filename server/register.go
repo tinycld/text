@@ -83,11 +83,27 @@ func Register(app *pocketbase.PocketBase) {
 		},
 		RuntimeProvider: runtime,
 		Journal:         journal,
-		OnRoomCreate:    saveCoordinator.OnRoomCreate,
-		OnDocUpdate:     saveCoordinator.OnDocUpdate,
-		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
-		OnEmpty:         saveCoordinator.OnRoomEmpty,
-		OnConnect: makeOnConnect(app, runtime),
+		// Wrap OnRoomCreate so the runtime also gets a handle to the
+		// *realtime.Room reference — the Phase 3a authorship stamper
+		// uses it to broadcast server-originated delta updates back to
+		// peers via Room.PublishDocUpdate.
+		OnRoomCreate: func(roomID string, handle realtime.DocHandle, room *realtime.Room) {
+			runtime.noteRoom(roomID, room)
+			saveCoordinator.OnRoomCreate(roomID, handle, room)
+		},
+		OnDocUpdate: saveCoordinator.OnDocUpdate,
+		// Phase 3a server-side authorship stamping: after each accepted
+		// MsgDocUpdate, inspect the payload for writing Yjs clientIDs
+		// and stamp clientAuthors / clientFirstSeen for any ID we
+		// haven't seen yet in this room. The stamper is the orchestration
+		// layer that pulls together the probe (extractWritingClientIDs),
+		// the user_org resolver, the writer (writeAuthorshipEntries),
+		// and the broadcast (Room.PublishDocUpdate). See
+		// authorship_stamper.go for the full flow.
+		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
+		OnEmpty:            saveCoordinator.OnRoomEmpty,
+		OnConnect:          makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads
 		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no

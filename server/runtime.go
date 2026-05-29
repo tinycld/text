@@ -62,6 +62,18 @@ type Runtime struct {
 	mu      sync.Mutex
 	docs    map[string]*ycrdt.Doc
 	handles map[string]*textDocHandle
+	// rooms records the *realtime.Room reference the broker hands us
+	// in OnRoomCreate, so server-originated broadcasts (Phase 3a
+	// authorship stamping) can call Room.PublishDocUpdate without
+	// going through the broker registry each time. Indexed by the same
+	// roomID the doc / handle maps use.
+	rooms map[string]*realtime.Room
+
+	// authorship is the Phase 3a stamping cache. Lives the lifetime of
+	// the process; per-room state is dropped in closeDoc so a long-
+	// running server doesn't leak stamped-set / userOrg memos for
+	// rooms that have been evicted.
+	authorship *authorshipCache
 
 	// importWarnings holds per-room warnings produced during bootstrap
 	// (e.g. tracked changes stripped, comments dropped). The OnConnect
@@ -101,10 +113,61 @@ func NewRuntime() *Runtime {
 	return &Runtime{
 		docs:           map[string]*ycrdt.Doc{},
 		handles:        map[string]*textDocHandle{},
+		rooms:          map[string]*realtime.Room{},
+		authorship:     newAuthorshipCache(),
 		importWarnings: map[string]importWarningEntry{},
 		stop:           make(chan struct{}),
 		janitorDone:    make(chan struct{}),
 	}
+}
+
+// noteRoom records the *realtime.Room reference the broker hands us
+// in its OnRoomCreate callback. The reference lives until closeDoc
+// removes it (a room teardown). Used by the Phase 3a authorship
+// stamper to broadcast server-originated delta updates back to peers
+// via Room.PublishDocUpdate.
+func (r *Runtime) noteRoom(roomID string, room *realtime.Room) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rooms[roomID] = room
+}
+
+// RoomFor returns the *realtime.Room associated with the given roomID,
+// or nil if the room has not been created or has been torn down.
+func (r *Runtime) RoomFor(roomID string) *realtime.Room {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rooms[roomID]
+}
+
+// AuthorshipCache returns the process-wide authorship cache. The
+// Phase 3a stamper consults this to short-circuit duplicate work on
+// the hot inbound-update path; tests use it to introspect cache state.
+func (r *Runtime) AuthorshipCache() *authorshipCache {
+	return r.authorship
+}
+
+// docFor returns the *ycrdt.Doc registered for the given roomID, or
+// nil. Thin accessor — callers should NOT mutate the returned doc
+// without holding the handle's mutex. For mutating writes the broker
+// goes through textDocHandle.ApplyUpdate; the Phase 3a stamper goes
+// through textDocHandle.stampAuthorship. This raw accessor exists for
+// the janitor (read-only checks) and integration tests.
+func (r *Runtime) docFor(roomID string) *ycrdt.Doc {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.docs[roomID]
+}
+
+// handleFor returns the *textDocHandle registered for the given roomID,
+// or nil. The Phase 3a authorship stamper uses this to acquire the
+// handle's mutex before mutating the doc, so its writes don't race
+// with the broker's concurrent ApplyUpdate / EncodeStateAsUpdate calls
+// on the same doc.
+func (r *Runtime) handleFor(roomID string) *textDocHandle {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.handles[roomID]
 }
 
 // StartJanitor spins up the background goroutine that evicts idle docs
@@ -305,14 +368,23 @@ func ensureAbstractTypeInitialized(at *ycrdt.AbstractType) {
 
 // closeDoc removes the doc from the registry. Returns true if the
 // doc was registered. Safe to call multiple times.
+//
+// Drops the room reference and the authorship cache's per-room
+// entries alongside the doc/handle so a long-running server doesn't
+// leak state for evicted rooms. The authorship cache has its own
+// mutex; we release r.mu before calling dropRoom to keep the lock
+// ordering (runtime mu → authorship mu, never both held).
 func (r *Runtime) closeDoc(roomID string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, ok := r.docs[roomID]; !ok {
+		r.mu.Unlock()
 		return false
 	}
 	delete(r.docs, roomID)
 	delete(r.handles, roomID)
+	delete(r.rooms, roomID)
+	r.mu.Unlock()
+	r.authorship.dropRoom(roomID)
 	return true
 }
 
@@ -439,6 +511,34 @@ func (h *textDocHandle) ApplyUpdate(payload []byte) error {
 		ycrdt.ApplyUpdate(h.doc, payload, nil)
 	}()
 	return applyErr
+}
+
+// stampAuthorship writes the given authorship entries into the
+// server-side Y.Doc and returns the bytes of a delta covering only
+// those mutations — ready to hand to Room.PublishDocUpdate for
+// broadcast.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// EncodeStateAsUpdate, so server-originated authorship writes don't
+// race with concurrent inbound updates routed from other connections.
+// The broker's route loop fires per-connection, so two peers writing
+// to the same room could otherwise reach the doc simultaneously —
+// without this lock, the stamper's authors.Set / firstSeen.Set could
+// interleave with the broker's ApplyUpdate, corrupting the doc.
+//
+// Empty entries returns nil bytes and no error (caller skips the
+// broadcast).
+func (h *textDocHandle) stampAuthorship(entries []authorshipEntry) ([]byte, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: stampAuthorship on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	return writeAuthorshipEntries(h.doc, entries)
 }
 
 // EncodeStateAsUpdate returns the bytes a new joiner needs to catch

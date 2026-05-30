@@ -37,11 +37,11 @@ jobs:
         with:
           go-version-file: ws/.go-version
       # 3. Clone app + core (the PR's PACKAGE is already checked out into its
-      #    slot; bootstrap --tooling skips dirs that already exist). A sibling
+      #    slot; bootstrap --assemble-only skips dirs that already exist). A sibling
       #    only needs app + core + itself to typecheck + unit-test.
       - name: Assemble workspace (app + core + drive)
         working-directory: ws
-        run: TINYCLD_REPO_BASE=https://github.com/tinycld npx @tinycld/bootstrap@latest --tooling --with drive
+        run: TINYCLD_REPO_BASE=https://github.com/tinycld npx @tinycld/bootstrap@latest --assemble-only --with drive
       - name: Install (workspace root)
         working-directory: ws
         run: npm install
@@ -71,7 +71,7 @@ jobs:
           go-version-file: ws/.go-version
       - name: Assemble workspace (app + core + drive)
         working-directory: ws
-        run: TINYCLD_REPO_BASE=https://github.com/tinycld npx @tinycld/bootstrap@latest --tooling --with drive
+        run: TINYCLD_REPO_BASE=https://github.com/tinycld npx @tinycld/bootstrap@latest --assemble-only --with drive
       - name: Install (workspace root)
         working-directory: ws
         run: npm install
@@ -81,3 +81,52 @@ jobs:
       - name: E2E
         working-directory: ws/${{ env.PACKAGE }}
         run: npx tinycld-pkg test:e2e
+      # Capture Playwright's per-failure artifacts (trace, screenshot,
+      # video, error-context.md) so a CI failure can be diagnosed
+      # without a re-run. `if: failure()` skips the upload on green
+      # runs to save bandwidth + retention.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            ws/${{ env.PACKAGE }}/test-results/
+            ws/${{ env.PACKAGE }}/playwright-report/
+          retention-days: 14
+
+  go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: tinycld/workspace
+          ref: main
+          path: ws
+      - uses: actions/checkout@v5
+        with:
+          path: ws/${{ env.PACKAGE }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ws/.node-version
+          cache: npm
+          cache-dependency-path: ws/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ws/.go-version
+      - name: Assemble workspace (app + core + drive)
+        working-directory: ws
+        run: TINYCLD_REPO_BASE=https://github.com/tinycld npx @tinycld/bootstrap@latest --assemble-only --with drive
+      - name: Install (workspace root)
+        working-directory: ws
+        run: npm install
+      # text's Go module is tinycld.org/packages/text at text/server/.
+      # The full ./... covers the package code + the translate/ and
+      # render/ subpackages. The generator (postinstall) materializes
+      # go.work + package_extensions.go beforehand so `go test` can
+      # see the cross-package replaces.
+      - name: Go tests
+        working-directory: ws/${{ env.PACKAGE }}/server
+        run: go test -count=1 ./...
+

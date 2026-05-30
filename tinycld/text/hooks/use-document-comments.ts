@@ -57,15 +57,24 @@ export interface DocumentCommentsResult {
 // gate access through drive_shares_via_item.
 export function useDocumentComments(
     driveItemId: string,
-    commentBridge: DocumentCommentBridge | null
+    commentBridge: DocumentCommentBridge | null,
+    options?: { disabled?: boolean }
 ): DocumentCommentsResult {
+    const disabled = options?.disabled === true
     const [textCommentsCollection] = useStore('text_comments')
+    // useOrgLiveQuery accepts `null` to short-circuit subscription —
+    // returning EMPTY here keeps the read-only design decision intact:
+    // viewers don't fetch text_comments rows so a viewer never sees
+    // comments existed on the doc. See screens/[id].tsx for the
+    // design-decision comment.
     const { data: rows = [] } = useOrgLiveQuery(
         query =>
-            query
-                .from({ comment: textCommentsCollection })
-                .where(({ comment }) => eq(comment.drive_item, driveItemId)),
-        [driveItemId]
+            disabled
+                ? null
+                : query
+                      .from({ comment: textCommentsCollection })
+                      .where(({ comment }) => eq(comment.drive_item, driveItemId)),
+        [driveItemId, disabled]
     )
 
     const [orphanedCommentIds, setOrphanedCommentIds] = useState<Set<string>>(() => new Set())

@@ -1,6 +1,8 @@
 import { useAuth } from '@tinycld/core/lib/auth'
 import type { RealtimeRoomHandle } from '@tinycld/core/lib/realtime/use-realtime-room'
+import { useMemo } from 'react'
 import { colorForUser } from '../lib/color-for-user'
+import { createEditorModeStore, type EditorModeStore } from '../stores/editor-mode-store'
 import { useDocumentEditor } from './use-document-editor'
 import { typedServerHello, typedServerSlot } from './useTextRoom'
 
@@ -23,11 +25,21 @@ import { typedServerHello, typedServerSlot } from './useTextRoom'
 export function useTextDocument(
     room: RealtimeRoomHandle,
     driveItemId: string,
-    options: { onRequestInsertImage?: () => void } = {}
+    options: {
+        onRequestInsertImage?: () => void
+        modeStore?: EditorModeStore
+        onSuggestionMessage?: (kind: string, payload: unknown) => void
+    } = {}
 ) {
     const { user } = useAuth()
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
+    // The screen instantiates the store and threads it through
+    // useTextDocument; until that wiring lands (Task 7), useTextDocument
+    // supplies a fallback store defaulting to editing mode — the command
+    // layer's mode-check short-circuits so no suggestion marks are
+    // written, regardless of what the user types.
+    const fallbackModeStore = useMemo(() => createEditorModeStore(), [])
     const editorResult = useDocumentEditor({
         yDoc: room.doc,
         awareness: room.awareness,
@@ -35,6 +47,8 @@ export function useTextDocument(
         driveItemId,
         onRequestInsertImage: options.onRequestInsertImage,
         user: user ? { id: user.id, name: user.name, color: colorForUser(user.id) } : undefined,
+        modeStore: options.modeStore ?? fallbackModeStore,
+        onSuggestionMessage: options.onSuggestionMessage,
     })
     return {
         ...editorResult,

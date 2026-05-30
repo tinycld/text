@@ -3,10 +3,41 @@ package translate
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 
 	ycrdt "github.com/skyterra/y-crdt"
 )
+
+// yTiptapHashSuffixRe matches the `--<8 base64 chars>` suffix that
+// y-tiptap (the JS-side Yjs <-> ProseMirror binding) appends to a
+// mark name when the mark type is "overlapping" — i.e. the mark
+// type's excludes set permits a same-type mark on the same range
+// (suggestedInsert / suggestedDelete use excludes:'' so two authors
+// can layer independent proposals over the same run).
+//
+// The suffix is 6 bytes from a SHA-256 digest re-encoded as base64
+// (see y-tiptap's `hashOfJSON` + `_convolute`) — exactly 8 base64
+// characters from the alphabet [A-Za-z0-9+/=]. The same regex
+// y-tiptap uses on decode (`yattr2markname`) is mirrored here so
+// the Go bridge surfaces the canonical mark type name to downstream
+// consumers (docx emitter, comment extractor, etc.) instead of the
+// opaque hashed name. Without this strip, a `suggestedDelete--AbCd1234`
+// key would surface as a PM mark whose type is `suggestedDelete--AbCd1234`
+// — a name no emitter recognizes, so the mark is SILENTLY dropped
+// from the docx output and the strikethrough vanishes on reload.
+var yTiptapHashSuffixRe = regexp.MustCompile(`^(.*)--[A-Za-z0-9+/=]{8}$`)
+
+// stripYTiptapHashSuffix returns the canonical mark name from a
+// y-tiptap-encoded attribute key. Pass-through for keys that don't
+// match the hashed-suffix shape, so non-overlapping marks (which
+// y-tiptap writes under their bare name) round-trip unchanged.
+func stripYTiptapHashSuffix(attrKey string) string {
+	if m := yTiptapHashSuffixRe.FindStringSubmatch(attrKey); m != nil {
+		return m[1]
+	}
+	return attrKey
+}
 
 // IMPLEMENTATION NOTE on the y-crdt API surface used here.
 //
@@ -103,14 +134,11 @@ func PMJSONFromYDoc(doc *ycrdt.Doc) ([]byte, error) {
 	}
 
 	for _, item := range frag.ToArray() {
-		decoded, err := decodeXMLChild(item)
+		children, err := decodeXMLChild(item)
 		if err != nil {
 			return nil, err
 		}
-		if decoded == nil {
-			continue
-		}
-		root.Content = append(root.Content, *decoded)
+		root.Content = append(root.Content, children...)
 	}
 	return json.Marshal(root)
 }
@@ -241,13 +269,32 @@ func marksToAttributes(marks []PMMark) ycrdt.Object {
 }
 
 // decodeXMLChild converts one item out of a YXmlFragment / YXmlElement
-// child list back into a PMNode. Items are either *YXmlElement (block
-// nodes), *YXmlText (text runs with optional marks), or — defensively —
-// nil for anything we don't recognize.
-func decodeXMLChild(item any) (*PMNode, error) {
+// child list back into zero-or-more PMNodes. Items are either
+// *YXmlElement (one block node), *YXmlText (one or more text runs —
+// y-tiptap may pack multiple differently-formatted runs into a single
+// YText, e.g. a paragraph "prefix [marked CUTME] suffix" lives as one
+// YText with three delta ops), or — defensively — anything else, which
+// we drop.
+//
+// We return a slice (rather than a single *PMNode) so that the YText
+// case can fan out into N PMNodes — one per delta op — without the
+// callers losing every run past the first. Returning a single node was
+// the source of a silent-data-loss bug: anything after the first
+// formatted segment of a multi-run YText was discarded, so a paragraph
+// like "prefix CUTME suffix" with a suggestedDelete mark on CUTME
+// flushed back to docx as just "prefix " — both CUTME and suffix were
+// gone.
+func decodeXMLChild(item any) ([]PMNode, error) {
 	switch v := item.(type) {
 	case *ycrdt.YXmlElement:
-		return decodeXMLElement(v)
+		node, err := decodeXMLElement(v)
+		if err != nil {
+			return nil, err
+		}
+		if node == nil {
+			return nil, nil
+		}
+		return []PMNode{*node}, nil
 	case *ycrdt.YXmlText:
 		return decodeXMLText(v), nil
 	case ycrdt.IXmlType:
@@ -271,40 +318,46 @@ func decodeXMLElement(el *ycrdt.YXmlElement) (*PMNode, error) {
 	}
 
 	for _, item := range el.ToArray() {
-		child, err := decodeXMLChild(item)
+		children, err := decodeXMLChild(item)
 		if err != nil {
 			return nil, err
 		}
-		if child == nil {
-			continue
-		}
-		node.Content = append(node.Content, *child)
+		node.Content = append(node.Content, children...)
 	}
 
 	return &node, nil
 }
 
-// decodeXMLText splits a YXmlText delta into one PMNode-text per run
+// decodeXMLText splits a YXmlText's delta into one PMNode-text per run
 // of identically-marked characters. A YXmlText with no formatting
-// produces one PMNode with empty Marks.
-func decodeXMLText(text *ycrdt.YXmlText) *PMNode {
+// produces one PMNode with empty Marks; a YXmlText carrying multiple
+// format runs (the common case when y-tiptap stores a whole paragraph's
+// inline content in a single YText) produces one PMNode per delta op.
+//
+// Returning a SLICE rather than a single PMNode is load-bearing: a
+// paragraph whose middle word carries a suggestedDelete mark lives in
+// Y.Doc as a single YText with three delta ops (prefix / CUTME with
+// mark / suffix). Returning only the first op silently dropped CUTME
+// and the suffix on docx flush, so after a reload the trailing text was
+// missing — the symptom the user reported as "everything after the
+// deleted word is gone."
+func decodeXMLText(text *ycrdt.YXmlText) []PMNode {
 	delta := text.ToDelta(nil, nil, nil)
 	if len(delta) == 0 {
 		return nil
 	}
-	// Path A's storage shape is one YXmlText per text run today, so
-	// the delta is usually a single insert. We keep the loop general
-	// in case a future writer formats portions of a longer YXmlText
-	// (e.g. when the JS client sends partial updates).
-	if len(delta) == 1 {
-		return deltaOpToTextNode(delta[0])
-	}
+	out := make([]PMNode, 0, len(delta))
 	for _, op := range delta {
-		if op.IsInsertDefined {
-			return deltaOpToTextNode(op)
+		if !op.IsInsertDefined {
+			continue
 		}
+		node := deltaOpToTextNode(op)
+		if node == nil {
+			continue
+		}
+		out = append(out, *node)
 	}
-	return nil
+	return out
 }
 
 func deltaOpToTextNode(op ycrdt.EventOperator) *PMNode {
@@ -338,7 +391,7 @@ func attributesToMarks(attrs ycrdt.Object) []PMMark {
 
 	marks := make([]PMMark, 0, len(keys))
 	for _, k := range keys {
-		mark := PMMark{Type: k}
+		mark := PMMark{Type: stripYTiptapHashSuffix(k)}
 		switch v := attrs[k].(type) {
 		case bool:
 			if !v {

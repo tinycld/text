@@ -1,9 +1,11 @@
 package text
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
+	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 	ycrdt "github.com/skyterra/y-crdt"
@@ -220,4 +222,200 @@ func TestRealtimeWAL_CleanupOnDriveItemDelete(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("WAL rows after drive_item delete = %d; want 0", calls)
 	}
+}
+
+// TestRealtimeWAL_RejectsClientAuthorshipWrite verifies that Register wires
+// validateUpdate into RoomKindOptions.UpdateContentValidator so the broker
+// rejects inbound MsgDocUpdate frames that mutate protected Y.Doc roots
+// (clientAuthors, clientFirstSeen, editEvents). Together with core's
+// TestUpdateContentValidatorRejectsUpdate — which proves the broker calls
+// UpdateContentValidator when set and drops the frame on a non-nil return
+// (no journal append, no server-doc apply, no fan-out) — this completes
+// the end-to-end guarantee that a client-forged authorship write never
+// reaches the journal.
+//
+// The text package can't drive the broker pipeline from outside the
+// realtime package (route, join, runConnection are unexported), so this
+// test does the two pieces it CAN cover from here:
+//  1. Run the production wiring (text.Register) and assert
+//     UpdateContentValidator was wired (not left nil).
+//  2. Hand the wired function a Yjs update that writes to clientAuthors —
+//     the exact malicious-client shape — and assert it returns an error.
+//
+// Core's broker-integration test then closes the loop: a non-nil error
+// from this exact function drops the frame before the journal.
+func TestRealtimeWAL_RejectsClientAuthorshipWrite(t *testing.T) {
+	t.Cleanup(realtime.ResetRegistryForTest)
+
+	// pocketbase.New() is enough for Register: it touches only the hook
+	// registry (OnRecordAfterDeleteSuccess) and the realtime room-kind
+	// registry, neither of which needs the DB to be bootstrapped.
+	app := pocketbase.New()
+	Register(app)
+
+	opts, ok := realtime.LookupOptionsForTest(roomKindText)
+	if !ok {
+		t.Fatalf("Register did not register the %q room kind", roomKindText)
+	}
+	if opts.UpdateContentValidator == nil {
+		t.Fatalf("Register did not wire UpdateContentValidator for %q", roomKindText)
+	}
+
+	// Hand-craft a Yjs update that writes to "clientAuthors" — the
+	// authorship map a malicious client would attempt to forge. Same
+	// ycrdt API the validator's isolated tests use (see
+	// suggestions_authz_test.go) so we know the bytes are well-formed.
+	src := ycrdt.NewDoc("src", false, nil, nil, false)
+	authors := src.GetMap("clientAuthors").(*ycrdt.YMap)
+	authors.Set("999", "spoofed-author-id")
+	spoofed := ycrdt.EncodeStateAsUpdate(src, nil)
+
+	if err := opts.UpdateContentValidator("doc-1", spoofed); err == nil {
+		t.Fatal("wired validator admitted a clientAuthors write; expected rejection")
+	}
+}
+
+// TestRealtimeWAL_Phase1_EditorWritesOK_ClientAuthorshipBlocked is the
+// Phase 1 e2e smoke: confirm that an editor-role client connected to a
+// real text-kind room broker can write ordinary updates AND that the
+// broker drops updates writing to protected authorship Y.Doc roots,
+// all through the real route() path (not via a stubbed kind, not via
+// the validator function in isolation).
+//
+// Together with the existing coverage:
+//   - core's TestUpdateContentValidatorRejectsUpdate proves the broker
+//     calls UpdateContentValidator and drops the frame on a non-nil
+//     return — but uses a stub kind, not the text-kind path.
+//   - TestRealtimeWAL_RejectsClientAuthorshipWrite (above) proves
+//     Register wires validateUpdate into the registry — but calls the
+//     wired function directly, not through Broker.route().
+//
+// This test closes the gap: it builds the same RoomKindOptions
+// text.Register builds (mirroring its body), registers the kind for
+// real, then drives two frames through Broker.RouteFrameForTest. The
+// first writes legitimate content to the "default" XML fragment and
+// MUST land in the server-side mirror. The second writes to
+// "clientAuthors" — the malicious-client shape — and MUST be dropped
+// by the broker before reaching the mirror.
+//
+// We construct the wiring locally rather than calling Register because
+// Register takes *pocketbase.PocketBase and the test harness exposes
+// *tests.TestApp. Each RoomKindOptions field below is the same value
+// Register would set (cross-reference register.go); the test passes iff
+// that exact bundle, plumbed through a real Broker, drops the spoofed
+// frame while accepting the legitimate one.
+//
+// Because the wiring is local, a refactor that changes WHICH field
+// Register populates with the validator (e.g. moving the protection
+// into a wrapper or a new OnConnect-time check) would still pass this
+// test even though production would break. That drift is guarded by
+// TestRealtimeWAL_RejectsClientAuthorshipWrite above, which DOES call
+// Register and looks up the registered options via LookupOptionsForTest.
+// The two tests are complementary: that one guards Register's wiring,
+// this one guards the broker's route() integration.
+func TestRealtimeWAL_Phase1_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
+	t.Cleanup(realtime.ResetRegistryForTest)
+
+	app := setupTestApp(t)
+	addWALCollection(t, app)
+
+	item := seedDriveItem(t, app, "wal-e2e-validator.docx", nil)
+
+	runtime := NewRuntime()
+	// No bootstrap: NewDoc starts with an empty Y.Doc, which is what
+	// we want — the test asserts on content WE write through the
+	// broker, not on bootstrapped fixture data.
+	t.Cleanup(runtime.Stop)
+
+	journal := realtime.NewPocketBaseJournal(app)
+	flush := makeProductionFlush(app, runtime)
+	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator.SetJournal(roomKindText, journal)
+
+	// Mirror text.Register's RegisterRoomKindWith call. Authorize is
+	// required by the registry but the join path bypasses it (only
+	// handleConnect calls it), so a permissive no-op is fine here.
+	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+		Authorize:       func(_ *core.Record, _ string) error { return nil },
+		RuntimeProvider: runtime,
+		Journal:         journal,
+		OnRoomCreate:    saveCoordinator.OnRoomCreate,
+		OnDocUpdate:     saveCoordinator.OnDocUpdate,
+		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
+		OnEmpty:         saveCoordinator.OnRoomEmpty,
+		// WritePredicate gates on Client.ReadOnly(). Test clients
+		// constructed via NewClientForTest default to readOnly=false,
+		// so this predicate admits them.
+		WritePredicate: func(c *realtime.Client, _ string) bool {
+			return !c.ReadOnly()
+		},
+		// The piece under test: the content-level validator. If a
+		// future refactor of route() ever skipped this for any reason
+		// (e.g. anonymous shares, oversize bypass) this test breaks.
+		UpdateContentValidator: validateUpdate,
+	})
+
+	broker := realtime.NewBroker()
+	client := realtime.NewClientForTest("editor-user-id")
+
+	// Frame 1: legitimate write to the "default" XML fragment (the
+	// ProseMirror root). Must be accepted, journaled, and applied to
+	// the server-side mirror.
+	legitPayload := buildUpdateBytes(t, func(doc *ycrdt.Doc) {
+		frag := doc.GetXmlFragment("default").(*ycrdt.YXmlFragment)
+		text := ycrdt.NewYXmlText()
+		if text.Map == nil {
+			text.Map = make(map[string]*ycrdt.Item)
+		}
+		text.Insert(0, "valid-editor-content", nil)
+		frag.Push([]any{text})
+	})
+	legitFrame := buildDocUpdateFrame(legitPayload)
+
+	// Frame 2: spoofed write to clientAuthors. The broker MUST drop
+	// this in route() before journal append / mirror apply / fan-out.
+	spoofedPayload := buildUpdateBytes(t, func(doc *ycrdt.Doc) {
+		m := doc.GetMap("clientAuthors").(*ycrdt.YMap)
+		m.Set("999", "spoofed-author-id-9999")
+	})
+	spoofedFrame := buildDocUpdateFrame(spoofedPayload)
+
+	broker.RouteFrameForTest(roomKindText, item.Id, client, legitFrame)
+	broker.RouteFrameForTest(roomKindText, item.Id, client, spoofedFrame)
+
+	// Read the server-side mirror state and assert both halves of
+	// the contract.
+	runtime.mu.Lock()
+	handle := runtime.handles[item.Id]
+	runtime.mu.Unlock()
+	if handle == nil {
+		t.Fatalf("runtime has no handle for room %q after broker activity", item.Id)
+	}
+
+	state, err := handle.EncodeStateAsUpdate()
+	if err != nil {
+		t.Fatalf("EncodeStateAsUpdate: %v", err)
+	}
+
+	if !bytes.Contains(state, []byte("valid-editor-content")) {
+		t.Errorf("legitimate update was not applied to the server mirror; "+
+			"state (%d bytes) does not contain expected content", len(state))
+	}
+	if bytes.Contains(state, []byte("spoofed-author-id-9999")) {
+		t.Errorf("spoofed clientAuthors write leaked into the server mirror — "+
+			"the broker did not drop the frame; state (%d bytes) contains "+
+			"the forged value", len(state))
+	}
+}
+
+// buildDocUpdateFrame wraps a Yjs update payload in a MsgDocUpdate wire
+// frame: 16 zero bytes (client ID prefix — unused in route()'s
+// MsgDocUpdate branch) + 1 byte msgType + payload. Mirrors the frame
+// construction in core's TestRoomRouteAppendsBeforeFanout.
+func buildDocUpdateFrame(payload []byte) []byte {
+	const clientIDLen = 16
+	frame := make([]byte, clientIDLen+1+len(payload))
+	frame[clientIDLen] = byte(realtime.MsgDocUpdate)
+	copy(frame[clientIDLen+1:], payload)
+	return frame
 }

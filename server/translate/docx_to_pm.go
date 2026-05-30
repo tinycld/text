@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DocxToPMJSON parses .docx bytes into a ProseMirror JSON tree plus a
@@ -27,35 +28,60 @@ import (
 // Hard error if: the bytes don't form a ZIP, or word/document.xml
 // is missing or malformed. Everything else degrades to a Warning.
 func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
-	root, warnings, err := parseDocxToPMNode(docx)
+	pmJSON, warnings, _, err := docxToPMJSONShared(docx)
+	return pmJSON, warnings, err
+}
+
+// DocxToPMJSONWithSuggestions is DocxToPMJSON plus the parsed
+// suggestion-map entries from the customXml/tinycld-suggestions.xml
+// part. The runtime bootstrap uses these to seed the Yjs `suggestions`
+// Y.Map so the review drawer surfaces the existing revisions when a
+// Word-edited docx is first opened in tinycld.
+//
+// Returns nil entries when the docx has no customXml/tinycld-suggestions.xml
+// (typical for Word-authored docx — the <w:ins>/<w:del> marks still
+// parse via the synthesized-id path; only the lifecycle metadata —
+// status / resolvedBy / note — is absent, and the seed safely no-ops).
+func DocxToPMJSONWithSuggestions(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	return docxToPMJSONShared(docx)
+}
+
+// docxToPMJSONShared is the common implementation behind DocxToPMJSON
+// and DocxToPMJSONWithSuggestions. It produces the marshaled PM JSON,
+// the parser warnings, and the suggestion entries; the public wrappers
+// drop entries when their signature doesn't expose them.
+func docxToPMJSONShared(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	root, warnings, entries, err := parseDocxToPMNode(docx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("translate: marshal root: %w", err)
+		return nil, nil, nil, fmt.Errorf("translate: marshal root: %w", err)
 	}
-	return out, warnings, nil
+	return out, warnings, entries, nil
 }
 
 // parseDocxToPMNode parses .docx bytes into an in-memory PMNode tree
-// plus warnings. Shared by DocxToPMJSON (which marshals to JSON for
-// the bootstrap path's Y.Doc seeding) and DocxToHTML (which walks
-// the tree directly to HTML for the render path).
-func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
+// plus warnings and any suggestion-map entries recovered from the
+// tinycld customXml part. Shared by DocxToPMJSON /
+// DocxToPMJSONWithSuggestions (which marshal to JSON for the bootstrap
+// path's Y.Doc seeding) and DocxToHTML (which walks the tree directly
+// to HTML for the render path).
+func parseDocxToPMNode(docx []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
 	zr, err := zip.NewReader(bytes.NewReader(docx), int64(len(docx)))
 	if err != nil {
-		return PMNode{}, nil, fmt.Errorf("translate: open docx as zip: %w", err)
+		return PMNode{}, nil, nil, fmt.Errorf("translate: open docx as zip: %w", err)
 	}
 
 	parts, err := readZipParts(zr)
 	if err != nil {
-		return PMNode{}, nil, err
+		return PMNode{}, nil, nil, err
 	}
 
 	docXML, ok := parts["word/document.xml"]
 	if !ok {
-		return PMNode{}, nil, fmt.Errorf("translate: docx missing word/document.xml")
+		return PMNode{}, nil, nil, fmt.Errorf("translate: docx missing word/document.xml")
 	}
 
 	parser := docxParser{
@@ -66,12 +92,23 @@ func parseDocxToPMNode(docx []byte) (PMNode, []Warning, error) {
 		footnotes: parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote"),
 		endnotes:  parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote"),
 	}
+	// Load the tinycld-suggestions custom XML part if present. Failure is
+	// non-fatal — Word-authored docx files won't carry it, and we still
+	// need to recognize <w:ins>/<w:del> in that case by synthesizing
+	// stable suggestion ids from (w:id, w:author).
+	if part, ok := parts["customXml/tinycld-suggestions.xml"]; ok {
+		entries, mapping, perr := parseSuggestionsCustomXML(part)
+		if perr == nil {
+			parser.suggestionMapping = mapping
+			parser.suggestionEntries = entries
+		}
+	}
 
 	root, err := parser.parseDocument(docXML)
 	if err != nil {
-		return PMNode{}, nil, fmt.Errorf("translate: parse document.xml: %w", err)
+		return PMNode{}, nil, nil, fmt.Errorf("translate: parse document.xml: %w", err)
 	}
-	return root, parser.warnings, nil
+	return root, parser.warnings, parser.suggestionEntries, nil
 }
 
 // readZipParts collects the bytes of every file in the docx zip.
@@ -104,6 +141,22 @@ type docxParser struct {
 	openComments []string                 // commentIds currently active across the cursor
 	warnings     []Warning                // accumulated soft-degradation signals
 	warningSet   map[WarningCode]struct{} // dedupe
+	// suggestionMapping is the per-kind (w:id → suggestionId) map
+	// recovered from the tinycld customXml part. Each docx revision
+	// kind (insert/delete/formatChange) has its own w:id sequence in
+	// the part, so the parser looks up the kind-specific map when
+	// resolving an <w:ins>/<w:del>/<w:rPrChange> element. Empty maps
+	// when the docx came from Word (or any other producer without our
+	// custom part) — in that case the parser synthesizes stable ids
+	// from (w:id, w:author).
+	suggestionMapping suggestionMappings
+	// suggestionEntries is the entry metadata from the tinycld customXml
+	// part (carried for callers that want to repopulate a Yjs map).
+	suggestionEntries []SuggestionMapEntry
+	// activeSuggestions is the stack of currently-open suggestion marks.
+	// Pushed on <w:ins>/<w:del> open, popped on the matching close.
+	// flushRun applies them to every text node emitted while non-empty.
+	activeSuggestions []PMMark
 }
 
 // commentInfo captures the metadata of one entry in word/comments.xml.
@@ -127,6 +180,88 @@ func (p *docxParser) closeComment(id string) {
 			return
 		}
 	}
+}
+
+// pushSuggestion builds a suggestion mark (insert or delete) from the
+// <w:ins>/<w:del> opening tag's attributes and pushes it onto the
+// active stack. flushRun picks it up while emitting text nodes inside.
+//
+// markType is MarkTypeSuggestedInsert or MarkTypeSuggestedDelete.
+// elem is the <w:ins>/<w:del> StartElement, from which we read w:id,
+// w:author, and w:date.
+func (p *docxParser) pushSuggestion(markType string, elem xml.StartElement) {
+	mark := buildSuggestionMarkFromOOXML(p, markType, elem)
+	p.activeSuggestions = append(p.activeSuggestions, mark)
+}
+
+// popSuggestion drops the top entry of the active suggestion stack.
+// Called on </w:ins> / </w:del>. Tolerant of empty stack — a malformed
+// docx with an unbalanced close shouldn't panic the parser.
+func (p *docxParser) popSuggestion() {
+	if len(p.activeSuggestions) == 0 {
+		return
+	}
+	p.activeSuggestions = p.activeSuggestions[:len(p.activeSuggestions)-1]
+}
+
+// activeSuggestionMarks returns a defensive copy of the current
+// suggestion stack. flushRun appends the result to each text node's
+// marks slice; mirrors activeCommentMarks.
+func (p *docxParser) activeSuggestionMarks() []PMMark {
+	if len(p.activeSuggestions) == 0 {
+		return nil
+	}
+	out := make([]PMMark, len(p.activeSuggestions))
+	copy(out, p.activeSuggestions)
+	return out
+}
+
+// buildSuggestionMarkFromOOXML reads the w:id / w:author / w:date attrs
+// from a <w:ins>/<w:del> start element and builds the PM suggestion
+// mark. When the docx carries the tinycld customXml part, the parser's
+// suggestionMapping (w:id → suggestionId) is used to recover the
+// original tinycld suggestion id. When absent (Word-authored docx), a
+// stable synthesized id from (w:id, w:author) is used instead.
+func buildSuggestionMarkFromOOXML(p *docxParser, markType string, elem xml.StartElement) PMMark {
+	wID, _ := parseIntAttr(elem, "id")
+	wAuthor := attrValue(elem, "author")
+	wDate := attrValue(elem, "date")
+
+	var suggestionID string
+	switch markType {
+	case MarkTypeSuggestedInsert:
+		suggestionID = p.suggestionMapping.Insert[wID]
+	case MarkTypeSuggestedDelete:
+		suggestionID = p.suggestionMapping.Delete[wID]
+	}
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:%d:%s", wID, wAuthor)
+	}
+
+	return PMMark{
+		Type: markType,
+		Attrs: map[string]any{
+			"suggestionId": suggestionID,
+			"authorId":     wAuthor,
+			"ts":           float64(parseISO8601ToUnixMs(wDate)),
+		},
+	}
+}
+
+// parseISO8601ToUnixMs reverses unixMsToISO8601 — converts a w:date
+// (ISO-8601 / RFC 3339) string back to a unix-ms integer. Returns 0
+// on empty or unparseable input so the caller emits a zero ts (and
+// the round-trip stays consistent: 0 ts produces no w:date, which
+// then re-parses to 0).
+func parseISO8601ToUnixMs(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0
+	}
+	return t.UnixMilli()
 }
 
 // activeCommentMarks builds one MarkTypeComment mark per currently-open
@@ -541,6 +676,12 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 	var textAlign string
 	var indentLevel int
 	var dropCapFrame bool
+	// blockChange is the parsed <w:pPrChange> payload extracted from
+	// inside <w:pPr>. Nil when no pPrChange is present. The AFTER
+	// state's type and attrs are determined from the OUTER pPr
+	// siblings (pStyle/jc/ind/numPr) — captured by assembleParagraph
+	// after the runs are collected so we know the resolved type.
+	var blockChange map[string]any
 	var runs []PMNode
 
 	for {
@@ -552,7 +693,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
-				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame); err != nil {
+				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame, &blockChange); err != nil {
 					return nil, err
 				}
 			case "r":
@@ -564,16 +705,21 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 					return nil, err
 				}
 			case "ins":
-				// Tracked insertion — we accept the inserted text and warn.
-				p.addWarning(WarningTrackedChanges, "<w:ins> tracked insertions accepted as plain text")
+				// Tracked insertion / suggestion. Push a suggestedInsert
+				// mark onto the active stack so contained runs pick it
+				// up via flushRun, then walk the children as if they
+				// were direct paragraph children.
+				p.pushSuggestion(MarkTypeSuggestedInsert, t)
 				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
 					return nil, err
 				}
+				p.popSuggestion()
 			case "del":
-				p.addWarning(WarningTrackedChanges, "<w:del> tracked deletions dropped")
-				if err := skipElement(dec, t); err != nil {
+				p.pushSuggestion(MarkTypeSuggestedDelete, t)
+				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
 					return nil, err
 				}
+				p.popSuggestion()
 			case "commentRangeStart":
 				if id := attrValue(t, "id"); id != "" {
 					p.openComments = append(p.openComments, id)
@@ -607,7 +753,7 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, runs), nil
+				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, blockChange, runs), nil
 			}
 		}
 	}
@@ -624,21 +770,23 @@ func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*
 // intentionally do NOT carry these — Word's <w:jc> on a list item is
 // uncommon and would complicate the list round-trip; blockquote
 // formatting is owned by the wrapper.
-func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, dropCapFrame bool, runs []PMNode) *PMNode {
+func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign string, indentLevel int, dropCapFrame bool, blockChange map[string]any, runs []PMNode) *PMNode {
 	// Empty paragraph (no runs) is still a valid PM paragraph node;
 	// blank lines in OOXML translate to empty PM paragraphs.
 	if numID != "" {
 		// List item — emit a bare paragraph carrying list metadata
 		// in Attrs; groupListParagraphs will gather these and rebuild
 		// the bulletList/orderedList tree.
+		attrs := map[string]any{
+			"_listNumId": numID,
+			"_listLevel": ilvlToInt(ilvl),
+			"_listFmt":   p.numbering[numID],
+		}
+		attachBlockChangeAttr(attrs, blockChange, NodeTypeParagraph, textAlign, indentLevel)
 		return &PMNode{
 			Type:    NodeTypeParagraph,
 			Content: runs,
-			Attrs: map[string]any{
-				"_listNumId": numID,
-				"_listLevel": ilvlToInt(ilvl),
-				"_listFmt":   p.numbering[numID],
-			},
+			Attrs:   attrs,
 		}
 	}
 
@@ -659,6 +807,9 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		}
 		attrs := map[string]any{"level": float64(level)}
 		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		afterAttrs := map[string]any{"level": float64(level)}
+		applyAlignIndentAttrs(afterAttrs, textAlign, indentLevel)
+		attachBlockChangeAttrWithAfter(attrs, blockChange, NodeTypeHeading, afterAttrs)
 		return &PMNode{
 			Type:    NodeTypeHeading,
 			Attrs:   attrs,
@@ -666,21 +817,31 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		}
 	case pStyle == "Quote" || pStyle == "IntenseQuote":
 		// Wrap a quote paragraph in a blockquote with one paragraph child.
-		return &PMNode{
+		bq := &PMNode{
 			Type: NodeTypeBlockquote,
 			Content: []PMNode{
 				{Type: NodeTypeParagraph, Content: runs},
 			},
 		}
+		if blockChange != nil {
+			bq.Attrs = map[string]any{}
+			attachBlockChangeAttrWithAfter(bq.Attrs, blockChange, NodeTypeBlockquote, map[string]any{})
+		}
+		return bq
 	case isCodeBlockStyle(pStyle):
 		// Collapse the paragraph's runs into a single plain-text child;
 		// the PM codeBlock schema doesn't carry inline marks, so any
 		// bold/italic/code marks from the source are dropped (visually
 		// they would not survive the monospace verbatim render anyway).
-		return &PMNode{
+		cb := &PMNode{
 			Type:    NodeTypeCodeBlock,
 			Content: codeBlockChildren(runs),
 		}
+		if blockChange != nil {
+			cb.Attrs = map[string]any{}
+			attachBlockChangeAttrWithAfter(cb.Attrs, blockChange, NodeTypeCodeBlock, map[string]any{})
+		}
+		return cb
 	case pStyle != "" && !isDefaultParagraphStyle(pStyle):
 		// Unknown style — fall back to plain paragraph with a warning.
 		p.addWarning(WarningUnsupportedStyle, fmt.Sprintf("paragraph style %q normalized to default paragraph", pStyle))
@@ -697,10 +858,74 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 		// attr. The marker is stripped there, so it never reaches PM JSON.
 		attrs["_dropCapFrame"] = true
 	}
+	attachBlockChangeAttr(attrs, blockChange, NodeTypeParagraph, textAlign, indentLevel)
 	if len(attrs) == 0 {
 		return &PMNode{Type: NodeTypeParagraph, Content: runs}
 	}
 	return &PMNode{Type: NodeTypeParagraph, Attrs: attrs, Content: runs}
+}
+
+// attachBlockChangeAttr fills the suggestedBlockChange entry on a
+// paragraph attrs map, deriving the AFTER state from the resolved
+// (type, textAlign, indent) of the surrounding paragraph. The BEFORE
+// state was already populated by parsePPrChange; this only adds the
+// (suggestionId, authorId, ts, before, after) bundle to the node attrs.
+//
+// Skips when blockChange is nil — most paragraphs don't carry one.
+func attachBlockChangeAttr(attrs map[string]any, blockChange map[string]any, blockType, textAlign string, indentLevel int) {
+	if blockChange == nil {
+		return
+	}
+	afterAttrs := map[string]any{}
+	applyAlignIndentAttrs(afterAttrs, textAlign, indentLevel)
+	attachBlockChangeAttrWithAfter(attrs, blockChange, blockType, afterAttrs)
+}
+
+// attachBlockChangeAttrWithAfter is the heading/blockquote-specific
+// variant — they need to attach a distinct after.attrs map (level for
+// headings, empty for blockquote) rather than only textAlign/indent.
+func attachBlockChangeAttrWithAfter(attrs map[string]any, blockChange map[string]any, afterType string, afterAttrs map[string]any) {
+	if blockChange == nil {
+		return
+	}
+	// Fill in the after state. Before state was already populated by
+	// parsePPrChange from the nested <w:pPr>.
+	blockChange["after"] = map[string]any{
+		"type":  afterType,
+		"attrs": afterAttrs,
+	}
+	attrs[NodeAttrSuggestedBlockChange] = blockChange
+}
+
+// attachCellChangeAttr fills the suggestedBlockChange entry on a
+// tableCell node from a parsed <w:tcPrChange>/<w:cellIns>/<w:cellDel>
+// payload. The after state's shading/borders come from the outer
+// cell tcPr's siblings (parseTableCellProperties already extracted
+// them); for ins/del variants attachCellChangeAttr preserves the
+// added/deleted flags that parseCellInsDel stamped.
+//
+// Skips when cellChange is nil — most cells don't carry one.
+func attachCellChangeAttr(attrs map[string]any, cellChange map[string]any, shading string, borders map[string]any) {
+	if cellChange == nil {
+		return
+	}
+	// If after was already populated (parseCellInsDel for ins/del),
+	// keep it. Otherwise (parseTcPrChange — attr-only), synthesize
+	// from the outer tcPr siblings.
+	if _, hasAfter := cellChange["after"]; !hasAfter {
+		afterAttrs := map[string]any{}
+		if shading != "" {
+			afterAttrs["shading"] = shading
+		}
+		if borders != nil {
+			afterAttrs["borders"] = borders
+		}
+		cellChange["after"] = map[string]any{
+			"type":  NodeTypeTableCell,
+			"attrs": afterAttrs,
+		}
+	}
+	attrs[NodeAttrSuggestedBlockChange] = cellChange
 }
 
 // applyAlignIndentAttrs adds textAlign + indent entries to the given
@@ -768,6 +993,11 @@ func codeBlockChildren(runs []PMNode) []PMNode {
 // parseInlineGroup is parseHyperlink/parseIns/parseDel without the
 // link-specific bookkeeping — used to flatten a tracked-insertion's
 // runs back into the surrounding paragraph.
+//
+// Nested <w:ins>/<w:del> children are handled inline: the suggestion
+// stack is pushed for the duration of the inner element and the runs
+// underneath layer both marks (Case 2c — a delete inside a delete,
+// or an insert+delete pair) onto the emitted text nodes.
 func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, runs *[]PMNode) error {
 	for {
 		tok, err := dec.Token()
@@ -776,11 +1006,24 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if t.Name.Local == "r" {
+			switch t.Name.Local {
+			case "r":
 				if err := p.parseRun(dec, t, runs, nil); err != nil {
 					return err
 				}
-			} else {
+			case "ins":
+				p.pushSuggestion(MarkTypeSuggestedInsert, t)
+				if err := p.parseInlineGroup(dec, t, runs); err != nil {
+					return err
+				}
+				p.popSuggestion()
+			case "del":
+				p.pushSuggestion(MarkTypeSuggestedDelete, t)
+				if err := p.parseInlineGroup(dec, t, runs); err != nil {
+					return err
+				}
+				p.popSuggestion()
+			default:
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}
@@ -800,7 +1043,13 @@ func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, 
 // "center", "right", or "justify" ("both" is Word's name for what PM
 // calls "justify"). Indent maps <w:ind w:left="…"/> twips through
 // twipsToIndentLevel (720 twips per level, half-inch each).
-func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool) error {
+//
+// blockChange is populated when a <w:pPrChange> child is encountered;
+// it carries the BEFORE state extracted from the nested <w:pPr> plus
+// the (suggestionId, authorId, ts) bundle. The AFTER state is filled
+// in by assembleParagraph once the outer pPr has been resolved into
+// a (type, attrs) shape.
+func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool, blockChange *map[string]any) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -851,6 +1100,21 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 				if err := skipElement(dec, t); err != nil {
 					return err
 				}
+			case "pPrChange":
+				// <w:pPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:pPr> ... before-state pPr children ... </w:pPr>
+				// </w:pPrChange>
+				// Captures the BEFORE pPr in nested form. The AFTER state
+				// (resolved type + textAlign + indent + level) comes from
+				// assembling the outer pPr siblings — assembleParagraph
+				// fills it in once the paragraph type is known.
+				bc, perr := p.parsePPrChange(dec, t)
+				if perr != nil {
+					return perr
+				}
+				if bc != nil {
+					*blockChange = bc
+				}
 			default:
 				if err := skipElement(dec, t); err != nil {
 					return err
@@ -862,6 +1126,127 @@ func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartE
 			}
 		}
 	}
+}
+
+// parsePPrChange consumes a <w:pPrChange> element, returning the
+// half-built suggestedBlockChange attribute (suggestionId, authorId,
+// ts, before — without after, which assembleParagraph fills in).
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping (when present, from the tinycld customXml part) or
+// synthesized as "docx:ppr:<id>:<author>" when absent (Word-authored
+// docx). Mirrors parseRPrChange's id-synthesis convention.
+//
+// Returns nil when the pPrChange element is malformed (e.g. no nested
+// pPr) — the parser falls back to "no block-change attr on this
+// paragraph", matching the silent-drop convention used by other
+// suggestion paths.
+func (p *docxParser) parsePPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.BlockChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:ppr:%d:%s", wID, wAuthor)
+	}
+
+	beforeType := NodeTypeParagraph
+	beforeAttrs := map[string]any{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "pPr" {
+				// Nested <w:pPr> carries the BEFORE state. Parse it like a
+				// regular paragraph properties block — we reuse the same
+				// extractor, then resolve the resulting pStyle/numID/jc/ind
+				// into the (type, attrs) shape the resolver expects.
+				var bPStyle, bNumID, bIlvl, bTextAlign string
+				var bIndent int
+				var bDropCap bool
+				var nestedChange map[string]any
+				if perr := p.parseParagraphProperties(dec, t, &bPStyle, &bNumID, &bIlvl, &bTextAlign, &bIndent, &bDropCap, &nestedChange); perr != nil {
+					return nil, perr
+				}
+				beforeType, beforeAttrs = p.resolveBlockTypeFromPPr(bPStyle, bNumID, bIlvl, bTextAlign, bIndent)
+				_ = bDropCap
+				_ = nestedChange
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before": map[string]any{
+						"type":  beforeType,
+						"attrs": beforeAttrs,
+					},
+				}, nil
+			}
+		}
+	}
+}
+
+// resolveBlockTypeFromPPr maps parsed <w:pPr> contents to a PM
+// block-type / attrs pair. Mirrors the dispatch in assembleParagraph
+// but without the run-content / dropCap / warning layers.
+//
+// Heading pStyle ("Heading1".."Heading6") → heading with level attr.
+// "Quote" / "IntenseQuote" → blockquote.
+// Code-block style → codeBlock.
+// numPr (numID != "") → bulletList / orderedList based on numbering
+// format if known; falls back to "bulletList" (PM treats unrecognized
+// numbering as a bulletList).
+// Otherwise → paragraph with textAlign / indent attrs.
+func (p *docxParser) resolveBlockTypeFromPPr(pStyle, numID, ilvl, textAlign string, indentLevel int) (string, map[string]any) {
+	_ = ilvl
+	attrs := map[string]any{}
+	if numID != "" {
+		// A numbered/bulleted item. The BEFORE state's listItem-ness is
+		// what we capture; a transition from "paragraph" → "listItem"
+		// shows up as before.type=paragraph, after.type=listItem (or
+		// the parent list type). We use the bulletList/orderedList
+		// container type as a coarse proxy since the resolver doesn't
+		// reconstruct a full PM tree from inside parsePPrChange.
+		fmtKind := NodeTypeBulletList
+		if format := p.numbering[numID]; format == "decimal" {
+			fmtKind = NodeTypeOrderedList
+		}
+		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		return fmtKind, attrs
+	}
+	if strings.HasPrefix(pStyle, "Heading") {
+		level := headingLevel(pStyle)
+		if level == 0 {
+			level = 1
+		}
+		if level < 1 {
+			level = 1
+		}
+		if level > 6 {
+			level = 6
+		}
+		attrs["level"] = float64(level)
+		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+		return NodeTypeHeading, attrs
+	}
+	if pStyle == "Quote" || pStyle == "IntenseQuote" {
+		return NodeTypeBlockquote, attrs
+	}
+	if isCodeBlockStyle(pStyle) {
+		return NodeTypeCodeBlock, attrs
+	}
+	applyAlignIndentAttrs(attrs, textAlign, indentLevel)
+	return NodeTypeParagraph, attrs
 }
 
 // normalizeJustification maps OOXML <w:jc w:val=…> values onto the PM
@@ -949,7 +1334,12 @@ func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]P
 					return err
 				}
 				marks = m
-			case "t":
+			case "t", "delText":
+				// <w:delText> carries text inside a <w:del> wrapper —
+				// it's read identically to <w:t>, the only difference
+				// is the element name. Recognizing both is what keeps
+				// deleted-but-preserved content surviving the docx → PM
+				// roundtrip when a suggestion-mark wrapper is present.
 				txt, err := readElementText(dec, t)
 				if err != nil {
 					return err
@@ -1050,6 +1440,10 @@ func (p *docxParser) flushRun(out *[]PMNode, collected []PMNode, marks, extras [
 	// Comment marks are appended (not merged) because mergeMarks
 	// dedupes by Type — nested ranges would otherwise collapse to one.
 	combined = append(combined, p.activeCommentMarks()...)
+	// Suggestion marks (insert/delete) work the same way: layered
+	// suggestions on overlapping ranges produce one mark per layer,
+	// and mergeMarks would collapse them to one entry by Type.
+	combined = append(combined, p.activeSuggestionMarks()...)
 	for _, c := range collected {
 		switch c.Type {
 		case NodeTypeText:
@@ -1146,6 +1540,12 @@ func mergeMarks(a, b []PMMark) []PMMark {
 func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement) ([]PMMark, error) {
 	var marks []PMMark
 	textStyleAttrs := map[string]any{}
+	// formatChangeMark is built when we encounter a <w:rPrChange> child.
+	// It's appended to the returned marks slice at the end so the docx
+	// → PM round-trip surfaces the proposed run-property change to the
+	// resolver as a SuggestedFormatChange. Nil when no rPrChange child
+	// was present (the typical case).
+	var formatChangeMark *PMMark
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1154,6 +1554,23 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "rPrChange":
+				// <w:rPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:rPr> ... before-state marks ... </w:rPr>
+				// </w:rPrChange>
+				// The outer rPr's other children carry the AFTER state;
+				// we capture the BEFORE state by walking into the nested
+				// <w:rPr>. Built mark is held in formatChangeMark and
+				// appended at the end of the outer rPr so the AFTER
+				// marks are already collected (we'll snapshot them then).
+				mark, perr := p.parseRPrChange(dec, t)
+				if perr != nil {
+					return nil, perr
+				}
+				if mark != nil {
+					formatChangeMark = mark
+				}
+				continue
 			case "b":
 				if isOnToggle(t) {
 					marks = append(marks, PMMark{Type: MarkTypeBold})
@@ -1248,10 +1665,105 @@ func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement
 						Attrs: textStyleAttrs,
 					})
 				}
+				if formatChangeMark != nil {
+					// Snapshot the AFTER state from the marks collected
+					// above. Order doesn't affect the resolver — it
+					// re-derives a Set from the array — so we record the
+					// marks as we serialized them.
+					formatChangeMark.Attrs["after"] = serializeMarksToAttr(marks)
+					marks = append(marks, *formatChangeMark)
+				}
 				return marks, nil
 			}
 		}
 	}
+}
+
+// parseRPrChange consumes a <w:rPrChange> element, returning a
+// suggestedFormatChange PMMark whose before/after attrs hold the BEFORE
+// state (extracted from the nested <w:rPr>) and a placeholder AFTER
+// state (the caller fills it in once the outer <w:rPr>'s siblings are
+// fully collected).
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping (when present, from the tinycld customXml part) or
+// synthesized as "docx:rpr:<id>:<author>" when absent (Word-authored docx).
+//
+// Returns nil when the rPrChange element is malformed (e.g. no nested
+// rPr) — the parser falls back to "no format change mark on this run",
+// matching the silent-drop convention used by other suggestion paths.
+func (p *docxParser) parseRPrChange(dec *xml.Decoder, start xml.StartElement) (*PMMark, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.FormatChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:rpr:%d:%s", wID, wAuthor)
+	}
+
+	var beforeMarks []PMMark
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "rPr" {
+				// Nested <w:rPr> carries the BEFORE state. Reuse
+				// parseRunProperties so highlight/shd/color/strike all
+				// round-trip identically to the outer rPr. Strip any
+				// stray suggestedFormatChange mark from the result —
+				// the recursive call would attach one if the nested rPr
+				// itself somehow carried an inner rPrChange (invalid
+				// OOXML but defensive). The BEFORE state must never
+				// include a format-change mark; it predates the proposal.
+				m, perr := p.parseRunProperties(dec, t)
+				if perr != nil {
+					return nil, perr
+				}
+				beforeMarks = stripMark(m, MarkTypeSuggestedFormatChange)
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				attrs := map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before":       serializeMarksToAttr(beforeMarks),
+				}
+				return &PMMark{
+					Type:  MarkTypeSuggestedFormatChange,
+					Attrs: attrs,
+				}, nil
+			}
+		}
+	}
+}
+
+// serializeMarksToAttr converts a Go-side PMMark slice to the
+// SerializedMarks shape ([]map[string]any with "type" + "attrs" keys)
+// the client carries on suggestedFormatChange's before/after attrs.
+// Mirrors the TS-side serialize-marks helper in
+// lib/suggestions/serialize-marks.ts (it produces an Array<{type, attrs}>).
+func serializeMarksToAttr(marks []PMMark) []any {
+	if len(marks) == 0 {
+		return []any{}
+	}
+	out := make([]any, 0, len(marks))
+	for _, m := range marks {
+		entry := map[string]any{"type": m.Type}
+		if len(m.Attrs) > 0 {
+			entry["attrs"] = m.Attrs
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // isOnToggle returns true for <w:b/>, <w:b w:val="true"/>,
@@ -1969,7 +2481,8 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 			case "tcPr":
 				var bordersAttr map[string]any
 				var shading string
-				tcWDxa, gridSpan, vMerge, bordersAttr, shading, err = p.parseTableCellProperties(dec, t)
+				var cellChange map[string]any
+				tcWDxa, gridSpan, vMerge, bordersAttr, shading, cellChange, err = p.parseTableCellProperties(dec, t)
 				if err != nil {
 					return nil, err
 				}
@@ -1995,6 +2508,12 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 					// into their start cell's rowspan once the table
 					// is fully parsed.
 					cell.Attrs["_vmerge"] = vMerge
+				}
+				if cellChange != nil {
+					if cell.Attrs == nil {
+						cell.Attrs = map[string]any{}
+					}
+					attachCellChangeAttr(cell.Attrs, cellChange, shading, bordersAttr)
 				}
 			case "p":
 				para, err := p.parseParagraph(dec, t)
@@ -2051,16 +2570,17 @@ func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gr
 //   - <w:vMerge/>                 — this cell continues a merge that
 //     started above. (OOXML allows
 //     w:val="continue" but Word omits it.)
-func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, error) {
+func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, map[string]any, error) {
 	tcWDxa := 0
 	gridSpan := 1
 	vMerge := ""
 	var borders map[string]any
 	shading := ""
+	var cellChange map[string]any
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return 0, 0, "", nil, "", err
+			return 0, 0, "", nil, "", nil, err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -2080,7 +2600,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "gridSpan":
 				if v := attrValue(t, "val"); v != "" {
@@ -2089,7 +2609,7 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					}
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "vMerge":
 				v := attrValue(t, "val")
@@ -2100,29 +2620,203 @@ func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartE
 					vMerge = "continue"
 				}
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			case "tcBorders":
 				b, err := parseTcBorders(dec, t)
 				if err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 				borders = b
 			case "shd":
 				shading = parseTcShading(t)
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
+				}
+			case "tcPrChange":
+				// <w:tcPrChange w:id="N" w:author="..." w:date="..."> ...
+				//   <w:tcPr> ... before-state cell properties ... </w:tcPr>
+				// </w:tcPrChange>
+				cc, perr := p.parseTcPrChange(dec, t)
+				if perr != nil {
+					return 0, 0, "", nil, "", nil, perr
+				}
+				if cc != nil {
+					cellChange = cc
+				}
+			case "cellIns":
+				// <w:cellIns w:id="N" w:author="..." w:date="..."/>
+				// Cell was proposed for addition. The cell content stays
+				// in the doc until the suggestion is resolved.
+				cc := p.parseCellInsDel(t, true)
+				if cc != nil {
+					cellChange = cc
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, "", nil, err
+				}
+			case "cellDel":
+				// <w:cellDel w:id="N" w:author="..." w:date="..."/>
+				// Cell was proposed for removal. The cell content stays
+				// in the doc until the suggestion is resolved.
+				cc := p.parseCellInsDel(t, false)
+				if cc != nil {
+					cellChange = cc
+				}
+				if err := skipElement(dec, t); err != nil {
+					return 0, 0, "", nil, "", nil, err
 				}
 			default:
 				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", err
+					return 0, 0, "", nil, "", nil, err
 				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return tcWDxa, gridSpan, vMerge, borders, shading, nil
+				return tcWDxa, gridSpan, vMerge, borders, shading, cellChange, nil
 			}
 		}
+	}
+}
+
+// parseTcPrChange consumes a <w:tcPrChange> element and returns a
+// half-built suggestedBlockChange attribute (suggestionId, authorId,
+// ts, before) for attachment to the enclosing tableCell node. The
+// AFTER state will be filled in by attachCellChangeAttr from the
+// outer tcPr's siblings.
+//
+// w:id is recovered as the suggestionId via the parser's
+// suggestionMapping.CellChange (when present) or synthesized as
+// "docx:tcpr:<id>:<author>" when absent (Word-authored docx).
+//
+// Returns nil when the tcPrChange is malformed (no nested tcPr) —
+// the parser falls back to "no cell-change attr on this cell".
+func (p *docxParser) parseTcPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.CellChange[wID]
+	if suggestionID == "" {
+		suggestionID = fmt.Sprintf("docx:tcpr:%d:%s", wID, wAuthor)
+	}
+
+	beforeAttrs := map[string]any{}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "tcPr" {
+				// Nested <w:tcPr> carries the BEFORE state. Walk it
+				// recursively for shading and borders — same shapes
+				// the outer cell uses.
+				if perr := p.parseTcPrChangeNested(dec, t, beforeAttrs); perr != nil {
+					return nil, perr
+				}
+				continue
+			}
+			if err := skipElement(dec, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return map[string]any{
+					"suggestionId": suggestionID,
+					"authorId":     wAuthor,
+					"ts":           float64(parseISO8601ToUnixMs(wDate)),
+					"before": map[string]any{
+						"type":  NodeTypeTableCell,
+						"attrs": beforeAttrs,
+					},
+				}, nil
+			}
+		}
+	}
+}
+
+// parseTcPrChangeNested walks the nested <w:tcPr> inside <w:tcPrChange>
+// and pulls out shading + borders into the BEFORE attrs map. Skips
+// unknown children. Width / gridSpan / vMerge changes are not modeled
+// in v1 — they round-trip through the outer cell tcPr only.
+func (p *docxParser) parseTcPrChangeNested(dec *xml.Decoder, start xml.StartElement, beforeAttrs map[string]any) error {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "shd":
+				if s := parseTcShading(t); s != "" {
+					beforeAttrs["shading"] = s
+				}
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			case "tcBorders":
+				b, err := parseTcBorders(dec, t)
+				if err != nil {
+					return err
+				}
+				if b != nil {
+					beforeAttrs["borders"] = b
+				}
+			default:
+				if err := skipElement(dec, t); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return nil
+			}
+		}
+	}
+}
+
+// parseCellInsDel returns a half-built suggestedBlockChange attribute
+// for <w:cellIns> (added=true) or <w:cellDel> (deleted=true). Same id
+// recovery convention as parseTcPrChange. The before/after shape
+// includes the added/deleted flag so the resolver can dispatch on the
+// sub-case (cell-added vs cell-deleted vs cell-attr).
+func (p *docxParser) parseCellInsDel(start xml.StartElement, isInsert bool) map[string]any {
+	wID, _ := parseIntAttr(start, "id")
+	wAuthor := attrValue(start, "author")
+	wDate := attrValue(start, "date")
+
+	suggestionID := p.suggestionMapping.CellChange[wID]
+	if suggestionID == "" {
+		prefix := "tcdel"
+		if isInsert {
+			prefix = "tcins"
+		}
+		suggestionID = fmt.Sprintf("docx:%s:%d:%s", prefix, wID, wAuthor)
+	}
+
+	before := map[string]any{
+		"type":  NodeTypeTableCell,
+		"attrs": map[string]any{},
+	}
+	if isInsert {
+		before["added"] = true
+	}
+	after := map[string]any{
+		"type":  NodeTypeTableCell,
+		"attrs": map[string]any{},
+	}
+	if !isInsert {
+		after["deleted"] = true
+	}
+	return map[string]any{
+		"suggestionId": suggestionID,
+		"authorId":     wAuthor,
+		"ts":           float64(parseISO8601ToUnixMs(wDate)),
+		"before":       before,
+		"after":        after,
 	}
 }
 

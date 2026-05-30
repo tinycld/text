@@ -59,7 +59,17 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 			return fmt.Errorf("text: serialize Y.Doc for %s: %w", driveItemID, err)
 		}
 
-		docxBytes, _, err := translate.PMJSONToDocxWithResolver(pmJSON, makeDriveImageResolver(app))
+		// Read the Yjs `suggestions` Y.Map so the docx emitter can
+		// embed status / resolvedBy / note metadata into the
+		// customXml part. The mark-bearing PM JSON above already
+		// carries the per-mark id/authorId/ts the emitter needs for
+		// <w:ins>/<w:del>; the Y.Map adds the lifecycle data that
+		// lives outside the marks themselves.
+		suggestionEntries := readSuggestionsMap(doc)
+
+		docxBytes, _, err := translate.PMJSONToDocxWithResolverAndSuggestions(
+			pmJSON, makeDriveImageResolver(app), suggestionEntries,
+		)
 		if err != nil {
 			return fmt.Errorf("text: PMJSONToDocx for %s: %w", driveItemID, err)
 		}

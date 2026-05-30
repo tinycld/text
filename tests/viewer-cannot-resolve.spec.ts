@@ -1,0 +1,254 @@
+import { expect, type Page, test } from '@playwright/test'
+import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
+import {
+    EDITOR_READY_TIMEOUT,
+    editorRoot,
+    FEATURE_DOC_HEADING,
+    PB_URL,
+    TEXT_TEST_TIMEOUT,
+    uniqueDocName,
+    uploadDocxAsDriveItem,
+    waitForEditor,
+} from './_menubar-helpers'
+
+// End-to-end contract for the viewer role on a doc with pending
+// suggestions. Alice (owner / editor) makes a suggestion; Bob
+// (viewer) loads the doc and sees the suggestion's underlying TEXT
+// (the schema mark still ships so Yjs decode is safe) but DOES NOT
+// see the suggestion's visual affordances: no colored decoration, no
+// review drawer toggle, no per-row Accept/Reject buttons, no bulk
+// resolve buttons.
+//
+// This is the "read-only design decision" — viewers see content but
+// no comments/suggestions surfaces. See screens/[id].tsx for the
+// decision comment and authorship_stamper.go for the server-side
+// audience gate that mirrors it.
+//
+// Pins the contract layer by layer:
+//   - schema mark renders (data-suggested-insert) so the text is
+//     present in the DOM — Yjs parity is preserved
+//   - decoration plugin is OMITTED on read-only mounts, so the
+//     `.tinycld-suggestion-insert` colored span is absent
+//   - review drawer, bulk buttons, and per-row Accept/Reject are
+//     unmounted entirely
+
+test.describe('Text — Viewer cannot resolve', () => {
+    test.setTimeout(TEXT_TEST_TIMEOUT)
+
+    test('alice suggests → bob (viewer) sees row but cannot resolve', async ({ browser }) => {
+        // Two contexts: Alice the owner/editor, Bob the freshly-minted
+        // viewer. Bob's drive_shares role is 'viewer' (not 'editor'),
+        // which is the difference from two-user-suggestion-flow.
+        test.setTimeout(180_000)
+
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('viewer-cannot-resolve'))
+        const bob = await createSecondUser()
+        await shareDriveItemWithRole(itemId, bob, 'viewer')
+
+        const aliceContext = await browser.newContext()
+        const bobContext = await browser.newContext()
+        try {
+            const alicePage = await aliceContext.newPage()
+            const bobPage = await bobContext.newPage()
+
+            await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await waitForEditor(alicePage)
+            await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+                timeout: EDITOR_READY_TIMEOUT,
+            })
+
+            await loginAs(bobPage, bob.email, bob.password)
+            await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await waitForEditor(bobPage)
+            await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
+                timeout: EDITOR_READY_TIMEOUT,
+            })
+
+            // Alice switches to Suggesting mode and types a marker.
+            await alicePage.getByRole('button', { name: 'Editor mode' }).click()
+            await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
+                timeout: 10_000,
+            })
+
+            const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
+            await editorRoot(alicePage).click()
+            await alicePage.keyboard.press(`${meta}+End`)
+            await alicePage.keyboard.press('Enter')
+            const marker = `alice suggests ${Date.now()}`
+            await alicePage.keyboard.type(marker, { delay: 25 })
+
+            // Alice's tab carries the suggestedInsert decoration.
+            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible({
+                timeout: 10_000,
+            })
+
+            // Bob's tab still has the SCHEMA mark in the DOM so the
+            // underlying text replicates via Yjs (data-suggested-insert
+            // is the schema's renderHTML output; without it y-prosemirror
+            // would drop the mark on parse). The marker text is visible.
+            await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible({
+                timeout: 15_000,
+            })
+            await expect(bobPage.getByText(marker)).toBeVisible({ timeout: 10_000 })
+
+            // The DECORATION span — the colored tint + underline that
+            // the SuggestionDecorations plugin emits — is absent. Read-
+            // only viewer mounts omit the decoration plugin entirely
+            // (see buildSuggestionEditorExtensions's readOnly flag).
+            // Asserting toHaveCount(0) at page scope confirms no
+            // .tinycld-suggestion-insert span exists anywhere.
+            await expect(bobPage.locator('.tinycld-suggestion-insert')).toHaveCount(0)
+
+            // Collaboration cursors are a writer-side affordance — the
+            // CollaborationCaret extension is omitted from viewer
+            // mounts (see use-document-editor.web.tsx's isReadOnly
+            // branch). No floating caret labels OR remote selections
+            // surface for Bob, even though Alice is actively typing.
+            await expect(bobPage.locator('.collaboration-carets__caret')).toHaveCount(0)
+            await expect(bobPage.locator('.ProseMirror-yjs-selection')).toHaveCount(0)
+
+            // The drawer-open toolbar button itself is omitted entirely
+            // for viewers — screens/[id].tsx gates the
+            // OpenCommentsDrawerButton + DocumentToolbar's review-drawer
+            // trigger on showCollaborativeAffordances. (Previously this
+            // button was rendered but disabled; now it's not rendered.)
+            await expect(
+                bobPage.getByRole('button', { name: 'Open suggestion review drawer' })
+            ).toHaveCount(0)
+
+            // CRITICAL: the per-row Accept / Reject buttons (rendered
+            // inside the drawer, gated on canResolve in
+            // SuggestionRow.tsx:124-151) are not on Bob's page. Since
+            // the drawer itself is closed AND the toolbar button is
+            // disabled, Bob has no path to the buttons. Asserting
+            // toHaveCount(0) at page scope pins both layers — the
+            // drawer-gating layer and the canResolve gating layer —
+            // simultaneously: a regression in either would surface a
+            // button in the page DOM.
+            await expect(bobPage.getByRole('button', { name: 'Accept suggestion' })).toHaveCount(0)
+            await expect(bobPage.getByRole('button', { name: 'Reject suggestion' })).toHaveCount(0)
+
+            // Same logic for the drawer's bulk affordances — gated by
+            // ReviewDrawer.tsx:177 on canResolve, and unreachable for
+            // Bob anyway because the drawer can't be opened.
+            await expect(
+                bobPage.getByRole('button', { name: 'Accept all suggestions' })
+            ).toHaveCount(0)
+            await expect(
+                bobPage.getByRole('button', { name: 'Reject all suggestions' })
+            ).toHaveCount(0)
+        } finally {
+            await aliceContext.close()
+            await bobContext.close()
+        }
+    })
+})
+
+interface SecondUser {
+    id: string
+    email: string
+    password: string
+    userOrgId: string
+}
+
+// Mint a fresh user via the superuser API and add them to test-org.
+// Mirrors the inline helper in authorship-stamping.spec.ts and
+// two-user-suggestion-flow.spec.ts.
+async function createSecondUser(): Promise<SecondUser> {
+    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
+    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
+
+    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    })
+    if (!adminAuth.ok) {
+        throw new Error(`Superuser auth failed: ${adminAuth.status} ${await adminAuth.text()}`)
+    }
+    const { token: adminToken } = (await adminAuth.json()) as { token: string }
+
+    const orgsRes = await fetch(
+        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
+        { headers: { Authorization: adminToken } }
+    )
+    const orgs = (await orgsRes.json()) as { items: { id: string }[] }
+    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
+    const orgId = orgs.items[0].id
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const email = `viewer-resolve-${suffix}@tinycld.org`
+    const password = 'ViewerResolve1234!'
+
+    const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
+        body: JSON.stringify({
+            email,
+            password,
+            passwordConfirm: password,
+            name: `Viewer Resolve Tester ${suffix}`,
+            username: `vr_${suffix.replace(/-/g, '_')}`,
+            verified: true,
+        }),
+    })
+    if (!userRes.ok) {
+        throw new Error(`Create user failed: ${userRes.status} ${await userRes.text()}`)
+    }
+    const user = (await userRes.json()) as { id: string }
+
+    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
+        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
+    })
+    if (!userOrgRes.ok) {
+        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
+    }
+    const userOrg = (await userOrgRes.json()) as { id: string }
+
+    return { id: user.id, email, password, userOrgId: userOrg.id }
+}
+
+// shareDriveItemWithRole parameterizes the share role so this spec
+// can mint a viewer-share specifically. The base helper in other
+// specs hardcodes 'editor'; this variant is local to specs that need
+// a non-editor share.
+async function shareDriveItemWithRole(
+    itemId: string,
+    user: SecondUser,
+    role: 'viewer' | 'editor' | 'commentor'
+): Promise<void> {
+    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
+    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
+    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    })
+    const { token: adminToken } = (await adminAuth.json()) as { token: string }
+
+    const res = await fetch(`${PB_URL}/api/collections/drive_shares/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
+        body: JSON.stringify({
+            item: itemId,
+            user_org: user.userOrgId,
+            role,
+            created_by: user.userOrgId,
+        }),
+    })
+    if (!res.ok) {
+        throw new Error(`Share drive_item failed: ${res.status} ${await res.text()}`)
+    }
+}
+
+async function loginAs(page: Page, identifier: string, password: string): Promise<void> {
+    await page.goto('/')
+    await page.getByTestId('identifier').fill(identifier)
+    await page.getByPlaceholder('Password').fill(password)
+    await page.getByText('Sign in', { exact: true }).last().click()
+    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+}

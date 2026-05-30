@@ -38,7 +38,11 @@ import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
 import { extractImageFilesFromDrop, extractImageFilesFromPaste } from '../lib/extract-image-files'
 import { makeWebFindReplaceController } from '../lib/find-replace-controller-web'
 import { findReplacePlugin } from '../lib/find-replace-plugin'
+import { buildSuggestionEditorExtensions } from '../lib/suggestions/build-extensions'
 import { countWords } from '../lib/word-count'
+import { useAuthorshipDisplayStore } from '../stores/authorship-display-store'
+import type { EditorModeStore } from '../stores/editor-mode-store'
+import { AuthorshipExtension } from '../webview-editor/source/authorship/authorship-extension'
 import {
     CodeShortcuts,
     deriveActiveIndent,
@@ -48,6 +52,7 @@ import {
     deriveCurrentFontSize,
     deriveCurrentTextColor,
 } from '../webview-editor/source/editor-state'
+import { useClientAuthors } from './use-client-authors'
 import type { DocumentEditorResult } from './use-document-editor'
 import { createWebCommentBridge } from './web-comment-bridge'
 
@@ -178,6 +183,19 @@ export interface UseDocumentEditorOptions {
     // the slash-menu Image entry removes the trigger and inserts
     // nothing.
     onRequestInsertImage?: () => void
+    // The per-document mode store. The suggestion command layer reads
+    // mode + identity off this to decide whether to intercept user
+    // transactions in suggesting mode. The screen instantiates the
+    // store and threads it through useTextDocument; until that wiring
+    // lands (Task 7), useTextDocument supplies a fallback store
+    // defaulting to editing mode — the command layer's mode-check
+    // short-circuits so no suggestion marks are written, regardless of
+    // what the user types.
+    modeStore: EditorModeStore
+    // Native-only: accepted for parity with the .d.ts contract. The
+    // web variant's suggestion bridge reads the host editor directly,
+    // so there's no WebView message channel to subscribe to here.
+    onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
 // FindReplaceExtension wraps the find/replace plugin in a Tiptap
@@ -251,6 +269,28 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // that always dereferences the latest ref value.
     const onRequestInsertImageRef = useRef(options.onRequestInsertImage)
     onRequestInsertImageRef.current = options.onRequestInsertImage
+
+    // Authorship-display wiring. The TipTap extension reads its
+    // enabled/yDoc/clientAuthors inputs through stable getters that
+    // dereference refs — same pattern as onRequestInsertImageRef above
+    // — so toggling the store or receiving a new clientAuthors snapshot
+    // does NOT force useEditor's dep array to invalidate. Without the
+    // ref hop, every clientAuthors observe event would tear down the
+    // editor (and the Y.Doc binding) and reset undo history.
+    const authorshipEnabledRef = useRef(false)
+    const authorshipYDocRef = useRef<Y.Doc | null>(null)
+    const authorshipClientAuthorsRef = useRef<Map<number, string>>(new Map())
+    const authorshipColoringEnabled = useAuthorshipDisplayStore(s => s.coloringEnabled)
+    // Read-only viewer mounts skip the clientAuthors Y.Map observer
+    // entirely (pass null) — authorship coloring is forced off on
+    // viewers per the read-only design decision (see screens/[id].tsx).
+    // The store flag (authorshipColoringEnabled) is the user-toggle for
+    // writers; ANDing it with !readOnly is the right composition.
+    const isReadOnly = options.editable === false
+    const authorshipClientAuthors = useClientAuthors(isReadOnly ? null : options.yDoc)
+    authorshipEnabledRef.current = authorshipColoringEnabled && !isReadOnly
+    authorshipYDocRef.current = isReadOnly ? null : options.yDoc
+    authorshipClientAuthorsRef.current = authorshipClientAuthors
 
     const tiptapEditor = useEditor(
         {
@@ -373,17 +413,50 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     document: options.yDoc,
                     field: 'prosemirror',
                 }),
-                CollaborationCaret.configure({
-                    provider: { awareness: options.awareness },
-                    user: options.user,
-                }),
+                // Collaboration cursors are a writer-side affordance:
+                // the extension broadcasts THIS user's caret to peers
+                // and renders OTHER peers' carets here. Read-only
+                // viewer mounts omit it so a viewer is invisible to
+                // peers AND doesn't render their cursors. See the
+                // read-only design decision in screens/[id].tsx.
+                ...(isReadOnly
+                    ? []
+                    : [
+                          CollaborationCaret.configure({
+                              provider: { awareness: options.awareness },
+                              user: options.user,
+                          }),
+                      ]),
                 FindReplaceExtension,
                 SlashMenu.configure({
                     openImageInsert: () => onRequestInsertImageRef.current?.(),
                 }),
+                ...buildSuggestionEditorExtensions({
+                    modeStore: options.modeStore,
+                    yDoc: options.yDoc,
+                    // Read-only viewer surface: omit suggestion
+                    // decorations / click handler / command layer. The
+                    // schema marks stay so y-prosemirror's mark-set
+                    // matches the on-disk doc on parse. See
+                    // screens/[id].tsx for the design decision.
+                    readOnly: isReadOnly,
+                }),
+                // Authorship coloring is also a writer-side affordance;
+                // omit on read-only mounts so the Yjs observer doesn't
+                // run and the editor doesn't spend cycles re-deriving
+                // attribution decorations the viewer can't see.
+                ...(isReadOnly
+                    ? []
+                    : [
+                          AuthorshipExtension.configure({
+                              getEnabled: () => authorshipEnabledRef.current,
+                              getYDoc: () => authorshipYDocRef.current,
+                              getClientAuthors: () => authorshipClientAuthorsRef.current,
+                          }),
+                      ]),
             ],
         },
-        [options.yDoc, options.awareness, options.user?.name, options.user?.color]
+        [options.yDoc, options.awareness, options.user?.name, options.user?.color, isReadOnly]
     )
 
     const editor: EditorHandle = useMemo(

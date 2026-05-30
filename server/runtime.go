@@ -59,9 +59,50 @@ type Runtime struct {
 	// it nil — they construct doc state via ApplyUpdate.
 	bootstrap func(roomID string, doc *ycrdt.Doc) error
 
-	mu      sync.Mutex
+	// mu guards every room-keyed map below. It's an RWMutex because the
+	// hot-path accessors (RoomFor, BufferFor, docFor, handleFor) are
+	// pure map reads fired several times per inbound MsgDocUpdate per
+	// connected peer, while the writers (NewDoc, noteRoom, closeDoc,
+	// SetBootstrap, the snapshot updates in suggestion_discussion_cleanup)
+	// are rare. RLock on the readers lets concurrent peers' frames flow
+	// in parallel through the runtime accessors instead of serializing
+	// on one room's mutex.
+	mu      sync.RWMutex
 	docs    map[string]*ycrdt.Doc
 	handles map[string]*textDocHandle
+	// rooms records the *realtime.Room reference the broker hands us
+	// in OnRoomCreate, so server-originated broadcasts (Phase 3a
+	// authorship stamping) can call Room.PublishDocUpdate without
+	// going through the broker registry each time. Indexed by the same
+	// roomID the doc / handle maps use.
+	rooms map[string]*realtime.Room
+
+	// editBuffers holds one *editEventBuffer per active room. Constructed
+	// in noteRoom alongside the rooms map entry, drained on close. The
+	// Phase 3b stamper-adjacent path calls BufferFor(roomID).Note(...)
+	// after the authorship stamp succeeds; the buffer's per-clientID
+	// timer fires the flush callback wired by makeEditEventFlush, which
+	// in turn calls handle.publishEditEvent + room.PublishDocUpdate.
+	editBuffers map[string]*editEventBuffer
+
+	// authorship is the Phase 3a stamping cache. Lives the lifetime of
+	// the process; per-room state is dropped in closeDoc so a long-
+	// running server doesn't leak stamped-set / userOrg memos for
+	// rooms that have been evicted.
+	authorship *authorshipCache
+
+	// prevSuggestionKeys holds the most-recent snapshot of the
+	// `suggestions` Y.Map keyset per active room. Read+rewritten by
+	// diffSuggestionKeys on every accepted MsgDocUpdate to detect
+	// suggestion deletions (keys present in the previous snapshot but
+	// absent in the current keyset are the keys this frame removed).
+	// Seeded in noteRoom from the freshly-bootstrapped doc and dropped
+	// in closeDoc so an evicted room doesn't keep its keyset around.
+	//
+	// Guarded by r.mu — the snapshot is keyed by roomID so contention is
+	// minimal in practice; the diff itself runs unsynchronized against
+	// the Y.Doc, which serializes ops internally.
+	prevSuggestionKeys map[string]map[string]struct{}
 
 	// importWarnings holds per-room warnings produced during bootstrap
 	// (e.g. tracked changes stripped, comments dropped). The OnConnect
@@ -99,12 +140,136 @@ type importWarningEntry struct {
 // in selectively).
 func NewRuntime() *Runtime {
 	return &Runtime{
-		docs:           map[string]*ycrdt.Doc{},
-		handles:        map[string]*textDocHandle{},
-		importWarnings: map[string]importWarningEntry{},
-		stop:           make(chan struct{}),
-		janitorDone:    make(chan struct{}),
+		docs:               map[string]*ycrdt.Doc{},
+		handles:            map[string]*textDocHandle{},
+		rooms:              map[string]*realtime.Room{},
+		editBuffers:        map[string]*editEventBuffer{},
+		authorship:         newAuthorshipCache(),
+		prevSuggestionKeys: map[string]map[string]struct{}{},
+		importWarnings:     map[string]importWarningEntry{},
+		stop:               make(chan struct{}),
+		janitorDone:        make(chan struct{}),
 	}
+}
+
+// noteRoom records the *realtime.Room reference the broker hands us
+// in its OnRoomCreate callback. The reference lives until closeDoc
+// removes it (a room teardown). Used by the Phase 3a authorship
+// stamper to broadcast server-originated delta updates back to peers
+// via Room.PublishDocUpdate.
+//
+// Phase 3b additionally constructs the per-room editEventBuffer here.
+// The buffer's flush callback closes over the runtime (via
+// makeEditEventFlush) and looks up the handle + room at flush time, so
+// it stays valid as long as both are alive. Buffer construction is
+// cheap (a couple of map allocs); doing it under r.mu keeps the
+// invariant "if rooms[roomID] is set, editBuffers[roomID] is too."
+func (r *Runtime) noteRoom(roomID string, room *realtime.Room) {
+	r.mu.Lock()
+	r.rooms[roomID] = room
+	r.editBuffers[roomID] = newEditEventBuffer(roomID, r.makeEditEventFlush())
+	doc := r.docs[roomID]
+	r.mu.Unlock()
+	// Seed the `suggestions` Y.Map keyset baseline so the first inbound
+	// update can be diffed for deletions. Done outside r.mu because the
+	// helper takes the lock itself; doing it here keeps the lock-ordering
+	// invariant "Y.Doc reads are unsynchronized; map writes hold r.mu"
+	// consistent with the rest of the runtime.
+	if doc != nil {
+		r.initSuggestionKeySnapshot(roomID, doc)
+	}
+}
+
+// RoomFor returns the *realtime.Room associated with the given roomID,
+// or nil if the room has not been created or has been torn down.
+// Uses RLock — the accessor is pure map read, fired multiple times
+// per inbound MsgDocUpdate (authorship stamper + suggestion cleanup
+// each call it once per frame).
+func (r *Runtime) RoomFor(roomID string) *realtime.Room {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.rooms[roomID]
+}
+
+// BufferFor returns the *editEventBuffer registered for the given
+// roomID, or nil if the room has not been created or has been torn
+// down. Pure map lookup under r.mu (RLock — see RoomFor for the
+// rationale; this accessor fires once per inbound MsgDocUpdate from
+// the authorship stamper). The buffer is constructed in noteRoom, so
+// a caller observing a non-nil room from RoomFor will also observe a
+// non-nil buffer here.
+func (r *Runtime) BufferFor(roomID string) *editEventBuffer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.editBuffers[roomID]
+}
+
+// makeEditEventFlush returns the closure the per-room editEventBuffer
+// invokes when a window closes. The closure runs in a goroutine spawned
+// by time.AfterFunc, so it must be safe to call handleFor + RoomFor
+// from any goroutine — both take r.mu and are concurrency-safe.
+//
+// Lookup-at-flush-time (rather than capturing the handle / room
+// pointers at buffer-construction time) means a window that closes
+// after the room has been torn down silently drops, since handleFor /
+// RoomFor return nil for evicted rooms. Avoids a use-after-close on the
+// handle's Y.Doc.
+func (r *Runtime) makeEditEventFlush() func(string, EditEvent) {
+	return func(roomID string, e EditEvent) {
+		handle := r.handleFor(roomID)
+		room := r.RoomFor(roomID)
+		if handle == nil || room == nil {
+			return
+		}
+		delta, err := handle.publishEditEvent(e)
+		if err != nil {
+			slog.Error("text: editEvent write failed", "roomID", roomID, "err", err)
+			return
+		}
+		if len(delta) == 0 {
+			return
+		}
+		if err := room.PublishDocUpdate(delta); err != nil {
+			slog.Warn("text: editEvent broadcast failed", "roomID", roomID, "err", err)
+		}
+	}
+}
+
+// AuthorshipCache returns the process-wide authorship cache. The
+// Phase 3a stamper consults this to short-circuit duplicate work on
+// the hot inbound-update path; tests use it to introspect cache state.
+func (r *Runtime) AuthorshipCache() *authorshipCache {
+	return r.authorship
+}
+
+// docFor returns the *ycrdt.Doc registered for the given roomID, or
+// nil. Thin accessor — callers should NOT mutate the returned doc
+// without holding the handle's mutex. For mutating writes the broker
+// goes through textDocHandle.ApplyUpdate; the Phase 3a stamper goes
+// through textDocHandle.stampAuthorship. This raw accessor exists for
+// the janitor (read-only checks) and integration tests.
+//
+// RLock — pure map read fired on every inbound MsgDocUpdate by the
+// suggestion-discussion cleanup hook (after the gate that probes the
+// payload for a suggestions-root write).
+func (r *Runtime) docFor(roomID string) *ycrdt.Doc {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.docs[roomID]
+}
+
+// handleFor returns the *textDocHandle registered for the given roomID,
+// or nil. The Phase 3a authorship stamper uses this to acquire the
+// handle's mutex before mutating the doc, so its writes don't race
+// with the broker's concurrent ApplyUpdate / EncodeStateAsUpdate calls
+// on the same doc.
+//
+// RLock — pure map read; the stamper calls this once per first
+// stamping per clientID (cache short-circuits subsequent frames).
+func (r *Runtime) handleFor(roomID string) *textDocHandle {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.handles[roomID]
 }
 
 // StartJanitor spins up the background goroutine that evicts idle docs
@@ -163,12 +328,15 @@ func (r *Runtime) janitorLoop() {
 // and only then read lastActivity / call Close per handle.
 func (r *Runtime) evictIdleDocs() {
 	cutoff := now().Add(-MaxIdleDuration)
-	r.mu.Lock()
+	// RLock — we only read the handles map to build the snapshot
+	// slice. Concurrent readers (the per-frame accessors) can keep
+	// flowing during the janitor scan.
+	r.mu.RLock()
 	snapshot := make([]*textDocHandle, 0, len(r.handles))
 	for _, h := range r.handles {
 		snapshot = append(snapshot, h)
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
 	for _, h := range snapshot {
 		if h.LastActivity().Before(cutoff) {
 			_ = h.Close()
@@ -305,14 +473,41 @@ func ensureAbstractTypeInitialized(at *ycrdt.AbstractType) {
 
 // closeDoc removes the doc from the registry. Returns true if the
 // doc was registered. Safe to call multiple times.
+//
+// Drops the room reference, the per-room editEventBuffer, and the
+// authorship cache's per-room entries alongside the doc/handle so a
+// long-running server doesn't leak state for evicted rooms. The
+// authorship cache has its own mutex; we release r.mu before calling
+// dropRoom to keep the lock ordering (runtime mu → authorship mu, never
+// both held).
+//
+// Phase 3b: the buffer is captured while r.mu is held and then drained
+// AFTER unlocking via FlushAll. Draining outside the runtime mutex
+// matters because each Flush call invokes the flush callback, which
+// takes the handle's mutex via publishEditEvent — holding r.mu across
+// that would invert the runtime-mu → handle-mu lock order the rest of
+// the file relies on and risk deadlock against ApplyUpdate /
+// EncodeStateAsUpdate. FlushAll ensures the final in-flight window for
+// each clientID emits before the room dies, so a user who walked away
+// mid-session still sees their last edit batch surface in the activity
+// feed.
 func (r *Runtime) closeDoc(roomID string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, ok := r.docs[roomID]; !ok {
+		r.mu.Unlock()
 		return false
 	}
 	delete(r.docs, roomID)
 	delete(r.handles, roomID)
+	delete(r.rooms, roomID)
+	buf := r.editBuffers[roomID]
+	delete(r.editBuffers, roomID)
+	delete(r.prevSuggestionKeys, roomID)
+	r.mu.Unlock()
+	r.authorship.dropRoom(roomID)
+	if buf != nil {
+		buf.FlushAll()
+	}
 	return true
 }
 
@@ -441,6 +636,93 @@ func (h *textDocHandle) ApplyUpdate(payload []byte) error {
 	return applyErr
 }
 
+// stampAuthorship writes the given authorship entries into the
+// server-side Y.Doc and returns the bytes of a delta covering only
+// those mutations — ready to hand to Room.PublishDocUpdate for
+// broadcast.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// EncodeStateAsUpdate, so server-originated authorship writes don't
+// race with concurrent inbound updates routed from other connections.
+// The broker's route loop fires per-connection, so two peers writing
+// to the same room could otherwise reach the doc simultaneously —
+// without this lock, the stamper's authors.Set / firstSeen.Set could
+// interleave with the broker's ApplyUpdate, corrupting the doc.
+//
+// Empty entries returns nil bytes and no error (caller skips the
+// broadcast).
+func (h *textDocHandle) stampAuthorship(entries []authorshipEntry) ([]byte, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: stampAuthorship on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	return writeAuthorshipEntries(h.doc, entries)
+}
+
+// publishEditEvent writes the given EditEvent into the server-side
+// Y.Doc's editEvents Y.Array and returns the bytes of a delta covering
+// only that mutation — ready to hand to Room.PublishDocUpdate for
+// broadcast.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// EncodeStateAsUpdate / stampAuthorship, so server-originated edit
+// event writes don't race with concurrent inbound updates routed from
+// other connections. Mirrors stampAuthorship's mutex pattern.
+func (h *textDocHandle) publishEditEvent(event EditEvent) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: publishEditEvent on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	return writeEditEvent(h.doc, event)
+}
+
+// applyVersionRestore folds a previously-captured Yjs state (as written
+// by captureYjsStateAndMetadata) into the live server doc and returns
+// the bytes of a delta covering only the converging mutations — ready
+// to hand to Room.PublishDocUpdate for broadcast.
+//
+// Captures the doc's state vector BEFORE applying the snapshot so the
+// returned delta is the minimal set of items the doc didn't already
+// have. Connected peers can fold the broadcast directly without
+// retransmitting state they already know.
+//
+// Synchronizes through the same handle mutex as ApplyUpdate /
+// stampAuthorship / publishEditEvent — restoring a version while a
+// peer is mid-edit would otherwise interleave operations and corrupt
+// the doc. Wraps the apply in a recover so a malformed snapshot
+// (corrupt yjs_state row, mismatched version) surfaces an error
+// instead of panicking the broker goroutine.
+func (h *textDocHandle) applyVersionRestore(stateBytes []byte) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || h.doc == nil {
+		return nil, fmt.Errorf("text: applyVersionRestore on closed room %s", h.id)
+	}
+	h.lastActivity = now()
+	beforeSV := ycrdt.EncodeStateVector(h.doc, nil, ycrdt.NewUpdateEncoderV1())
+	var applyErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				applyErr = fmt.Errorf("text: applyVersionRestore panic for room %s: %v", h.id, r)
+			}
+		}()
+		ycrdt.ApplyUpdate(h.doc, stateBytes, nil)
+	}()
+	if applyErr != nil {
+		return nil, applyErr
+	}
+	delta := ycrdt.EncodeStateAsUpdate(h.doc, beforeSV)
+	return delta, nil
+}
+
 // EncodeStateAsUpdate returns the bytes a new joiner needs to catch
 // up to the room's current state. Wrapped by the broker in a
 // MsgSyncReply frame.
@@ -465,4 +747,78 @@ func (h *textDocHandle) Close() error {
 	h.doc = nil
 	h.runtime.closeDoc(h.id)
 	return nil
+}
+
+// readSuggestionsMap reads the document's `suggestions` Y.Map and
+// returns the entries as a slice — mirrors the client's
+// SuggestionsMap.list() shape. Used by the flush path to thread the
+// Yjs-resident metadata (status / resolvedBy / note) through to the
+// docx emitter, which embeds it in customXml/tinycld-suggestions.xml
+// so a re-import recovers the full state.
+//
+// Returns nil when the doc has no suggestions root (a fresh doc that's
+// never seen a suggestion) — y-crdt's GetMap auto-creates the root key
+// on access, so we have to inspect the entries to distinguish empty
+// from never-written. Entries with a missing or malformed value type
+// are skipped silently; the client's TS layer is the source of truth
+// for entry shape, and we don't want a hostile / buggy peer to poison
+// the flush.
+func readSuggestionsMap(doc *ycrdt.Doc) []translate.SuggestionMapEntry {
+	if doc == nil {
+		return nil
+	}
+	m, ok := doc.GetMap("suggestions").(*ycrdt.YMap)
+	if !ok {
+		return nil
+	}
+	entries := m.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]translate.SuggestionMapEntry, 0, len(entries))
+	for _, v := range entries {
+		raw, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, translate.SuggestionMapEntry{
+			ID:         suggestionFieldString(raw, "id"),
+			AuthorID:   suggestionFieldString(raw, "authorId"),
+			CreatedAt:  suggestionFieldInt64(raw, "createdAt"),
+			Status:     suggestionFieldString(raw, "status"),
+			ResolvedBy: suggestionFieldString(raw, "resolvedBy"),
+			ResolvedAt: suggestionFieldInt64(raw, "resolvedAt"),
+			Note:       suggestionFieldString(raw, "note"),
+		})
+	}
+	return out
+}
+
+// suggestionFieldString returns m[k] coerced to string, or "" when the
+// key is absent or the value isn't a string. JSON-decoded client maps
+// always present string fields as Go string, so a non-string here
+// implies a hostile / malformed write — we drop the field rather than
+// surface a type assertion panic up the flush chain.
+func suggestionFieldString(m map[string]any, k string) string {
+	if v, ok := m[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// suggestionFieldInt64 extracts a numeric field. JS numbers come
+// through y-crdt's ContentAny decoder as float64; we also tolerate
+// int / int64 in case a future encoder switches.
+func suggestionFieldInt64(m map[string]any, k string) int64 {
+	switch v := m[k].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	}
+	return 0
 }

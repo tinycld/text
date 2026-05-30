@@ -24,6 +24,9 @@
     "devDependencies": {
         "@tinycld/package-scripts": "*"
     },
+    "dependencies": {
+        "ulid": "^3.0.0"
+    },
     "peerDependencies": {
         "react": ">=19",
         "react-native": ">=0.83",

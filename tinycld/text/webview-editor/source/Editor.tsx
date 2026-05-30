@@ -22,7 +22,9 @@ import { CommentMark } from '../../lib/editor/comment-mark'
 import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
+import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
+import type { EditorModeStore } from '../../stores/editor-mode-store'
 import { installCommentBridge } from './bridges/comment-bridge'
 import { installFindReplaceBridge } from './bridges/find-replace-bridge'
 import { installFormatBridge } from './bridges/format-bridge'
@@ -38,6 +40,7 @@ import {
     deriveImageSelection,
 } from './editor-state'
 import { RealtimeClient } from './realtime-client'
+import { installSuggestionListBridge } from './suggestions/list-bridge'
 
 // Local extensions declared in this module — kept together so the
 // import block stays uninterrupted and the in-line `Extension.create`
@@ -86,6 +89,16 @@ const FindReplaceExtension = Extension.create({
     },
 })
 
+// Mirrors the runtime augmentation in entry.tsx. Declared here too so
+// this module typechecks standalone (e.g. via the editor-schema tests,
+// which import Editor.tsx without pulling in entry.tsx). Both
+// declarations describe the same Window field; TypeScript merges them.
+declare global {
+    interface Window {
+        ReactNativeWebView?: { postMessage: (s: string) => void }
+    }
+}
+
 interface InitPayload {
     baseURL: string
     roomKind: string
@@ -94,6 +107,84 @@ interface InitPayload {
     user: { id: string; name: string; color: string }
     editable: boolean
     placeholder?: string
+}
+
+interface BuildEditorExtensionsOptions {
+    placeholder?: string
+    yDoc?: Y.Doc
+    awareness?: Awareness
+    user?: { id: string; name: string; color: string }
+    modeStore?: EditorModeStore
+}
+
+// buildEditorExtensions returns the full TipTap extension list used by
+// the WebView editor. Lives at module scope so tests can introspect the
+// resulting schema (see tests/suggestions/editor-schema.test.ts) without
+// mounting the editor. The Y.Doc / Awareness / user dependencies are
+// optional so schema-only callers (tests, type checks) can build the
+// list without paying the cost of constructing a realtime client.
+export function buildEditorExtensions(options: BuildEditorExtensionsOptions = {}) {
+    return [
+        StarterKit.configure({
+            undoRedo: false,
+            link: { openOnClick: false },
+        }),
+        // See use-document-editor.web.tsx for the rationale — both
+        // editor mounts must share the same schema so a doc seeded
+        // by one is readable by the other. TextStyle/Color/FontSize/
+        // FontFamily share a single textStyle mark on the schema;
+        // TextAlign and BlockIndent contribute attrs on paragraph +
+        // heading. Without these extensions the WebView's schema
+        // diverges from the web schema and attrs written by a web
+        // peer would be silently dropped on a native edit.
+        TextStyle,
+        Color,
+        BackgroundColor,
+        FontSize,
+        FontFamily,
+        TextAlign.configure({
+            types: ['paragraph', 'heading'],
+            alignments: ['left', 'center', 'right', 'justify'],
+            defaultAlignment: null,
+        }),
+        BlockIndent.configure({ types: ['paragraph', 'heading'] }),
+        // DropCap must be in the shared schema (see the TextStyle
+        // comment above) so a dropCap attr written by a web peer
+        // survives a native edit. Paragraph only.
+        DropCap.configure({ types: ['paragraph'] }),
+        Placeholder.configure({
+            placeholder: options.placeholder ?? 'Start writing…',
+        }),
+        Table.configure({ resizable: true, handleWidth: 5, cellMinWidth: 32 }),
+        TableRow,
+        BorderedTableHeader,
+        BorderedTableCell,
+        WrappedImage,
+        CommentMark,
+        CodeShortcuts,
+        FindReplaceExtension,
+        // SlashMenu — the `bridge` strategy posts ui.show-popover /
+        // popover-update / popover-exited messages out of the
+        // WebView so the host's AnchoredOverlayController renders
+        // the popover as a Modal positioned over the WebView. The
+        // host-side `openImageInsert` action isn't reachable from
+        // inside the WebView (the file picker lives at the screen
+        // level on native), so we don't wire that option through —
+        // the slash-menu Image entry deletes the trigger and
+        // inserts nothing on native, matching the web variant's
+        // behavior when openImageInsert isn't supplied.
+        SlashMenu.configure({ renderStrategy: 'bridge' }),
+        Collaboration.configure({ document: options.yDoc, field: 'prosemirror' }),
+        CollaborationCaret.configure({
+            provider: { awareness: options.awareness },
+            user: options.user,
+        }),
+        ...buildSuggestionEditorExtensions(
+            options.modeStore && options.yDoc
+                ? { modeStore: options.modeStore, yDoc: options.yDoc }
+                : undefined
+        ),
+    ]
 }
 
 interface IncomingMessage {
@@ -184,62 +275,12 @@ function EditorMounted({ init }: EditorMountedProps) {
 
     const editor = useEditor({
         editable: init.editable,
-        extensions: [
-            StarterKit.configure({
-                undoRedo: false,
-                link: { openOnClick: false },
-            }),
-            // See use-document-editor.web.tsx for the rationale — both
-            // editor mounts must share the same schema so a doc seeded
-            // by one is readable by the other. TextStyle/Color/FontSize/
-            // FontFamily share a single textStyle mark on the schema;
-            // TextAlign and BlockIndent contribute attrs on paragraph +
-            // heading. Without these extensions the WebView's schema
-            // diverges from the web schema and attrs written by a web
-            // peer would be silently dropped on a native edit.
-            TextStyle,
-            Color,
-            BackgroundColor,
-            FontSize,
-            FontFamily,
-            TextAlign.configure({
-                types: ['paragraph', 'heading'],
-                alignments: ['left', 'center', 'right', 'justify'],
-                defaultAlignment: null,
-            }),
-            BlockIndent.configure({ types: ['paragraph', 'heading'] }),
-            // DropCap must be in the shared schema (see the TextStyle
-            // comment above) so a dropCap attr written by a web peer
-            // survives a native edit. Paragraph only.
-            DropCap.configure({ types: ['paragraph'] }),
-            Placeholder.configure({
-                placeholder: init.placeholder ?? 'Start writing…',
-            }),
-            Table.configure({ resizable: true, handleWidth: 5, cellMinWidth: 32 }),
-            TableRow,
-            BorderedTableHeader,
-            BorderedTableCell,
-            WrappedImage,
-            CommentMark,
-            CodeShortcuts,
-            FindReplaceExtension,
-            // SlashMenu — the `bridge` strategy posts ui.show-popover /
-            // popover-update / popover-exited messages out of the
-            // WebView so the host's AnchoredOverlayController renders
-            // the popover as a Modal positioned over the WebView. The
-            // host-side `openImageInsert` action isn't reachable from
-            // inside the WebView (the file picker lives at the screen
-            // level on native), so we don't wire that option through —
-            // the slash-menu Image entry deletes the trigger and
-            // inserts nothing on native, matching the web variant's
-            // behavior when openImageInsert isn't supplied.
-            SlashMenu.configure({ renderStrategy: 'bridge' }),
-            Collaboration.configure({ document: yDoc, field: 'prosemirror' }),
-            CollaborationCaret.configure({
-                provider: { awareness },
-                user: init.user,
-            }),
-        ],
+        extensions: buildEditorExtensions({
+            placeholder: init.placeholder,
+            yDoc,
+            awareness,
+            user: init.user,
+        }),
     })
 
     // Stream toolbar state out to native on every transaction. TenTap's
@@ -369,6 +410,22 @@ function EditorMounted({ init }: EditorMountedProps) {
         const bridge = installFindReplaceBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
+
+    // Suggestion list bridge: pushes the current
+    // DocumentSuggestionsResult snapshot to the host whenever the
+    // editor doc or the suggestions Y.Map changes. The host's
+    // useDocumentSuggestionBridge subscribes to these pushes via the
+    // 'suggestion.changed' message and surfaces them through the
+    // standard subscribe/getSnapshot bridge contract used by the
+    // review drawer. init.roomId is the driveItemId on this surface
+    // (set by use-document-editor.native.tsx's roomId: driveItemId
+    // mapping).
+    useEffect(() => {
+        if (!editor) return
+        return installSuggestionListBridge(editor, yDoc, init.roomId, (kind, payload) => {
+            postToNative({ kind, payload })
+        })
+    }, [editor, yDoc, init.roomId])
 
     // Forward in-document scroll events out to the host. The host's
     // useWebViewEditor receives this on its 'ui' namespace channel and

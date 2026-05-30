@@ -125,7 +125,7 @@ func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
 // fetched and embedded. A nil resolver behaves exactly like
 // PMJSONToDocx — drive URLs are rejected.
 func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, resolver)
+	return pmJSONToDocx(pmJSON, resolver, nil)
 }
 
 // PMJSONToDocxWithWarnings is the warnings-aware variant of
@@ -133,10 +133,37 @@ func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []
 // signal the emitter raised (e.g. an oversized image was dropped) —
 // hard errors still come back via the error return.
 func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, nil)
+	return pmJSONToDocx(pmJSON, nil, nil)
 }
 
-func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
+// PMJSONToDocxWithSuggestions is PMJSONToDocxWithWarnings plus the
+// suggestion-map entries that the runtime read from the Yjs
+// 'suggestions' Y.Map. The entries carry the status / resolvedBy /
+// note metadata we want to round-trip — Word reads the <w:ins>/<w:del>
+// revisions we emit alongside; tinycld readers pick up the
+// customXml/tinycld-suggestions.xml part for the full picture.
+//
+// Pass nil for entries when the caller has no suggestion metadata to
+// round-trip — the emitter will still produce the (w:id → suggestionId)
+// mapping from whatever spans the walk encounters, just without the
+// status/resolvedBy/note metadata.
+func PMJSONToDocxWithSuggestions(pmJSON []byte, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, nil, entries)
+}
+
+// PMJSONToDocxWithResolverAndSuggestions combines the resolver and
+// suggestion-entries variants. The server flush uses this entry point:
+// it has both a drive-backed ImageResolver and the runtime-read
+// suggestion entries to thread through.
+func PMJSONToDocxWithResolverAndSuggestions(
+	pmJSON []byte,
+	resolver ImageResolver,
+	entries []SuggestionMapEntry,
+) ([]byte, []Warning, error) {
+	return pmJSONToDocx(pmJSON, resolver, entries)
+}
+
+func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
 	var root PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		return nil, nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
@@ -154,6 +181,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 
 	em := newEmitter()
 	em.imageResolver = resolver
+	em.suggestionEntries = entries
 	for _, child := range root.Content {
 		if err := em.emitBlock(child, 0, ""); err != nil {
 			return nil, nil, err
@@ -171,7 +199,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, err
 			return nil, nil, err
 		}
 	}
-	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 {
+	if len(em.pageBreaks) > 0 || len(em.commentSpans) > 0 || len(em.footnotes) > 0 || len(em.endnotes) > 0 || len(em.codeMarks) > 0 || len(em.bgColorSpans) > 0 || len(em.dropCapFrames) > 0 || len(em.suggestionSpans) > 0 || len(em.suggestionEntries) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 || len(em.cellChangeSpans) > 0 {
 		bs, err = postProcessRichXML(bs, em)
 		if err != nil {
 			return nil, nil, err
@@ -219,11 +247,47 @@ type emitter struct {
 	// Authored comments accumulated during emission, keyed by the
 	// runtime comment id we assigned. Each entry feeds one <w:comment>
 	// in word/comments.xml on flush.
-	commentBodies map[string]commentBody
-	footnotes     []footnoteEntry
-	endnotes      []footnoteEntry
-	footnoteSeq   int
-	endnoteSeq    int
+	commentBodies     map[string]commentBody
+	suggestionSpans   []suggestionSpan
+	suggestionSpanSeq int // monotonic w:id counter starting at 1
+	// formatChangeSpans tracks every suggestedFormatChange mark the
+	// emitter encountered. The post-process pass uses them to splice
+	// <w:rPrChange> wrappers into the affected runs' <w:rPr> blocks.
+	// formatChangeSpanSeq is the independent w:id allocator for this
+	// kind — Word treats <w:ins>/<w:del>/<w:rPrChange> w:id values as
+	// independent docx-local sequences, so reusing 1, 1, 1 across the
+	// three rev-kinds is perfectly legal and matches what Word emits.
+	formatChangeSpans   []formatChangeSpan
+	formatChangeSpanSeq int
+	// blockChangeSpans tracks every suggestedBlockChange attribute
+	// the emitter encountered on a paragraph/heading/blockquote/etc.
+	// The post-process pass uses them to splice <w:pPrChange> wrappers
+	// into the affected paragraphs' <w:pPr> blocks. Same independent-
+	// counter rule as formatChangeSpanSeq: <w:pPrChange> has its own
+	// w:id sequence, separate from <w:ins>/<w:del>/<w:rPrChange>.
+	blockChangeSpans   []blockChangeSpan
+	blockChangeSpanSeq int
+	// cellChangeSpans tracks every suggestedBlockChange attribute the
+	// emitter encountered on a tableCell / tableHeader node. The
+	// post-process pass uses them to splice <w:tcPrChange> /
+	// <w:cellIns> / <w:cellDel> elements into the affected cells'
+	// <w:tcPr> blocks. Same independent-counter rule as the other
+	// suggestion span seqs: cell-change has its own w:id sequence.
+	cellChangeSpans   []cellChangeSpan
+	cellChangeSpanSeq int
+	// suggestionEntries is populated from the Yjs suggestions Y.Map by
+	// the caller (PMJSONToDocxWithSuggestions /
+	// PMJSONToDocxWithResolverAndSuggestions). The post-process pass
+	// writes them into customXml/tinycld-suggestions.xml so the full
+	// status/resolvedBy/note metadata round-trips on re-import. Nil
+	// when the caller has no metadata; the (w:id → suggestionId)
+	// mapping still gets emitted from the spans collected during the
+	// walk.
+	suggestionEntries []SuggestionMapEntry
+	footnotes         []footnoteEntry
+	endnotes          []footnoteEntry
+	footnoteSeq       int
+	endnoteSeq        int
 
 	// codeMarks tracks each inline code-marked run as an (open marker,
 	// close marker) pair. WordZero's RunProperties struct has no
@@ -412,7 +476,26 @@ func (em *emitter) emitParagraph(node PMNode, listLevel int, parentList string) 
 	}
 	p := em.doc.AddParagraph("")
 	applyAlignIndent(p, node.Attrs)
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
+}
+
+// emitBlockChangeMarker plants a single anchor marker run at the front
+// of the paragraph when the node carries a suggestedBlockChange attr.
+// The post-process pass uses the marker to locate the enclosing <w:p>,
+// inject <w:pPrChange> into its <w:pPr>, and strip the marker run.
+//
+// Placing the marker as the FIRST run keeps the rewriter's enclosing-
+// paragraph search short (the paragraph open tag is immediately before
+// the marker) and avoids interactions with later inline-run rewriters
+// (link, suggestion, format-change) that walk runs at the END of the
+// paragraph.
+func (em *emitter) emitBlockChangeMarker(p *document.Paragraph, attrs map[string]any) {
+	span := em.queueBlockChangeAttrs(attrs)
+	if span == nil {
+		return
+	}
+	p.AddFormattedText(span.Marker, &document.TextFormat{})
 }
 
 // emitDropCapParagraph splits a PM dropCap paragraph into Word's native
@@ -569,6 +652,7 @@ func (em *emitter) emitListParagraph(node PMNode, listLevel int, parentList stri
 		p = em.appendFirstListParagraph(parentList, listLevel)
 		em.recordListNumID(listLevel, extractNumID(p))
 	}
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
 }
 
@@ -637,6 +721,7 @@ func (em *emitter) emitHeading(node PMNode) error {
 	}
 	p := em.doc.AddHeadingParagraph("", level)
 	applyAlignIndent(p, node.Attrs)
+	em.emitBlockChangeMarker(p, node.Attrs)
 	return em.emitInlineRuns(p, node.Content)
 }
 
@@ -725,12 +810,23 @@ func makeFreshScope(prev []string, level int) []string {
 // applying the "Quote" pStyle to each one. PM nests paragraphs
 // inside the blockquote; OOXML has no real container element for
 // blockquotes, so we mark each paragraph individually.
+//
+// The block-change attr is attached at the blockquote level in PM; we
+// apply the marker to the first inner paragraph (the most consistent
+// docx-side anchor — pPrChange on a Quote-styled paragraph is what
+// Word would emit if you proposed converting a normal paragraph to a
+// blockquote in the UI).
 func (em *emitter) emitBlockquote(node PMNode) error {
+	first := true
 	for _, child := range node.Content {
 		switch child.Type {
 		case NodeTypeParagraph:
 			p := em.doc.AddParagraph("")
 			p.SetStyle("Quote")
+			if first {
+				em.emitBlockChangeMarker(p, node.Attrs)
+				first = false
+			}
 			if err := em.emitInlineRuns(p, child.Content); err != nil {
 				return err
 			}
@@ -1053,6 +1149,23 @@ func pxToDxa(px int) int {
 func (em *emitter) emitTableCell(tbl *document.Table, row, col int, cell PMNode) error {
 	if err := tbl.ClearCellParagraphs(row, col); err != nil {
 		return fmt.Errorf("translate: clear cell %d,%d: %w", row, col, err)
+	}
+	// Plant a single anchor marker run inside the cell when it carries
+	// a suggestedBlockChange attr. The marker lives in its own
+	// paragraph at the very start of the cell so the post-process pass
+	// can walk back from it to find the enclosing <w:tc> and inject
+	// the cell-change element into its <w:tcPr>. We use a dedicated
+	// paragraph (rather than prepending to the first content paragraph)
+	// so the marker's run doesn't carry inline formatting that the user
+	// might later notice — and so the marker location stays predictable
+	// regardless of cell content shape.
+	cellChangeSpan := em.queueCellChangeAttrs(cell.Attrs)
+	if cellChangeSpan != nil {
+		para, err := tbl.AddCellParagraph(row, col, "")
+		if err != nil {
+			return fmt.Errorf("translate: add cell change marker para: %w", err)
+		}
+		para.AddFormattedText(cellChangeSpan.Marker, &document.TextFormat{})
 	}
 	for _, child := range cell.Content {
 		if child.Type != NodeTypeParagraph {
@@ -1707,6 +1820,19 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 	px := fontSizePxFromMarks(node.Marks)
 	empty := &document.TextFormat{}
 
+	// Suggestion markers are the OUTERMOST wrapper so that <w:ins> /
+	// <w:del> envelops everything else (comment range markers, link
+	// runs, bg/code-styled real run). Markers are planted as their own
+	// bare text runs; the post-process pass rewrites the open marker
+	// into the opening <w:ins>/<w:del> tag (with w:id, w:author,
+	// w:date) and the close marker into the matching closing tag.
+	// For deletes the rewriter also swaps <w:t> for <w:delText> on
+	// every real run between the two markers.
+	suggestionSpans := em.queueSuggestionMarks(node.Marks)
+	for _, span := range suggestionSpans {
+		p.AddFormattedText(span.OpenMarker, empty)
+	}
+
 	commentSpans := em.queueCommentMarks(node.Marks)
 	for _, span := range commentSpans {
 		p.AddFormattedText(span.OpenMarker, empty)
@@ -1749,6 +1875,14 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		codeSpan = &span
 	}
 
+	// Format-change markers anchor the rewriter to the real text run we're
+	// about to emit. Only the open marker is planted (right after the
+	// real run); the post-process pass walks back from the marker to find
+	// the run's <w:rPr> and injects <w:rPrChange> there. Spans are
+	// queued here so the marker sequence stays stable across the
+	// emitTextRun call.
+	formatChangeSpans := em.queueFormatChangeMarks(node.Marks)
+
 	if hasLink {
 		// Surround the run with markers; the post-process step
 		// recognizes them in word/document.xml and rewrites the
@@ -1780,6 +1914,13 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 			p.AddFormattedText(bgSpan.CloseMarker, empty)
 		}
 		p.AddFormattedText(closeTok, empty)
+		// Format-change markers go INSIDE the link wrapper so the
+		// rewriter's "previous run" search lands on the real hyperlink-
+		// styled run (the one whose <w:rPr> WordZero populated with the
+		// after-state). One bare marker per layered format-change.
+		for _, fc := range formatChangeSpans {
+			p.AddFormattedText(fc.Marker, empty)
+		}
 	} else {
 		if bgSpan != nil {
 			p.AddFormattedText(bgSpan.OpenMarker, empty)
@@ -1795,12 +1936,23 @@ func (em *emitter) emitTextRun(p *document.Paragraph, node PMNode) error {
 		if bgSpan != nil {
 			p.AddFormattedText(bgSpan.CloseMarker, empty)
 		}
+		for _, fc := range formatChangeSpans {
+			p.AddFormattedText(fc.Marker, empty)
+		}
 	}
 
 	// Close spans in LIFO order so nested comments produce well-
 	// balanced (innermost-first) commentRangeEnd markers.
 	for i := len(commentSpans) - 1; i >= 0; i-- {
 		p.AddFormattedText(commentSpans[i].CloseMarker, empty)
+	}
+
+	// Suggestion close markers in REVERSE declaration order so the
+	// post-process pass produces properly-nested </w:ins>/</w:del>
+	// wrappers. Layered marks (Case 2c) rely on this so the inner
+	// wrapper closes before the outer one.
+	for i := len(suggestionSpans) - 1; i >= 0; i-- {
+		p.AddFormattedText(suggestionSpans[i].CloseMarker, empty)
 	}
 	return nil
 }

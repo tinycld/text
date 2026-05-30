@@ -10,6 +10,7 @@ import (
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
 	"tinycld.org/core/userorg"
+	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -66,11 +67,25 @@ const roomKindText = "text-doc"
 //     ({readOnly, importWarnings}) so the joining client can render
 //     parse warnings as a banner and (eventually) gate writes.
 func Register(app *pocketbase.PocketBase) {
+	// Read TINYCLD_EDIT_EVENT_WINDOW_MS once at boot. Lets e2e tests
+	// shorten the 60s edit-event debounce window without per-test
+	// surgery; production leaves the env unset and runs at the default.
+	configureWindowFromEnv()
+
 	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
 
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 	runtime.StartJanitor()
+
+	// Cross-package version hooks: when drive snapshots or restores a
+	// drive_item_versions row for an item of type "text", call into the
+	// text runtime to capture / apply the live Y.Doc state (which carries
+	// the protected roots — clientAuthors, clientFirstSeen, editEvents —
+	// that the docx round-trip can't preserve). Registered before the
+	// realtime block so a snapshot HTTP request that races with the very
+	// first room creation finds the hook in place.
+	versionhooks.Register("text", makeSnapshotVersionHook(runtime))
 
 	journal := realtime.NewPocketBaseJournal(app)
 	flush := makeProductionFlush(app, runtime)
@@ -86,11 +101,41 @@ func Register(app *pocketbase.PocketBase) {
 		},
 		RuntimeProvider: runtime,
 		Journal:         journal,
-		OnRoomCreate:    saveCoordinator.OnRoomCreate,
-		OnDocUpdate:     saveCoordinator.OnDocUpdate,
-		OnDocUpdateSeq:  saveCoordinator.NoteSeq,
-		OnEmpty:         saveCoordinator.OnRoomEmpty,
-		OnConnect: makeOnConnect(app, runtime),
+		// Wrap OnRoomCreate so the runtime also gets a handle to the
+		// *realtime.Room reference — the Phase 3a authorship stamper
+		// uses it to broadcast server-originated delta updates back to
+		// peers via Room.PublishDocUpdate.
+		OnRoomCreate: func(roomID string, handle realtime.DocHandle, room *realtime.Room) {
+			runtime.noteRoom(roomID, room)
+			saveCoordinator.OnRoomCreate(roomID, handle, room)
+		},
+		OnDocUpdate: saveCoordinator.OnDocUpdate,
+		// Phase 3a server-side authorship stamping: after each accepted
+		// MsgDocUpdate, inspect the payload for writing Yjs clientIDs
+		// and stamp clientAuthors / clientFirstSeen for any ID we
+		// haven't seen yet in this room. The stamper is the orchestration
+		// layer that pulls together the probe (extractWritingClientIDs),
+		// the user_org resolver, the writer (writeAuthorshipEntries),
+		// and the broadcast (Room.PublishDocUpdate). See
+		// authorship_stamper.go for the full flow.
+		//
+		// Composed with makeSuggestionDiscussionCleanup so a single
+		// OnDocUpdateContent slot drives both: stamping fires first to
+		// take care of authorship metadata, then the cleanup pass diffs
+		// the suggestions Y.Map keyset against the previous snapshot
+		// and soft-deletes any text_comments rows whose suggestion_id
+		// matches a key that was just removed. Both run synchronously
+		// on the broker's route goroutine; the stamper's work is bounded
+		// by the cache short-circuit, and the cleanup's archive query
+		// is indexed (idx_text_comments_suggestion), so the combined
+		// overhead per frame stays in the low milliseconds.
+		OnDocUpdateContent: composeOnDocUpdateContent(
+			makeAuthorshipStamper(app, runtime),
+			makeSuggestionDiscussionCleanup(app, runtime),
+		),
+		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
+		OnEmpty:            saveCoordinator.OnRoomEmpty,
+		OnConnect:          makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads
 		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no
@@ -99,6 +144,13 @@ func Register(app *pocketbase.PocketBase) {
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},
+		// Content-level reject: drop inbound updates that mutate the
+		// server-stamped authorship Y.Doc roots (clientAuthors,
+		// clientFirstSeen, editEvents). Without this, a hostile client
+		// could forge authorship metadata before the server even gets a
+		// chance to re-stamp on the next inbound mutation. See
+		// suggestions_authz.go for the probe-based detection.
+		UpdateContentValidator: validateUpdate,
 	})
 
 	// /api/text/render/:id — server-rendered HTML for previews +
@@ -118,6 +170,24 @@ func Register(app *pocketbase.PocketBase) {
 		}
 		return e.Next()
 	})
+}
+
+// composeOnDocUpdateContent fans one realtime.OnDocUpdateContentFn slot
+// into multiple callbacks. The broker only accepts a single callback in
+// RoomKindOptions.OnDocUpdateContent; this helper composes the authorship
+// stamper and the suggestion-discussion-cleanup hook (and any future
+// per-update logic) into one invocation. Callbacks run sequentially in
+// the order passed. A panicking callback would take down the broker
+// goroutine — each underlying callback is responsible for its own
+// recover, mirroring the pattern in textDocHandle.ApplyUpdate.
+func composeOnDocUpdateContent(fns ...realtime.OnDocUpdateContentFn) realtime.OnDocUpdateContentFn {
+	return func(roomID string, from *realtime.Client, payload []byte) {
+		for _, fn := range fns {
+			if fn != nil {
+				fn(roomID, from, payload)
+			}
+		}
+	}
 }
 
 // serverHelloPayload is the JSON body of the MsgServerHello frame

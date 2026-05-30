@@ -32,13 +32,17 @@ import {
 import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
+import type { EditorModeStore } from '../stores/editor-mode-store'
+import type { ReviewDrawerStore } from '../stores/review-drawer-store'
 import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
+import { EditorModeMenu } from './EditorModeMenu'
 import { FontFamilyPicker } from './FontFamilyPicker'
 import { FontSizePicker } from './FontSizePicker'
 import { ImageInsertButton } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'
+import { OpenReviewDrawerButton } from './suggestions/OpenReviewDrawerButton'
 import { TableMenu } from './TableMenu'
 import { TextColorButton } from './TextColorButton'
 import { ToolbarTooltip } from './ToolbarTooltip'
@@ -54,6 +58,22 @@ interface DocumentToolbarProps {
         isOpen: boolean
         start: () => void
     }
+    // Per-document editor-mode store wired by the screen (see
+    // screens/[id].tsx). Optional — when undefined, the mode menu
+    // and chip render nothing, so callers that don't yet care about
+    // suggestion mode (tests, lightweight tool harnesses) don't have
+    // to construct a store.
+    modeStore?: EditorModeStore
+    // canEdit / canSuggest gate which rows show up in the mode menu.
+    // Hard-coded to true at the screen call site for Phase 2a; Task 9
+    // replaces those with useSuggestionPermissions(driveItemId).
+    canEdit?: boolean
+    canSuggest?: boolean
+    // Per-document review-drawer store wired by the screen. When the
+    // store and driveItemId are both present, the toolbar renders a
+    // button that toggles the suggestion review drawer for this doc.
+    reviewDrawerStore?: ReviewDrawerStore
+    driveItemId?: string
 }
 
 // DocumentToolbar lays out the editor's formatting actions in groups
@@ -67,6 +87,11 @@ export function DocumentToolbar({
     state,
     disabled = false,
     newCommentFlow,
+    modeStore,
+    canEdit = true,
+    canSuggest = true,
+    reviewDrawerStore,
+    driveItemId,
 }: DocumentToolbarProps) {
     const iconColor = useThemeColor('muted-foreground')
     const activeColor = useThemeColor('primary')
@@ -364,7 +389,15 @@ export function DocumentToolbar({
                     />
 
                     <View className="ml-auto flex-row items-center">
-                        {newCommentFlow ? (
+                        {/* Comment + suggestion-review affordances are not */}
+                        {/* shown on read-only mounts. `disabled` already   */}
+                        {/* signals "this is a viewer" via the screen's    */}
+                        {/* hello.readOnly wiring — by the read-only design*/}
+                        {/* decision (see screens/[id].tsx) we now omit    */}
+                        {/* these buttons entirely rather than rendering   */}
+                        {/* them disabled. The mode menu likewise hides    */}
+                        {/* because Viewing is the only meaningful mode.   */}
+                        {newCommentFlow && !disabled ? (
                             <>
                                 <Separator />
                                 <NewCommentButton
@@ -374,10 +407,36 @@ export function DocumentToolbar({
                                 />
                             </>
                         ) : null}
+                        {/* The review drawer now works on both platforms — Phase 2c's
+                            useDocumentSuggestionBridge feeds the same anchored/orphaned
+                            shape to the drawer regardless of where the editor lives. */}
+                        {reviewDrawerStore && driveItemId && !disabled ? (
+                            <>
+                                <Separator />
+                                <OpenReviewDrawerButton
+                                    driveItemId={driveItemId}
+                                    store={reviewDrawerStore}
+                                    disabled={disabled}
+                                />
+                            </>
+                        ) : null}
+                        {modeStore ? (
+                            <>
+                                <Separator />
+                                <EditorModeMenu
+                                    modeStore={modeStore}
+                                    canEdit={canEdit}
+                                    canSuggest={canSuggest}
+                                />
+                            </>
+                        ) : null}
                         <HelpSearchButton />
                     </View>
                 </View>
             </ToolbarRow>
+            {/* The Suggesting chip used to render here; the EditorModeMenu */}
+            {/* dropdown now doubles as the mode indicator (primary-color pill */}
+            {/* when not in Editing). */}
 
             <LinkPopover
                 isOpen={linkOpen}

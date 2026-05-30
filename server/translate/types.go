@@ -106,6 +106,34 @@ const (
 	// regenerated from these attrs, so dropping or editing the mark
 	// removes the comment cleanly.
 	MarkTypeComment = "comment"
+	// MarkTypeSuggestedInsert is applied to runs proposed for
+	// insertion by a user in suggesting mode. On export, the run
+	// wraps in <w:ins author="..." date="..." w:id="...">; the
+	// suggestionId / authorId / ts / note attrs land in the
+	// customXml/tinycld-suggestions.xml part.
+	MarkTypeSuggestedInsert = "suggestedInsert"
+	// MarkTypeSuggestedDelete is the mirror — proposed deletions
+	// wrap in <w:del> with the underlying text moving to <w:delText>.
+	// Word renders this as strikethrough, and accepting the change
+	// removes the text.
+	MarkTypeSuggestedDelete = "suggestedDelete"
+	// MarkTypeSuggestedFormatChange records a run-property change
+	// proposed in suggesting mode (toggling bold/italic/underline/color/
+	// font, etc.). Attrs:
+	//   - suggestionId: tinycld id of the proposal
+	//   - authorId:     userOrgId of the proposer
+	//   - ts:           unix-ms timestamp of the proposal
+	//   - before:       SerializedMarks ([]{type, attrs}) — the mark set
+	//                   in effect before the change
+	//   - after:        SerializedMarks ([]{type, attrs}) — the proposed
+	//                   mark set
+	// On docx export the wrapper is a <w:rPrChange w:id="N"
+	// w:author="..." w:date="..."> nested inside the run's <w:rPr>; the
+	// outer rPr carries the AFTER state (so Word renders the proposed
+	// formatting), and the nested <w:rPr> inside <w:rPrChange> carries
+	// the BEFORE state so accept/reject has the pre-change properties
+	// to restore. Phase 5 round-trip.
+	MarkTypeSuggestedFormatChange = "suggestedFormatChange"
 	// MarkTypeCode is the inline equivalent of NodeTypeCodeBlock — a
 	// monospaced verbatim span. Round-trips through OOXML as a
 	// <w:rStyle w:val="VerbatimChar"/> on the run's <w:rPr>. Tiptap's
@@ -116,15 +144,42 @@ const (
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
 var SupportedMarks = map[string]bool{
-	MarkTypeBold:      true,
-	MarkTypeItalic:    true,
-	MarkTypeUnderline: true,
-	MarkTypeStrike:    true,
-	MarkTypeLink:      true,
-	MarkTypeTextStyle: true,
-	MarkTypeComment:   true,
-	MarkTypeCode:      true,
+	MarkTypeBold:            true,
+	MarkTypeItalic:          true,
+	MarkTypeUnderline:       true,
+	MarkTypeStrike:          true,
+	MarkTypeLink:            true,
+	MarkTypeTextStyle:       true,
+	MarkTypeComment:         true,
+	MarkTypeSuggestedInsert:       true,
+	MarkTypeSuggestedDelete:       true,
+	MarkTypeSuggestedFormatChange: true,
+	MarkTypeCode:                  true,
 }
+
+// Node attribute keys.
+//
+// Unlike marks (which apply to inline runs and have well-defined Type
+// strings in SupportedMarks), some PM features live as node-level
+// attributes on a block-level node — they don't have a "type" of their
+// own, they're a key inside the node's Attrs map.
+const (
+	// NodeAttrSuggestedBlockChange is the attribute key on block-level
+	// nodes (paragraph, heading, listItem, blockquote, tableCell,
+	// tableHeader) that carries a proposed paragraph-property change.
+	// Attrs map entries:
+	//   - suggestionId: tinycld id of the proposal
+	//   - authorId:     userOrgId of the proposer
+	//   - ts:           unix-ms timestamp of the proposal
+	//   - before:       { type, attrs[, added] } — block shape before
+	//   - after:        { type, attrs[, deleted] } — proposed block shape
+	//
+	// On docx export the wrapper is <w:pPrChange w:id="N" w:author="..."
+	// w:date="..."> nested inside the paragraph's <w:pPr>, carrying the
+	// BEFORE state in a nested <w:pPr>. Phase 5 round-trip for
+	// paragraphs / headings (tableCell handling lands in Task 20).
+	NodeAttrSuggestedBlockChange = "suggestedBlockChange"
+)
 
 // Paragraph alignment + indent. textAlign is "left" | "center" |
 // "right" | "justify" on paragraph and heading nodes; indent is a

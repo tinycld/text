@@ -334,6 +334,19 @@ export const EDITOR_CONTENT_STYLES = `
 .ProseMirror .tinycld-comment:hover {
     background-color: var(--editor-comment-highlight, rgba(250, 204, 21, 0.22));
 }
+/* Read-only viewer suppression. The host wraps the editor in a node
+   carrying data-tinycld-read-only-viewer="true" when the share is
+   view-only. By design (see screens/[id].tsx for the read-only design
+   decision) viewers see neither comments nor suggestions — the schema
+   marks ride through Yjs unchanged, but the visible styling is
+   suppressed so they render as plain text. */
+[data-tinycld-read-only-viewer="true"] .ProseMirror .tinycld-comment {
+    border-bottom: none;
+    cursor: text;
+}
+[data-tinycld-read-only-viewer="true"] .ProseMirror .tinycld-comment:hover {
+    background-color: transparent;
+}
 
 /* ── Collaboration cursors (CollaborationCaret v3) ─────────────────────
    @tiptap/extension-collaboration-caret renames the v2 classes (plural

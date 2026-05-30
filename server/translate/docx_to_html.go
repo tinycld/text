@@ -21,7 +21,7 @@ package translate
 // Y.Doc — that path *wants* a JSON-shaped tree because Y.Doc seeding
 // reads PM JSON. Only the render path skips JSON.
 func DocxToHTML(docx []byte, opts HTMLRenderOpts) (string, []Warning, error) {
-	root, warnings, err := parseDocxToPMNode(docx)
+	root, warnings, _, err := parseDocxToPMNode(docx)
 	if err != nil {
 		return "", nil, err
 	}

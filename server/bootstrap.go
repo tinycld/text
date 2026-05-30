@@ -56,7 +56,7 @@ func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *
 			return nil
 		}
 
-		pmJSON, warnings, err := translate.DocxToPMJSON(docxBytes)
+		pmJSON, warnings, entries, err := translate.DocxToPMJSONWithSuggestions(docxBytes)
 		if err != nil {
 			return fmt.Errorf("text: parse docx for %s: %w", roomID, err)
 		}
@@ -65,8 +65,51 @@ func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *
 			return fmt.Errorf("text: seed Y.Doc for %s: %w", roomID, err)
 		}
 
+		// Populate the Yjs `suggestions` Y.Map with the entries recovered
+		// from customXml/tinycld-suggestions.xml so the review drawer
+		// surfaces the existing revisions on first open. The client-side
+		// SuggestionsMap is first-writer-wins on create, so this seed is
+		// idempotent across re-bootstraps.
+		seedSuggestionsMap(doc, entries)
+
 		runtime.SetImportWarnings(roomID, warnings)
 		return nil
+	}
+}
+
+// seedSuggestionsMap writes the entries into the document's `suggestions`
+// Y.Map. Mirrors the (id, authorId, createdAt, status, optional
+// resolvedBy/resolvedAt/note) shape that readSuggestionsMap consumes on
+// the flush side; together they round-trip the lifecycle metadata
+// through docx ↔ Y.Doc.
+//
+// No-op when entries is empty (the customXml part was absent or carried
+// no entry rows — e.g. a Word-authored docx whose <w:ins>/<w:del> marks
+// were lifted into PM via the synthesized-id path but had no tinycld
+// lifecycle data attached).
+func seedSuggestionsMap(doc *ycrdt.Doc, entries []translate.SuggestionMapEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	m, ok := doc.GetMap("suggestions").(*ycrdt.YMap)
+	if !ok {
+		return
+	}
+	for _, e := range entries {
+		obj := map[string]interface{}{
+			"id":        e.ID,
+			"authorId":  e.AuthorID,
+			"createdAt": e.CreatedAt,
+			"status":    e.Status,
+		}
+		if e.ResolvedBy != "" {
+			obj["resolvedBy"] = e.ResolvedBy
+			obj["resolvedAt"] = e.ResolvedAt
+		}
+		if e.Note != "" {
+			obj["note"] = e.Note
+		}
+		m.Set(e.ID, obj)
 	}
 }
 

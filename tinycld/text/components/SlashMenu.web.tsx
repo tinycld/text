@@ -1,8 +1,10 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import type { Editor } from '@tiptap/core'
 import type { LucideIcon } from 'lucide-react-native'
 import { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Pressable, Text, View } from 'react-native'
+import type * as Y from 'yjs'
 import { resolveSlashMenuIcon } from '../lib/editor/slash-menu-icon-lookup'
 import type { SlashMenuAnchor } from '../lib/stores/slash-menu-store'
 import { useSlashMenuStore } from '../lib/stores/slash-menu-store'
@@ -39,19 +41,34 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
     return { top, left }
 }
 
+interface SlashMenuProps {
+    webViewRef?: React.RefObject<unknown> | null
+    // editor / yDoc / canResolve are part of the prop shape for
+    // backward compatibility with the screen's call site; the
+    // suggestion popover that consumed them has been deleted
+    // (suggestion clicks now open the drawer focused on the matching
+    // row instead of an inline popover). Unused here.
+    editor?: Editor | null
+    yDoc?: Y.Doc | null
+    canResolve?: boolean
+}
+
 // SlashMenu renders the floating popover for the `/`-trigger command
-// palette. Listens to the Zustand store driven by the SlashMenu Tiptap
-// extension (lib/editor/slash-menu.ts). Web-only: portals to the
-// document body so the popover overlays the editor surface without
-// being clipped by the editor's scroll container.
+// palette (from the Zustand store driven by the SlashMenu Tiptap
+// extension). Web-only: portals to the document body so the overlay
+// floats over the editor surface without being clipped by the editor's
+// scroll container.
 //
-// The native variant takes a `webViewRef` prop the controller needs
-// for .measure() / .postMessage(); the web mount accepts the same
-// prop signature and ignores it so the screen-level mount is
-// platform-agnostic.
-export function SlashMenu(_props: { webViewRef?: React.RefObject<unknown> | null } = {}) {
-    // webViewRef accepted for cross-platform parity; the web variant
-    // renders via portals so it has no use for the ref.
+// The suggestion popover that used to live here was deleted —
+// clicking a suggestion decoration now opens the review drawer
+// focused on the matching row via the ui-bus 'suggestion-clicked'
+// event (see lib/suggestions/click-to-focus.ts +
+// useSuggestionClickHandler in screens/[id].tsx).
+export function SlashMenu(_props: SlashMenuProps = {}) {
+    return <SlashMenuPalette />
+}
+
+function SlashMenuPalette() {
     const isOpen = useSlashMenuStore(s => s.isOpen)
     const items = useSlashMenuStore(s => s.items)
     const anchor = useSlashMenuStore(s => s.anchor)

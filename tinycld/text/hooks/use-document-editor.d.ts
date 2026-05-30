@@ -3,6 +3,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import type { FindReplaceController } from '../lib/find-replace-controller'
+import type { EditorModeStore } from '../stores/editor-mode-store'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -18,6 +19,22 @@ export interface UseDocumentEditorOptions {
     // src back through `commands.insertImage`. Web-only; native
     // ignores.
     onRequestInsertImage?: () => void
+    // The per-document mode store. The suggestion command layer reads
+    // mode + identity off this to decide whether to intercept user
+    // transactions in suggesting mode. The screen instantiates the
+    // store and threads it through useTextDocument; until that wiring
+    // lands (Task 7), useTextDocument supplies a fallback store
+    // defaulting to editing mode — the command layer's mode-check
+    // short-circuits so no suggestion marks are written, regardless of
+    // what the user types.
+    modeStore: EditorModeStore
+    // Native-only: subscribe to {kind, payload} messages emitted by
+    // the WebView's suggestion list bridge. The screen wires this to
+    // its NativeSuggestionBridge's processIncomingMessage so the review
+    // drawer's anchored/orphaned snapshot reflects the WebView-side
+    // editor. Web variant ignores — its host-side bridge reads the
+    // editor directly.
+    onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
 // Host-side surface for the comment system. Both variants implement

@@ -305,6 +305,64 @@ func TestRuntime_ImportWarningsOverflow(t *testing.T) {
 	}
 }
 
+// TestJanitor_ClearsAuthorshipCacheOnEvict pins the regression net for
+// the Phase 3a authorship cache lifecycle: when the janitor evicts an
+// idle room, closeDoc must drop the per-room authorship cache entries
+// alongside the doc/handle/room. Otherwise a long-running server
+// gradually leaks stamped-set / userOrg memos for rooms that haven't
+// been opened in hours.
+//
+// Drives the eviction with the fake clock + direct evictIdleDocs call
+// (consistent with TestRuntime_EvictIdleDoc) rather than racing the
+// background janitor goroutine — the wiring being tested is closeDoc's
+// cache drop, not the janitor's wakeup cadence.
+func TestJanitor_ClearsAuthorshipCacheOnEvict(t *testing.T) {
+	setClock := withFakeClock(t)
+	t0 := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
+	setClock(t0)
+
+	runtime := NewRuntime()
+	defer runtime.Stop()
+
+	handle, err := runtime.NewDoc("room-evict-test")
+	if err != nil {
+		t.Fatalf("NewDoc: %v", err)
+	}
+	_ = handle
+
+	cache := runtime.AuthorshipCache()
+	cache.noteStamped("room-evict-test", 99)
+	cache.rememberUserOrg("room-evict-test", "user-x", "uo-x")
+
+	// Sanity: cache entries are present before eviction.
+	if !cache.alreadyStamped("room-evict-test", 99) {
+		t.Fatal("cache should record clientID 99 as stamped before evict")
+	}
+	if got, ok := cache.lookupUserOrg("room-evict-test", "user-x"); !ok || got != "uo-x" {
+		t.Fatalf("cache should record user-x → uo-x before evict; got %q, ok=%v", got, ok)
+	}
+
+	// Advance the clock past MaxIdleDuration and trigger the janitor's
+	// eviction scan directly.
+	setClock(t0.Add(MaxIdleDuration + time.Minute))
+	runtime.evictIdleDocs()
+
+	// Doc registry should be empty (handle was Close()d via evictIdleDocs).
+	if got := runtime.docFor("room-evict-test"); got != nil {
+		t.Fatal("evicted doc still registered in runtime.docs")
+	}
+
+	// And — the core regression net — the authorship cache must be
+	// cleared. If a future refactor drops the dropRoom call in closeDoc,
+	// these assertions will catch it.
+	if cache.alreadyStamped("room-evict-test", 99) {
+		t.Errorf("authorship stamped set should be cleared after evict")
+	}
+	if got, ok := cache.lookupUserOrg("room-evict-test", "user-x"); ok {
+		t.Errorf("authorship userOrg memo should be cleared after evict; got %q, ok=%v", got, ok)
+	}
+}
+
 // TestRuntime_StopWithoutJanitor confirms Stop is safe even when
 // StartJanitor was never called (a common shape in tests that don't
 // care about background eviction).

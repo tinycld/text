@@ -66,6 +66,31 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 	// leaving just `<run bg-open><run real><run bg-close>` for the
 	// bgColor rewriter to find unambiguously.
 	doc = rewriteBgColorMarks(doc, em.bgColorSpans)
+	// Suggestion ranges (<w:ins>/<w:del>) wrap their entire content,
+	// including any comment range markers / reference runs the
+	// previous passes already produced. Running LAST lets the
+	// rewriter operate on a fully-resolved interior and apply the
+	// <w:t>→<w:delText> swap with no marker-run noise in the way.
+	doc = rewriteSuggestionRanges(doc, em.suggestionSpans)
+	// Format-change markers (<w:rPrChange>) inject into the affected
+	// run's <w:rPr>, which by now contains the after-state marks
+	// WordZero produced plus any rStyle / shd the code/bg rewriters
+	// added. Running after rewriteSuggestionRanges is safe because
+	// the suggestion rewriter wraps runs but leaves their <w:rPr>
+	// intact — and the format-change rewriter walks backwards from its
+	// own marker through any wrapper to find the run's </w:r>.
+	doc = rewriteFormatChangeMarkers(doc, em.formatChangeSpans)
+	// Block-change markers (<w:pPrChange>) inject into the affected
+	// paragraph's <w:pPr>. Block changes target a different XML region
+	// from format changes (pPr vs rPr) so ordering relative to the
+	// format-change pass is not load-bearing for correctness; we run
+	// last for deterministic test output.
+	doc = rewriteBlockChangeMarkers(doc, em.blockChangeSpans)
+	// Cell-change markers (<w:tcPrChange> / <w:cellIns> / <w:cellDel>)
+	// inject into the affected cell's <w:tcPr>. Cell changes target
+	// yet another XML region from paragraph block changes (tcPr vs.
+	// pPr), so ordering relative to other rewrites is independent.
+	doc = rewriteCellChangeMarkers(doc, em.cellChangeSpans)
 	parts["word/document.xml"] = []byte(doc)
 
 	if len(em.commentBodies) > 0 {
@@ -105,6 +130,25 @@ func postProcessRichXML(docxBytes []byte, em *emitter) ([]byte, error) {
 			parts["[Content_Types].xml"],
 			"/word/endnotes.xml",
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
+		)
+	}
+	// Suggestion metadata is stashed in a custom XML part (Word ignores
+	// unknown namespaces; tinycld readers parse it back to repopulate
+	// the suggestions Y.Map). We add the part whenever the emitter saw
+	// suggestion spans OR the caller passed entries — either side alone
+	// is useful: spans without entries still publish the (w:id →
+	// suggestionId) mapping; entries without spans (degenerate but
+	// possible) keep the metadata for any future reconciliation.
+	if len(em.suggestionSpans) > 0 || len(em.formatChangeSpans) > 0 || len(em.blockChangeSpans) > 0 || len(em.cellChangeSpans) > 0 || len(em.suggestionEntries) > 0 {
+		xmlBytes, err := writeSuggestionsCustomXML(em.suggestionSpans, em.formatChangeSpans, em.blockChangeSpans, em.cellChangeSpans, em.suggestionEntries)
+		if err != nil {
+			return nil, fmt.Errorf("translate: build suggestions custom xml: %w", err)
+		}
+		parts["customXml/tinycld-suggestions.xml"] = xmlBytes
+		parts["[Content_Types].xml"] = ensureContentTypeOverride(
+			parts["[Content_Types].xml"],
+			"/customXml/tinycld-suggestions.xml",
+			"application/xml",
 		)
 	}
 	return rezipParts(zr, parts)

@@ -32,6 +32,7 @@ import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
 import { SlashMenu } from '../components/SlashMenu'
 import { AuthorshipPopover } from '../components/suggestions/AuthorshipPopover'
 import { ReviewDrawer } from '../components/suggestions/ReviewDrawer'
+import { SuggestionThreadSheet } from '../components/suggestions/SuggestionThreadSheet'
 import { WordCountBadge } from '../components/WordCountBadge'
 import { useClientAuthors } from '../hooks/use-client-authors'
 import { useDocumentComments } from '../hooks/use-document-comments'
@@ -509,6 +510,23 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     }}
                     yDoc={room.doc}
                     editor={tiptapEditor ?? null}
+                />
+                {/* Native-only bottom sheet: rises when the drawer's */}
+                {/* focusedSuggestionId points at a suggestion in the */}
+                {/* current bridge snapshot. Wraps <SuggestionThread /> */}
+                {/* (the same body the web SuggestionRow renders */}
+                {/* inline) so platform parity is preserved — only the */}
+                {/* chrome differs. Returns null on web; safe to mount */}
+                {/* unconditionally here. */}
+                <SuggestionThreadSheet
+                    driveItemId={driveItemId}
+                    authorUserOrgId={userOrgId ?? ''}
+                    anchored={anchored}
+                    canResolve={canResolve}
+                    isPending={resolveService.isPending}
+                    onAccept={resolveService.accept}
+                    onReject={resolveService.reject}
+                    store={reviewDrawerStore}
                 />
                 {newCommentFlow.modal}
                 <SlashMenu

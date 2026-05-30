@@ -42,6 +42,14 @@ export function useCommentMutations() {
             ...base,
             comment_id: args.commentId,
             quoted_text: args.quotedText,
+            // Phase 5 added two text_comments discriminator fields. A
+            // regular anchored comment leaves both empty: `suggestion_id`
+            // distinguishes the comment from a suggestion-thread reply
+            // (useSuggestionDiscussion filters on it being set), and
+            // `archived_at` is stamped server-side only when the parent
+            // suggestion's Y.Map row is deleted.
+            suggestion_id: '',
+            archived_at: '',
         }),
         mentions: {
             commentCollection: 'text_comments',

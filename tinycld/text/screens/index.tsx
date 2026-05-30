@@ -2,11 +2,19 @@ import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
 import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
-import { useCallback } from 'react'
-import { useCreateBlankTextDocument } from '../hooks/use-text-documents'
+import { LayoutTemplate } from 'lucide-react-native'
+import { useCallback, useState } from 'react'
+import { Pressable, Text, View } from 'react-native'
+import { TemplatePicker } from '../components/TemplatePicker'
+import {
+    useCreateBlankTextDocument,
+    useCreateTextDocumentFromTemplate,
+} from '../hooks/use-text-documents'
+import type { TemplateId } from '../lib/templates/index'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const MD_MIME = 'text/markdown'
@@ -16,14 +24,39 @@ export default function TextIndex() {
     useDocumentTitle('Text')
     const orgHref = useOrgHref()
     const blank = useCreateBlankTextDocument()
+    const template = useCreateTextDocumentFromTemplate()
     const create = useCreateDriveItem()
     const addToast = useToastStore(s => s.addToast)
+    const [isPickerOpen, setPickerOpen] = useState(false)
+
+    const goToDoc = useCallback(
+        (itemId: string) => {
+            router.replace(orgHref('text/[id]', { id: itemId }))
+        },
+        [orgHref]
+    )
 
     const handleCreateNew = useCallback(() => {
-        blank.create(itemId => {
-            router.replace(orgHref('text/[id]', { id: itemId }))
-        })
-    }, [blank, orgHref])
+        blank.create(goToDoc)
+    }, [blank, goToDoc])
+
+    const handleOpenPicker = useCallback(() => setPickerOpen(true), [])
+    const handleClosePicker = useCallback(() => setPickerOpen(false), [])
+
+    const handlePickTemplate = useCallback(
+        (id: TemplateId) => {
+            setPickerOpen(false)
+            // Blank goes through the empty-docx bootstrap so the resulting
+            // doc matches what the "New document" CTA produces; only the
+            // non-blank ids run the template upload path.
+            if (id === 'blank') {
+                blank.create(goToDoc)
+                return
+            }
+            template.create(id, goToDoc)
+        },
+        [blank, template, goToDoc]
+    )
 
     const handleUpload = useCallback(
         (files: File[]) => {
@@ -37,17 +70,55 @@ export default function TextIndex() {
         [create, orgHref, addToast]
     )
 
+    const isBusy = blank.isPending || template.isPending || create.isPending
+
     return (
-        <NoFilePanel
-            headline="A blank page."
-            sublabel="Where the next thought lands."
-            newLabel="New document"
-            uploadHint=".docx, .md, .txt"
-            accept=".docx,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
-            onCreateNew={handleCreateNew}
-            onUpload={handleUpload}
-            isPending={blank.isPending || create.isPending}
-        />
+        <View className="flex-1">
+            <NoFilePanel
+                headline="A blank page."
+                sublabel="Where the next thought lands."
+                newLabel="New document"
+                uploadHint=".docx, .md, .txt"
+                accept=".docx,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
+                onCreateNew={handleCreateNew}
+                onUpload={handleUpload}
+                isPending={isBusy}
+            />
+            <View className="absolute right-6 top-6">
+                <TemplatePickerTrigger onPress={handleOpenPicker} disabled={isBusy} />
+            </View>
+            <TemplatePicker
+                isOpen={isPickerOpen}
+                onClose={handleClosePicker}
+                onPick={handlePickTemplate}
+                isPending={isBusy}
+            />
+        </View>
+    )
+}
+
+interface TemplatePickerTriggerProps {
+    onPress: () => void
+    disabled?: boolean
+}
+
+// Opens the four-template picker. Lives outside NoFilePanel because the
+// drive component is shared with calc (which has no templates), so the
+// entry point is text-owned. Positioned top-right of the screen so it
+// stays out of the way of the panel's centered headline + CTA row.
+function TemplatePickerTrigger({ onPress, disabled }: TemplatePickerTriggerProps) {
+    const foreground = useThemeColor('foreground')
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="From template…"
+            onPress={onPress}
+            disabled={disabled}
+            className="flex-row items-center gap-2 px-3 py-2 rounded-md border border-border bg-background hover:border-foreground/40 disabled:opacity-50"
+        >
+            <LayoutTemplate size={16} color={foreground} />
+            <Text className="text-sm font-medium text-foreground">From template…</Text>
+        </Pressable>
     )
 }
 

@@ -50,13 +50,21 @@ const NO_OP_ADD_REPLY = async () => {}
 // mutation: one `text_comments` insert plus N `comment_mentions`
 // inserts, atomically yielded through the shared generator pattern.
 //
-// `authorUserOrgId` and `driveItemId` are passed in by the caller
-// rather than read from `useEditorMount()` internally. That keeps
-// the hook side-effect-free against the editor-mount context — so
-// it works equally well from the drawer (which has the context) and
-// from the screen-level bottom sheet on native (which mounts
-// outside of it). The screen wires `useEditorMount()` once and
-// passes the resolved values down.
+// `authorUserOrgId`, `driveItemId`, and `authorDisplayName` are passed
+// in by the caller rather than read from `useEditorMount()` internally.
+// That keeps the hook side-effect-free against the editor-mount context
+// — so it works equally well from the drawer (which has the context) and
+// from the screen-level bottom sheet on native (which mounts outside of
+// it). The screen wires `useEditorMount()` once and passes the resolved
+// values down.
+//
+// `authorDisplayName` is snapshotted into `author_name` on the row.
+// PB's text_comments collection requires `author_name` to be a non-empty
+// string (see pb-migrations/1720000000_create_text_comments.js — the
+// field is required with max 200). Writing an empty string fails the
+// insert silently; the mutation factory in `core/lib/comments` uses
+// the same name→email→'Anonymous' fallback. We mirror that here so
+// suggestion replies pass the same validation gate.
 //
 // When `suggestionId === null` the hook short-circuits to empty
 // data + a no-op addReply, mirroring how `useAuthorName` returns
@@ -65,7 +73,8 @@ const NO_OP_ADD_REPLY = async () => {}
 export function useSuggestionDiscussion(
     suggestionId: string | null,
     driveItemId: string,
-    authorUserOrgId: string
+    authorUserOrgId: string,
+    authorDisplayName?: string
 ): SuggestionDiscussion {
     const [textCommentsCollection, commentMentionsCollection] = useStore(
         'text_comments',
@@ -146,6 +155,11 @@ export function useSuggestionDiscussion(
             // groupCommentsByKey in the comments drawer won't bucket
             // it together with anything else. `quoted_text` is
             // similarly absent — we store an empty string.
+            // Snapshot the author's display name so the row passes
+            // PB's required-non-empty author_name validation. Empty-
+            // string fallbacks ('Anonymous') match the regular comment
+            // mutation pipeline in core/lib/comments/mutations.ts.
+            const snapshotAuthorName = authorDisplayName || 'Anonymous'
             yield textCommentsCollection.insert({
                 id: newCommentId,
                 drive_item: driveItemId,
@@ -155,7 +169,7 @@ export function useSuggestionDiscussion(
                 body: args.body,
                 resolved_at: '',
                 author: authorUserOrgId,
-                author_name: '',
+                author_name: snapshotAuthorName,
                 suggestion_id: suggestionId,
             } as Parameters<typeof textCommentsCollection.insert>[0])
 

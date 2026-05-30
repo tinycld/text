@@ -21,6 +21,17 @@ export interface TextComments {
     author_name: string
     created: string
     updated: string
+    // Set when the row is a reply under a suggestion thread (Phase 5);
+    // empty for regular anchored comments. The discriminator the
+    // useSuggestionDiscussion adapter filters on. Required-string in
+    // the generated pbSchema (PB stores absent text as empty string),
+    // mirrored here for assignment compatibility with the registry's
+    // type-intersection.
+    suggestion_id: string
+    // Stamped by the server-side cleanup hook when the parent
+    // suggestion's Y.Map entry is deleted. Live queries filter on
+    // `archived_at = ''`; the row survives for historical surfaces.
+    archived_at: string
 }
 
 export type TextSchema = {

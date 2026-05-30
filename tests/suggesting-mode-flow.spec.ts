@@ -86,7 +86,16 @@ test.describe('Text — Suggesting mode flow', () => {
         const suggestionRow = page.getByRole('button', { name: /^Suggestion by /i }).first()
         await expect(suggestionRow).toBeVisible({ timeout: 10_000 })
 
-        // Click Accept on the first row. The mutation strips the
+        // Phase 5+: the per-row Accept button now renders only in the
+        // focused-state thread body (SuggestionRow split — Task 4).
+        // Tap the row to focus it; the thread mounts with the Accept
+        // icon button (accessibilityLabel="Accept suggestion") inside.
+        await suggestionRow.click()
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
+            timeout: 5_000,
+        })
+
+        // Click Accept on the focused row. The mutation strips the
         // suggestedInsert mark (the text remains in the doc as a
         // regular run) and marks the suggestions Y.Map entry as
         // accepted; the decoration plugin re-runs and the inline

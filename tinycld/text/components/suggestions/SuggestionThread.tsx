@@ -1,3 +1,4 @@
+import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Check, X } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
@@ -72,10 +73,16 @@ export function SuggestionThread({
     const primary = useThemeColor('primary')
     const border = useThemeColor('border')
 
+    // Resolve the current user's display name once at the thread level
+    // and pass it down to the discussion adapter so the inserted
+    // text_comments row carries a non-empty `author_name` (required by
+    // the PB schema; an empty string fails the insert silently).
+    const { identity } = useEditorMount()
     const { replies, addReply } = useSuggestionDiscussion(
         suggestion.id,
         driveItemId,
-        authorUserOrgId
+        authorUserOrgId,
+        identity.displayName
     )
     const summary = summarizeForThread(suggestion)
 

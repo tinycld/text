@@ -260,7 +260,9 @@ describe('useSuggestionDiscussion', () => {
             quoted_text: '',
             parent_comment: '',
             resolved_at: '',
-            author_name: '',
+            // No displayName passed in this case → fallback to
+            // 'Anonymous' (mirrors core/lib/comments/mutations.ts).
+            author_name: 'Anonymous',
         })
         // comment_id is a synthesized id, not blank — required field
         // on the PB collection that has no semantic meaning for a
@@ -269,6 +271,22 @@ describe('useSuggestionDiscussion', () => {
         expect((row.comment_id as string).length).toBeGreaterThan(0)
         // No mentions on this reply, so no comment_mentions inserts.
         expect(commentMentionsInsert).not.toHaveBeenCalled()
+    })
+
+    it('addReply snapshots the caller-supplied displayName into author_name', async () => {
+        const { result } = renderHook(() =>
+            useSuggestionDiscussion('s1', DRIVE_ITEM, ME, 'Alice Owner')
+        )
+
+        await act(async () => {
+            await result.current.addReply('looks good', [])
+        })
+
+        const row = textCommentsInsert.mock.calls[0][0] as Record<string, unknown>
+        // The display name flows through unchanged so the comment-row
+        // surface attribution survives the user's user_org being
+        // deleted later (mirrors the regular comment-mutation path).
+        expect(row.author_name).toBe('Alice Owner')
     })
 
     it('addReply writes one comment_mentions row per mentioned user (deduped, self-mention skipped)', async () => {

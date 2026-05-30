@@ -80,8 +80,17 @@ test.describe('Text — Orphan auto-delete', () => {
         await page.getByRole('menuitem', { name: 'Editing' }).click()
         await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
 
-        // Open the drawer and accept the suggestion.
+        // Open the drawer, focus the suggestion row so the focused-
+        // state thread mounts (Phase 5+ moved per-row Accept into the
+        // thread body), then click Accept.
         await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()
+        await page
+            .getByRole('button', { name: /^Suggestion by /i })
+            .first()
+            .click()
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
+            timeout: 5_000,
+        })
         await page.getByRole('button', { name: 'Accept suggestion' }).first().click()
 
         // The mark is gone AND the Y.Map row has been cleaned up.

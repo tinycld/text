@@ -14,6 +14,14 @@ import { SuggestionDecorations } from './decorations'
 export interface SuggestionEditorExtensionOptions {
     modeStore?: EditorModeStore
     yDoc?: Y.Doc
+    // When true, the editor mount is a read-only viewer surface and
+    // suggestion-related UI (decoration rendering, click-to-focus
+    // handler, command layer) is omitted. The SCHEMA marks
+    // (SuggestedInsert/Delete/FormatChange/BlockChange) still ship so
+    // y-prosemirror can decode existing marks without throwing — only
+    // the visible affordances are gated. See screens/[id].tsx for the
+    // read-only design decision.
+    readOnly?: boolean
 }
 
 // buildSuggestionEditorExtensions returns the TipTap extensions that
@@ -33,14 +41,22 @@ export interface SuggestionEditorExtensionOptions {
 export function buildSuggestionEditorExtensions(
     options: SuggestionEditorExtensionOptions = {}
 ): AnyExtension[] {
+    // Schema marks ship to every mount so y-prosemirror's mark-set
+    // matches the on-disk doc on parse — without these, an existing
+    // Yjs run carrying `suggestedDelete--<hash>` would be dropped on
+    // load even on a read-only viewer.
     const baseExtensions: AnyExtension[] = [
         SuggestedInsert,
         SuggestedDelete,
         SuggestedBlockChange,
         SuggestedFormatChange,
-        SuggestionDecorations,
-        SuggestionClickToFocus,
     ]
+    if (options.readOnly) {
+        // Viewer mount: omit the decoration / click / command-layer
+        // plugins. The schema marks above keep the Yjs parse safe.
+        return baseExtensions
+    }
+    baseExtensions.push(SuggestionDecorations, SuggestionClickToFocus)
     if (options.modeStore && options.yDoc) {
         baseExtensions.push(
             SuggestionCommandLayer.configure({

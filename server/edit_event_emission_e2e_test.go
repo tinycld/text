@@ -10,25 +10,27 @@ import (
 	"tinycld.org/core/realtime"
 )
 
-// TestEditEvents_SingleClient_EmitsOneEventAfterWindow exercises the
-// Phase 3b emission path end-to-end through the broker: two inbound Yjs
-// frames from the SAME clientID land within a shortened debounce window,
-// the per-room editEventBuffer holds them in a single window, the timer
-// fires after WindowDuration, and the flush callback writes one
-// EditEvent into the server doc's editEvents Y.Array.
+// TestEditEvents_SoloWriterSkipsEmissionByDesign verifies the audience
+// gate added in the PR-review pass: when the only writer in the room
+// is the sender themselves (i.e. a solo author editing in private,
+// with no other writer-class peers to consume the activity feed), the
+// authorship stamper skips buffer.Note so no EditEvent rows land in
+// the server doc's editEvents Y.Array.
 //
-// The test mirrors authorship_stamping_e2e_test.go's broker-driven
-// pattern (Phase 3a Task 11): real Broker.RouteFrameForTest, real
-// stamper, real publishEditEvent + writeEditEvent. Only the
-// WindowDuration is shortened — to 50ms — so the test completes in
-// well under a second instead of waiting a real 60s window.
+// Earlier versions of this test asserted that a single client's two
+// frames produced one aggregated EditEvent — that was correct under
+// the prior "always emit" semantics. After the read-only design
+// decision (see screens/[id].tsx + authorship_stamper.go), editEvents
+// are an audience-facing artifact whose consumers are OTHER writers'
+// activity tabs / notify hooks; read-only viewers don't see them at
+// all. A solo writer thus has nobody to consume them, and the right
+// behavior is to skip the write rather than journal forever.
 //
-// The "two frames" choice (rather than one) verifies the buffer's
-// extend-the-window branch: the second Note bumps editCount from 1 to
-// 2 and resets the timer. The resulting EditEvent should carry
-// editCount=2, proving the window aggregated rather than emitting
-// twice.
-func TestEditEvents_SingleClient_EmitsOneEventAfterWindow(t *testing.T) {
+// The companion test below (TestEditEvents_TwoWriters_EmitsBothEvents)
+// re-establishes the two-writer scenario the prior test partly covered
+// AND additionally pins that BOTH writers' frames emit when each
+// other is present as audience.
+func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 	t.Cleanup(realtime.ResetRegistryForTest)
 
 	// Shorten the debounce window so the test completes in ~200ms
@@ -105,51 +107,37 @@ func TestEditEvents_SingleClient_EmitsOneEventAfterWindow(t *testing.T) {
 	if arr == nil {
 		t.Fatalf("editEvents root missing from server doc")
 	}
-	if arr.Length != 1 {
-		t.Fatalf("editEvents length = %d after single-client window, want 1", arr.Length)
-	}
-
-	raw := arr.Get(0)
-	entry, ok := raw.(map[string]interface{})
-	if !ok {
-		t.Fatalf("editEvents[0] is not a map: %T", raw)
-	}
-
-	if cid, _ := entry["clientId"].(int); uint32(cid) != aliceClientID {
-		t.Errorf("editEvents[0].clientId = %v, want %d", entry["clientId"], aliceClientID)
-	}
-	if got := entry["authorId"]; got != alice.userOrgID {
-		t.Errorf("editEvents[0].authorId = %v, want %q", got, alice.userOrgID)
-	}
-	if got, _ := entry["editCount"].(int); got != 2 {
-		t.Errorf("editEvents[0].editCount = %v, want 2 (two frames in window)", entry["editCount"])
-	}
-	// affectedNodes is set to []interface{}{} by the writer when the
-	// buffer passes nil (Task 6). The Y.Array round-trip preserves the
-	// type as []interface{} (possibly with zero length).
-	nodes, ok := entry["affectedNodes"].([]interface{})
-	if !ok {
-		t.Errorf("editEvents[0].affectedNodes = %T, want []interface{}", entry["affectedNodes"])
-	} else if len(nodes) != 0 {
-		t.Errorf("editEvents[0].affectedNodes len = %d, want 0 (stamper passes nil)", len(nodes))
+	// Solo writer + no audience → no buffer.Note → no editEvents.
+	// aliceClientID and aliceUO are only kept in scope above to make
+	// the test setup match a realistic stamping flow; they are
+	// intentionally unused in the assertions because the design says
+	// nothing should land.
+	_ = aliceClientID
+	if arr.Length != 0 {
+		t.Fatalf("editEvents length = %d after solo-writer window; want 0 by audience-gate design", arr.Length)
 	}
 }
 
-// TestEditEvents_TwoClients_EmitsSeparateEvents drives one frame each
-// from two distinct clientIDs. The buffer arms a separate timer per
-// clientID, so both windows close independently within the shortened
-// WindowDuration. The flush callback runs on each timer's goroutine;
-// both writes go through handle.publishEditEvent, which serializes
-// through the handle mutex, so the two YArray pushes don't corrupt
-// each other. After the window closes, editEvents should contain
-// exactly two entries, one per clientID, each mapped to the right
-// authorID.
+// TestEditEvents_TwoWriters_EmitsBothEvents drives one frame each from
+// two distinct WRITER-class clientIDs co-present in the room. The
+// buffer arms a separate timer per clientID, so both windows close
+// independently within the shortened WindowDuration. The flush
+// callback runs on each timer's goroutine; both writes go through
+// handle.publishEditEvent, which serializes through the handle mutex,
+// so the two YArray pushes don't corrupt each other. After the window
+// closes, editEvents should contain exactly two entries, one per
+// clientID, each mapped to the right authorID.
 //
 // The strongest check is that BOTH entries surface — a missed flush
 // (e.g. timer cleared by a concurrent reset) would show up as a
 // length-1 array. The clientID → authorID mapping check confirms the
 // buffer didn't cross-pollinate windows between clients.
-func TestEditEvents_TwoClients_EmitsSeparateEvents(t *testing.T) {
+//
+// Both connections JOIN the room before either frame is routed (via
+// JoinForTest), so the audience gate added in the read-only design
+// pass (HasOtherWriter) sees the peer as present when each frame
+// fires.
+func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 	t.Cleanup(realtime.ResetRegistryForTest)
 
 	origWindow := WindowDuration
@@ -215,6 +203,13 @@ func TestEditEvents_TwoClients_EmitsSeparateEvents(t *testing.T) {
 		t.Fatalf("alice and bob doc clientIDs collided (%d); test premise broken", aliceClientID)
 	}
 
+	// Pre-join BOTH connections before routing the first frame so the
+	// audience gate (Room.HasOtherWriter) sees the peer as already
+	// present when each MsgDocUpdate lands. Without this the gate
+	// would skip buffer.Note on whichever frame arrived first, and the
+	// test would intermittently see editEvents.Length == 1.
+	broker.JoinForTest(roomKindText, itemID, aliceConn)
+	broker.JoinForTest(roomKindText, itemID, bobConn)
 	broker.RouteFrameForTest(roomKindText, itemID, aliceConn, buildDocUpdateFrame(aliceUpdate))
 	broker.RouteFrameForTest(roomKindText, itemID, bobConn, buildDocUpdateFrame(bobUpdate))
 
@@ -259,5 +254,88 @@ func TestEditEvents_TwoClients_EmitsSeparateEvents(t *testing.T) {
 		t.Errorf("editEvents missing entry for bob clientID %d (got %v)", bobClientID, got)
 	} else if author != bobUO {
 		t.Errorf("editEvents[bob].authorId = %q, want %q", author, bobUO)
+	}
+}
+
+// TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission pins the
+// read-only-viewer half of the audience gate: a single writer in a
+// room whose only other peer is a READ-ONLY viewer is treated the same
+// as a solo writer. EditEvents are not for viewers (by the screen-
+// level design decision — see screens/[id].tsx), so the gate skips
+// buffer.Note even though the room is "non-empty."
+//
+// This is the harder direction to get right — the cheap implementation
+// "HasWriter" would falsely return true here (the sender is a writer),
+// burning WAL volume on entries no audience can read. The correct
+// implementation (HasOtherWriter) excludes the sender from the
+// audience-presence check.
+func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
+	t.Cleanup(realtime.ResetRegistryForTest)
+
+	origWindow := WindowDuration
+	WindowDuration = 50 * time.Millisecond
+	t.Cleanup(func() { WindowDuration = origWindow })
+
+	app := setupAuthTestApp(t)
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	itemID := alice.itemID
+	viewer := mustCreateUser(t, app, "viewer@e2e.test")
+
+	runtime := NewRuntime()
+	t.Cleanup(runtime.Stop)
+
+	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+		Authorize:       func(_ *core.Record, _ string) error { return nil },
+		RuntimeProvider: runtime,
+		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
+			runtime.noteRoom(itemID, room)
+		},
+		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		WritePredicate: func(c *realtime.Client, _ string) bool {
+			return !c.ReadOnly()
+		},
+		UpdateContentValidator: validateUpdate,
+	})
+
+	broker := realtime.NewBroker()
+	aliceConn := realtime.NewClientForTest(alice.userID)
+	viewerConn := realtime.NewClientForTest(viewer.Id)
+	// Flip the viewer's read-only flag the way OnConnect would for a
+	// view-only share role.
+	viewerConn.SetReadOnly(true)
+
+	// Pre-join both. Now the room has one writer (alice) + one viewer
+	// (viewer). When alice's frame routes, HasOtherWriter(aliceConn)
+	// returns false (viewer is read-only; alice is excluded).
+	broker.JoinForTest(roomKindText, itemID, aliceConn)
+	broker.JoinForTest(roomKindText, itemID, viewerConn)
+
+	aliceDoc := ycrdt.NewDoc("alice-src", false, nil, nil, false)
+	installYXmlElementPatcher(aliceDoc)
+	aliceDoc.Transact(func(_ *ycrdt.Transaction) {
+		frag := aliceDoc.GetXmlFragment("default").(*ycrdt.YXmlFragment)
+		txt := ycrdt.NewYXmlText()
+		if txt.Map == nil {
+			txt.Map = make(map[string]*ycrdt.Item)
+		}
+		txt.Insert(0, "private-edit", nil)
+		frag.Push([]any{txt})
+	}, nil)
+	aliceUpdate := ycrdt.EncodeStateAsUpdate(aliceDoc, nil)
+
+	broker.RouteFrameForTest(roomKindText, itemID, aliceConn, buildDocUpdateFrame(aliceUpdate))
+
+	time.Sleep(200 * time.Millisecond)
+
+	serverDoc := runtime.docFor(itemID)
+	if serverDoc == nil {
+		t.Fatalf("runtime has no server doc for %q after routing frame", itemID)
+	}
+	arr := serverDoc.GetArray("editEvents")
+	if arr == nil {
+		t.Fatalf("editEvents root missing from server doc")
+	}
+	if arr.Length != 0 {
+		t.Fatalf("editEvents length = %d with writer + read-only viewer; want 0 by audience-gate design", arr.Length)
 	}
 }

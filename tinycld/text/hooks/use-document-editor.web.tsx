@@ -418,6 +418,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 ...buildSuggestionEditorExtensions({
                     modeStore: options.modeStore,
                     yDoc: options.yDoc,
+                    // Read-only viewer surface: omit suggestion
+                    // decorations / click handler / command layer. The
+                    // schema marks stay so y-prosemirror's mark-set
+                    // matches the on-disk doc on parse. See
+                    // screens/[id].tsx for the design decision.
+                    readOnly: options.editable === false,
                 }),
                 AuthorshipExtension.configure({
                     getEnabled: () => authorshipEnabledRef.current,

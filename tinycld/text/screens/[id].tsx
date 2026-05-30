@@ -224,6 +224,34 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     useDevTiptapEditorWindowHook(tiptapEditor)
     const hello = typedServerHello(room)
     const isReadOnly = hello.readOnly
+    // ── Read-only design decision ─────────────────────────────────────
+    // Viewers do not see comments or suggestions. The rationale is
+    // privacy + signal: a read-only share is a "here's the content"
+    // surface, not a collaboration surface. Comment threads and
+    // suggestion proposals are internal team artifacts; exposing them
+    // to anonymous link recipients or downstream viewers would leak
+    // org context (author user_org ids, review timelines, internal
+    // edit discussion) we don't intend to share.
+    //
+    // The decision drives three categories of gating, all keyed off
+    // `showCollaborativeAffordances`:
+    //   1. UI surfaces (drawers, popovers, modals, toolbar buttons)
+    //      are not mounted at all in this screen below.
+    //   2. Data subscriptions (useDocumentComments live query,
+    //      useDocumentSuggestionBridge) short-circuit via their
+    //      `disabled` props so we don't pay the network/CPU cost
+    //      and the server doesn't see a viewer querying text_comments.
+    //   3. Visible mark renders (comment underlines, suggestion
+    //      decoration colors) are suppressed via the
+    //      `data-tinycld-read-only-viewer` attribute on the editor
+    //      host — see editor-content-styles.ts for the CSS.
+    //
+    // Server-side, this is mirrored by gating buffer.Note (the
+    // editEvents Y.Array producer) on at-least-one-writer in the
+    // room — see text/server/authorship_stamper.go.
+    //
+    // Discussed in https://github.com/tinycld/text/pull/8 review.
+    const showCollaborativeAffordances = !isReadOnly
     const { canEdit, canSuggest, canResolve } = useSuggestionPermissions(driveItemId)
 
     // Suggestion review pipeline. The bridge surfaces the same
@@ -232,10 +260,13 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // WebView's pushed snapshots via onSuggestionMessage. The screen
     // doesn't have to know which path applies — the platform-resolved
     // useDocumentSuggestionBridge picks .web/.native automatically.
+    // Disabled for read-only viewers so the editor-walk and Y.Map
+    // observer don't run at all on those mounts.
     const suggestionBridge = useDocumentSuggestionBridge({
         driveItemId,
         yDoc: room.doc,
         editor: tiptapEditor,
+        disabled: !showCollaborativeAffordances,
     })
     // Cast the bridge to its native concrete type so the ref-backed
     // callback above can call processIncomingMessage. On web the cast
@@ -359,7 +390,9 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // whenever the toolbar's content changes height — e.g. the
     // Suggesting-mode pill change pushed it up by a few pixels).
     const [headerStackHeight, setHeaderStackHeight] = useState(0)
-    const documentComments = useDocumentComments(driveItemId, commentBridge)
+    const documentComments = useDocumentComments(driveItemId, commentBridge, {
+        disabled: !showCollaborativeAffordances,
+    })
     useCommentsLifecycle(driveItemId)
     useCommentTapHandler(driveItemId, commentBridge, documentComments)
     useSuggestionClickHandler(driveItemId, reviewDrawerStore)
@@ -406,10 +439,12 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         <WordCountBadge wordCount={toolbarState.wordCount} />
                         <ReconnectingIndicator isVisible={!room.isConnected} />
                         <View className="ml-auto flex-row items-center gap-1">
-                            <OpenCommentsDrawerButton
-                                driveItemId={driveItemId}
-                                openCount={openThreadCount}
-                            />
+                            {showCollaborativeAffordances && (
+                                <OpenCommentsDrawerButton
+                                    driveItemId={driveItemId}
+                                    openCount={openThreadCount}
+                                />
+                            )}
                         </View>
                     </View>
                     <ImportWarningBanner warnings={hello.importWarnings} />
@@ -456,7 +491,21 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 >
                     {Platform.OS === 'web' ? (
                         <ScrollView className="flex-1">
-                            <View className="p-6 max-w-[800px] w-full self-center">
+                            <View
+                                className="p-6 max-w-[800px] w-full self-center"
+                                // data-tinycld-read-only-viewer flips the
+                                // CSS selectors in editor-content-styles.ts
+                                // that suppress comment underlines + the
+                                // suggestion decoration colors. The schema
+                                // marks still ship (Yjs parse parity);
+                                // only the visible styling is suppressed.
+                                // See the read-only design decision above.
+                                {...(isReadOnly
+                                    ? ({
+                                          'data-tinycld-read-only-viewer': 'true',
+                                      } as Record<string, string>)
+                                    : {})}
+                            >
                                 <EditorComponent />
                                 <FindReplaceShell />
                             </View>
@@ -491,64 +540,75 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     itemId={driveItemId}
                     onCopied={newItemId => router.replace(orgHref('text/[id]', { id: newItemId }))}
                 />
-                <TextCommentDrawer
-                    driveItemId={driveItemId}
-                    documentComments={documentComments}
-                    commentBridge={commentBridge}
-                />
-                <ReviewDrawer
-                    driveItemId={driveItemId}
-                    // The drawer's focused-state thread renders a
-                    // <SuggestionThread /> whose discussion adapter
-                    // writes text_comments rows authored by the
-                    // current user_org. Thread it down once at the
-                    // screen scope (same source as the bulk-accept /
-                    // bulk-reject services) so the row stays
-                    // identity-context-free.
-                    authorUserOrgId={userOrgId ?? ''}
-                    // Match the drawer's top edge to the bottom of the
-                    // title/menubar/toolbar stack, measured live via
-                    // onLayout above. Falls back to a sane default if
-                    // the layout hasn't fired yet on the first render.
-                    topOffset={headerStackHeight || 96}
-                    store={reviewDrawerStore}
-                    anchored={anchored}
-                    orphaned={orphaned}
-                    canResolve={canResolve}
-                    isPending={resolveService.isPending}
-                    onAccept={resolveService.accept}
-                    onReject={resolveService.reject}
-                    onBulkAccept={onBulkAccept}
-                    onBulkReject={onBulkReject}
-                    onJump={s => {
-                        // Scroll the editor to the suggestion's mark
-                        // when a row gains focus. The row itself drives
-                        // the focusedSuggestionId state via onFocus —
-                        // onJump is purely the editor-side affordance.
-                        if (!tiptapEditor) return
-                        tiptapEditor.commands.focus(s.anchorRange.from)
-                    }}
-                    yDoc={room.doc}
-                    editor={tiptapEditor ?? null}
-                />
-                {/* Native-only bottom sheet: rises when the drawer's */}
-                {/* focusedSuggestionId points at a suggestion in the */}
-                {/* current bridge snapshot. Wraps <SuggestionThread /> */}
-                {/* (the same body the web SuggestionRow renders */}
-                {/* inline) so platform parity is preserved — only the */}
-                {/* chrome differs. Returns null on web; safe to mount */}
-                {/* unconditionally here. */}
-                <SuggestionThreadSheet
-                    driveItemId={driveItemId}
-                    authorUserOrgId={userOrgId ?? ''}
-                    anchored={anchored}
-                    canResolve={canResolve}
-                    isPending={resolveService.isPending}
-                    onAccept={resolveService.accept}
-                    onReject={resolveService.reject}
-                    store={reviewDrawerStore}
-                />
-                {newCommentFlow.modal}
+                {/* Comment + suggestion surfaces (drawer, review drawer, */}
+                {/* native bottom sheet, new-comment modal) are gated on  */}
+                {/* showCollaborativeAffordances so read-only viewers see */}
+                {/* none of them. See the read-only design decision      */}
+                {/* comment near the isReadOnly derivation above.        */}
+                {showCollaborativeAffordances && (
+                    <>
+                        <TextCommentDrawer
+                            driveItemId={driveItemId}
+                            documentComments={documentComments}
+                            commentBridge={commentBridge}
+                        />
+                        <ReviewDrawer
+                            driveItemId={driveItemId}
+                            // The drawer's focused-state thread renders a
+                            // <SuggestionThread /> whose discussion adapter
+                            // writes text_comments rows authored by the
+                            // current user_org. Thread it down once at the
+                            // screen scope (same source as the bulk-accept /
+                            // bulk-reject services) so the row stays
+                            // identity-context-free.
+                            authorUserOrgId={userOrgId ?? ''}
+                            // Match the drawer's top edge to the bottom of
+                            // the title/menubar/toolbar stack, measured
+                            // live via onLayout above. Falls back to a sane
+                            // default if the layout hasn't fired yet on the
+                            // first render.
+                            topOffset={headerStackHeight || 96}
+                            store={reviewDrawerStore}
+                            anchored={anchored}
+                            orphaned={orphaned}
+                            canResolve={canResolve}
+                            isPending={resolveService.isPending}
+                            onAccept={resolveService.accept}
+                            onReject={resolveService.reject}
+                            onBulkAccept={onBulkAccept}
+                            onBulkReject={onBulkReject}
+                            onJump={s => {
+                                // Scroll the editor to the suggestion's
+                                // mark when a row gains focus. The row
+                                // itself drives the focusedSuggestionId
+                                // state via onFocus — onJump is purely the
+                                // editor-side affordance.
+                                if (!tiptapEditor) return
+                                tiptapEditor.commands.focus(s.anchorRange.from)
+                            }}
+                            yDoc={room.doc}
+                            editor={tiptapEditor ?? null}
+                        />
+                        {/* Native-only bottom sheet: rises when the */}
+                        {/* drawer's focusedSuggestionId points at a */}
+                        {/* suggestion in the current bridge snapshot. */}
+                        {/* Wraps <SuggestionThread /> (same body the web */}
+                        {/* SuggestionRow renders inline) so platform */}
+                        {/* parity is preserved — only the chrome differs. */}
+                        {/* Returns null on web. */}
+                        <SuggestionThreadSheet
+                            driveItemId={driveItemId}
+                            authorUserOrgId={userOrgId ?? ''}
+                            anchored={anchored}
+                            canResolve={canResolve}
+                            isPending={resolveService.isPending}
+                            onAccept={resolveService.accept}
+                            onReject={resolveService.reject}
+                            store={reviewDrawerStore}
+                        />
+                        {newCommentFlow.modal}
+                    </>
+                )}
                 <SlashMenu
                     webViewRef={webViewRef ?? null}
                     editor={tiptapEditor ?? null}

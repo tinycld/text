@@ -389,7 +389,15 @@ export function DocumentToolbar({
                     />
 
                     <View className="ml-auto flex-row items-center">
-                        {newCommentFlow ? (
+                        {/* Comment + suggestion-review affordances are not */}
+                        {/* shown on read-only mounts. `disabled` already   */}
+                        {/* signals "this is a viewer" via the screen's    */}
+                        {/* hello.readOnly wiring — by the read-only design*/}
+                        {/* decision (see screens/[id].tsx) we now omit    */}
+                        {/* these buttons entirely rather than rendering   */}
+                        {/* them disabled. The mode menu likewise hides    */}
+                        {/* because Viewing is the only meaningful mode.   */}
+                        {newCommentFlow && !disabled ? (
                             <>
                                 <Separator />
                                 <NewCommentButton
@@ -402,7 +410,7 @@ export function DocumentToolbar({
                         {/* The review drawer now works on both platforms — Phase 2c's
                             useDocumentSuggestionBridge feeds the same anchored/orphaned
                             shape to the drawer regardless of where the editor lives. */}
-                        {reviewDrawerStore && driveItemId ? (
+                        {reviewDrawerStore && driveItemId && !disabled ? (
                             <>
                                 <Separator />
                                 <OpenReviewDrawerButton

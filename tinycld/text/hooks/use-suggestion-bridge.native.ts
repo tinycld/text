@@ -57,6 +57,7 @@ export function useDocumentSuggestionBridge(
     options: SuggestionBridgeOptions
 ): DocumentSuggestionBridge | null {
     const [bridge] = useState(() => createNativeSuggestionBridge(options))
+    if (options.disabled) return null
     if (!options.driveItemId) return null
     return bridge
 }

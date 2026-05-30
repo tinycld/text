@@ -12,18 +12,25 @@ import {
 } from './_menubar-helpers'
 
 // End-to-end contract for the viewer role on a doc with pending
-// suggestions. Alice (owner / editor) makes a suggestion; Bob (viewer)
-// loads the doc and can SEE the suggestion in the drawer but cannot
-// resolve it — Accept / Reject buttons (per-row + bulk) are hidden.
+// suggestions. Alice (owner / editor) makes a suggestion; Bob
+// (viewer) loads the doc and sees the suggestion's underlying TEXT
+// (the schema mark still ships so Yjs decode is safe) but DOES NOT
+// see the suggestion's visual affordances: no colored decoration, no
+// review drawer toggle, no per-row Accept/Reject buttons, no bulk
+// resolve buttons.
 //
-// SuggestionRow gates the Accept / Reject affordances on `canResolve`
-// (see SuggestionRow.tsx:124). The drawer gates the bulk affordances
-// on the same flag (ReviewDrawer.tsx:177). canResolve is computed
-// from the user's drive_shares role — viewer fails the predicate so
-// every resolve surface disappears.
+// This is the "read-only design decision" — viewers see content but
+// no comments/suggestions surfaces. See screens/[id].tsx for the
+// decision comment and authorship_stamper.go for the server-side
+// audience gate that mirrors it.
 //
-// Pins the read-only-but-visible contract: viewers can see what's
-// pending (review value), they just can't act on it.
+// Pins the contract layer by layer:
+//   - schema mark renders (data-suggested-insert) so the text is
+//     present in the DOM — Yjs parity is preserved
+//   - decoration plugin is OMITTED on read-only mounts, so the
+//     `.tinycld-suggestion-insert` colored span is absent
+//   - review drawer, bulk buttons, and per-row Accept/Reject are
+//     unmounted entirely
 
 test.describe('Text — Viewer cannot resolve', () => {
     test.setTimeout(TEXT_TEST_TIMEOUT)
@@ -77,24 +84,31 @@ test.describe('Text — Viewer cannot resolve', () => {
                 timeout: 10_000,
             })
 
-            // Bob's tab sees the decoration too — the suggestion
-            // replicates via Yjs even though Bob can't resolve it.
+            // Bob's tab still has the SCHEMA mark in the DOM so the
+            // underlying text replicates via Yjs (data-suggested-insert
+            // is the schema's renderHTML output; without it y-prosemirror
+            // would drop the mark on parse). The marker text is visible.
             await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible({
                 timeout: 15_000,
             })
             await expect(bobPage.getByText(marker)).toBeVisible({ timeout: 10_000 })
 
-            // The drawer-open toolbar button itself is disabled for
-            // viewers — the toolbar's `disabled` prop is wired to the
-            // server's hello.readOnly flag (screens/[id].tsx:418), and
-            // OpenReviewDrawerButton forwards that down. accessibilityState
-            // {disabled: true} renders as the ARIA `aria-disabled="true"`
-            // attribute on the underlying <div role="button">.
-            const drawerBtn = bobPage.getByRole('button', {
-                name: 'Open suggestion review drawer',
-            })
-            await expect(drawerBtn).toBeVisible({ timeout: 5_000 })
-            await expect(drawerBtn).toHaveAttribute('aria-disabled', 'true')
+            // The DECORATION span — the colored tint + underline that
+            // the SuggestionDecorations plugin emits — is absent. Read-
+            // only viewer mounts omit the decoration plugin entirely
+            // (see buildSuggestionEditorExtensions's readOnly flag).
+            // Asserting toHaveCount(0) at page scope confirms no
+            // .tinycld-suggestion-insert span exists anywhere.
+            await expect(bobPage.locator('.tinycld-suggestion-insert')).toHaveCount(0)
+
+            // The drawer-open toolbar button itself is omitted entirely
+            // for viewers — screens/[id].tsx gates the
+            // OpenCommentsDrawerButton + DocumentToolbar's review-drawer
+            // trigger on showCollaborativeAffordances. (Previously this
+            // button was rendered but disabled; now it's not rendered.)
+            await expect(
+                bobPage.getByRole('button', { name: 'Open suggestion review drawer' })
+            ).toHaveCount(0)
 
             // CRITICAL: the per-row Accept / Reject buttons (rendered
             // inside the drawer, gated on canResolve in

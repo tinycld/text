@@ -19,6 +19,11 @@ export interface SuggestionBridgeOptions {
     driveItemId: string
     yDoc: Y.Doc | null
     editor: Editor | null
+    // When true, the bridge short-circuits to null without subscribing
+    // to the editor or Y.Map. Used by read-only viewer mounts where
+    // suggestions are not exposed by design (see screens/[id].tsx
+    // for the read-only design decision).
+    disabled?: boolean
 }
 
 // DocumentSuggestionBridge surfaces the same DocumentSuggestionsResult

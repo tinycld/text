@@ -98,11 +98,12 @@ export function createWebSuggestionBridge(
 export function useDocumentSuggestionBridge(
     options: SuggestionBridgeOptions
 ): DocumentSuggestionBridge | null {
-    const { editor, yDoc, driveItemId } = options
+    const { editor, yDoc, driveItemId, disabled } = options
     const bridge = useMemo(
         () => createWebSuggestionBridge({ editor, yDoc, driveItemId }),
         [editor, yDoc, driveItemId]
     )
+    if (disabled) return null
     if (!editor || !yDoc) return null
     return bridge
 }

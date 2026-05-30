@@ -136,8 +136,23 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 		// after the last observed update from a clientID), so unlike
 		// the idempotent authorship stamp it must run on every inbound
 		// frame regardless of cache state.
+		//
+		// ── Read-only design decision (audience gate) ────────────────
+		// editEvents are an audience-facing artifact: their consumers
+		// are the activity tab + notify hooks for OTHER writer-class
+		// peers. By design (see the screen-level comment in
+		// text/tinycld/text/screens/[id].tsx), read-only viewers do not
+		// see activity/comments/suggestions. When the only currently-
+		// connected writer is the sender themselves — i.e. a solo
+		// author editing in private, possibly with read-only viewers
+		// watching — the buffer's debounce window would still produce
+		// per-clientID entries that nobody else can consume, bloating
+		// the WAL and the doc's editEvents Y.Array. Skip the Note
+		// when no other writer is present. Discussed in
+		// https://github.com/tinycld/text/pull/8 review.
 		buffer := runtime.BufferFor(roomID)
-		if buffer != nil {
+		room := runtime.RoomFor(roomID)
+		if buffer != nil && room != nil && room.HasOtherWriter(conn) {
 			for _, cid := range clientIDs {
 				buffer.Note(cid, uoID, nil)
 			}

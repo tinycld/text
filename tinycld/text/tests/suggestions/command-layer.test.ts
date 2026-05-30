@@ -73,6 +73,29 @@ describe('SuggestionCommandLayer', () => {
         expect(mark?.attrs.ts).toBeGreaterThan(0)
     })
 
+    it('Enter (paragraph split) in suggesting mode does not crash', () => {
+        // Pressing Enter produces a ReplaceStep whose slice carries
+        // non-zero openStart/openEnd: e.g. splitting at end of doc
+        // emits <p></p><p></p> with openStart=openEnd=1, so
+        // slice.content.size is 4 but the post-step width inserted into
+        // the doc is only 2. applyInsertStep previously used
+        // slice.content.size as the mark range, which made addMark's
+        // `to` overshoot the new doc end and Fragment.nodesBetween
+        // crashed reading nodeSize on undefined. The dev overlay then
+        // intercepted clicks, hanging the Playwright suite.
+        const modeStore = createEditorModeStore()
+        modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
+        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        const yDoc = new Y.Doc()
+        const state = makeStateWithText(modeStore, yDoc, 'hi')
+        const end = state.doc.content.size - 1
+        const withSel = state.apply(
+            state.tr.setSelection(TextSelection.create(state.doc, end))
+        )
+        const next = withSel.apply(withSel.tr.split(withSel.selection.from))
+        expect(next.doc.childCount).toBe(2)
+    })
+
     it('two rapid inserts in suggesting mode share one suggestionId', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)

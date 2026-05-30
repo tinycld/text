@@ -45,16 +45,28 @@ function isAllOwnActiveSuggestion(slice: Slice, suggestionId: string): boolean {
     return allOwn
 }
 
-function applyInsertStep(ctx: StepContext, from: number, sliceSize: number): void {
+function applyInsertStep(ctx: StepContext, from: number, slice: Slice): void {
     // For inserts: the step's `from` is in stepDoc (pre-step)
     // coordinates but coincides with the start of the inserted
     // content in post-step coordinates (inserts don't shift positions
     // at or to the left of their `from`). Map through any prior
     // steps already appended to `out` for safety in multi-step bundles.
+    //
+    // The mark range spans only the actual inserted *content* — i.e.
+    // `slice.content.size` minus the slice's open boundaries on each
+    // side. For a structural insert like pressing Enter at end of doc
+    // (slice = `<p></p><p></p>` with openStart=openEnd=1) the open
+    // tokens describe how the slice attaches to the surrounding
+    // structure rather than new positions inside the doc; subtracting
+    // them yields the true post-step width. Without this, addMark is
+    // called with `to` past the new doc end and the underlying
+    // Fragment.nodesBetween crashes with "nodeSize of undefined".
+    const insertWidth = slice.content.size - slice.openStart - slice.openEnd
+    if (insertWidth <= 0) return
     const mapped = ctx.out.mapping.map(from)
     ctx.out.addMark(
         mapped,
-        mapped + sliceSize,
+        mapped + insertWidth,
         ctx.insertMarkType.create({
             suggestionId: ctx.suggestionId,
             authorId: ctx.authorId,
@@ -918,7 +930,7 @@ function processReplaceSteps(ctx: StepContext, tr: Transaction, consumed: Set<nu
         const isReplace = from !== to && sliceSize > 0
 
         if (isInsert) {
-            applyInsertStep(ctx, from, sliceSize)
+            applyInsertStep(ctx, from, slice)
             hadEffect = true
         } else if (isDelete) {
             if (applyDeleteStep(ctx, tr, i, from, to)) hadEffect = true

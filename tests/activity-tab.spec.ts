@@ -1,8 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
+import { expect, type Page, test } from '@playwright/test'
 import {
     editorRoot,
-    openFreshTextDocument,
+    PB_URL,
     TEXT_TEST_TIMEOUT,
+    uniqueDocName,
+    uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
 
@@ -21,59 +24,179 @@ import {
 // The tab control uses accessibilityRole="tab" with accessibilityLabel
 // matching the tab name (see ReviewDrawer.tsx::TabButton). We click
 // the "Activity" tab once the drawer is open.
+//
+// Audience-presence gate: the server-side stamper only buffers
+// EditEvents when the room has at least one other connection besides
+// the writer (see text/server/authorship_stamper.go::HasOtherWriter).
+// A solo writer therefore produces no activity rows — by design, since
+// the activity log exists to surface what collaborators are doing for
+// other collaborators. The test must boot a second connection on the
+// same doc so the writer's edits are recorded.
 
 test.describe('Text — Activity tab', () => {
     test.setTimeout(TEXT_TEST_TIMEOUT)
 
-    test('edits → 1s idle → activity row appears', async ({ page }) => {
-        await openFreshTextDocument(page, 'activity-tab')
-        await editorRoot(page).click()
-        await waitForEditor(page)
+    test('edits → 1s idle → activity row appears (with audience present)', async ({
+        browser,
+    }) => {
+        // Upload the doc + share with a second user up front, before
+        // any browser context exists. shareDriveItemWith grants the
+        // second user explicit access to the drive item so they can
+        // join the realtime room without a share link.
+        const itemId = await uploadDocxAsDriveItem(uniqueDocName('activity-tab'))
+        const userB = await createSecondUser()
+        await shareDriveItemWith(itemId, userB)
 
-        // Open the drawer FIRST so we can pin the Activity tab's
-        // empty-state copy before any edits have landed.
-        await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()
-        await expect(page.getByText('Suggestions').first()).toBeVisible({ timeout: 5_000 })
+        const writerCtx = await browser.newContext()
+        const audienceCtx = await browser.newContext()
+        try {
+            const writer = await writerCtx.newPage()
+            const audience = await audienceCtx.newPage()
 
-        // Switch to the Activity tab. The tab control is web-only and
-        // mounts when yDoc is present, which it always is after the
-        // realtime room finishes opening. The role + name pair
-        // matches the TabButton implementation in ReviewDrawer.tsx.
-        await page.getByRole('tab', { name: 'Activity' }).click()
+            // Writer signs in as the shared test user. Audience is the
+            // second user — their presence in the room satisfies the
+            // server's HasOtherWriter audience gate so EditEvents
+            // produced by the writer get buffered + flushed.
+            await loginAs(writer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await writer.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await waitForEditor(writer)
 
-        // Empty state: the user has made zero edits, so the tab shows
-        // the explanatory copy from ActivityTab.tsx (verbatim except
-        // for case-insensitive matching to absorb minor copy tweaks).
-        await expect(page.getByText(/No activity yet/i)).toBeVisible({ timeout: 5_000 })
+            await loginAs(audience, userB.email, userB.password)
+            await audience.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await waitForEditor(audience)
 
-        // Re-focus the editor (the tab click shifts focus to the
-        // drawer) and type a few characters. Each keystroke flows
-        // through the broker → stamper → editEventBuffer.Note,
-        // which extends the current window without flushing.
-        await editorRoot(page).click()
-        const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
-        await page.keyboard.press(`${meta}+End`)
-        await page.keyboard.press('Enter')
-        const marker = `activity-${Date.now()}`
-        await page.keyboard.type(marker, { delay: 25 })
-        await expect(page.getByText(marker).first()).toBeVisible({ timeout: 10_000 })
+            // Open the drawer on the writer's page so the Activity
+            // empty-state copy is pinned before any edits have landed.
+            await writer
+                .getByRole('button', { name: 'Open suggestion review drawer' })
+                .click()
+            await expect(writer.getByText('Suggestions').first()).toBeVisible({
+                timeout: 5_000,
+            })
 
-        // Wait past the shortened window so the buffer's per-clientID
-        // timer fires and writes an EditEvent into editEvents Y.Array.
-        // The flush callback also broadcasts a delta; the client
-        // observe handler on editEvents re-runs useEditEvents and the
-        // ActivityTab re-renders.
-        //
-        // 2.5s = window (1000ms) + buffer for goroutine scheduling +
-        // network broadcast + observer re-publish + React commit.
-        await page.waitForTimeout(2_500)
+            await writer.getByRole('tab', { name: 'Activity' }).click()
+            await expect(writer.getByText(/No activity yet/i)).toBeVisible({ timeout: 5_000 })
 
-        // The summarize() helper composes "<name> made N edit(s)"; we
-        // match the "made N edits" suffix (case-insensitive) so name
-        // resolution + pluralization don't tie the assertion to a
-        // specific phrasing.
-        await expect(page.getByText(/made \d+ edits?/i).first()).toBeVisible({
-            timeout: 10_000,
-        })
+            // Re-focus the editor (tab click moved focus to the drawer)
+            // and type a few characters. Each keystroke flows through
+            // the broker → stamper → editEventBuffer.Note, which only
+            // records when the audience-presence gate passes.
+            await editorRoot(writer).click()
+            const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
+            await writer.keyboard.press(`${meta}+End`)
+            await writer.keyboard.press('Enter')
+            const marker = `activity-${Date.now()}`
+            await writer.keyboard.type(marker, { delay: 25 })
+            await expect(writer.getByText(marker).first()).toBeVisible({ timeout: 10_000 })
+
+            // Wait past the shortened window so the buffer's per-
+            // clientID timer fires and writes an EditEvent into
+            // editEvents Y.Array. 2.5s covers the 1000ms window +
+            // scheduler/network/observer slack.
+            await writer.waitForTimeout(2_500)
+
+            await expect(writer.getByText(/made \d+ edits?/i).first()).toBeVisible({
+                timeout: 10_000,
+            })
+        } finally {
+            await writerCtx.close()
+            await audienceCtx.close()
+        }
     })
 })
+
+interface SecondUser {
+    id: string
+    email: string
+    password: string
+    userOrgId: string
+}
+
+// File-local copy of the comments.spec.ts helpers — pending the future
+// refactor that moves both versions into a shared module.
+async function createSecondUser(): Promise<SecondUser> {
+    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
+    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
+    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    })
+    if (!adminAuth.ok) {
+        throw new Error(`Superuser auth failed: ${adminAuth.status} ${await adminAuth.text()}`)
+    }
+    const { token: adminTok } = (await adminAuth.json()) as { token: string }
+
+    const orgsRes = await fetch(
+        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
+        { headers: { Authorization: adminTok } }
+    )
+    const orgs = (await orgsRes.json()) as { items: { id: string }[] }
+    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
+    const orgId = orgs.items[0].id
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const email = `activity-test-${suffix}@tinycld.org`
+    const password = 'ActivityTest1234!'
+
+    const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
+        body: JSON.stringify({
+            email,
+            password,
+            passwordConfirm: password,
+            name: `Activity Tester ${suffix}`,
+            username: `act_${suffix.replace(/-/g, '_')}`,
+            verified: true,
+        }),
+    })
+    if (!userRes.ok) {
+        throw new Error(`Create user failed: ${userRes.status} ${await userRes.text()}`)
+    }
+    const user = (await userRes.json()) as { id: string }
+
+    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
+        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
+    })
+    if (!userOrgRes.ok) {
+        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
+    }
+    const userOrg = (await userOrgRes.json()) as { id: string }
+
+    return { id: user.id, email, password, userOrgId: userOrg.id }
+}
+
+async function shareDriveItemWith(itemId: string, user: SecondUser): Promise<void> {
+    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
+    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
+    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    })
+    const { token: adminTok } = (await adminAuth.json()) as { token: string }
+    const res = await fetch(`${PB_URL}/api/collections/drive_shares/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
+        body: JSON.stringify({
+            item: itemId,
+            user_org: user.userOrgId,
+            role: 'editor',
+            created_by: user.userOrgId,
+        }),
+    })
+    if (!res.ok) {
+        throw new Error(`Share drive_item failed: ${res.status} ${await res.text()}`)
+    }
+}
+
+async function loginAs(page: Page, identifier: string, password: string): Promise<void> {
+    await page.goto('/')
+    await page.getByTestId('identifier').fill(identifier)
+    await page.getByPlaceholder('Password').fill(password)
+    await page.getByText('Sign in', { exact: true }).last().click()
+    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+}

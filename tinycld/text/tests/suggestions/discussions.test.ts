@@ -181,20 +181,13 @@ describe('useSuggestionDiscussion', () => {
         expect(commentMentionsInsert).not.toHaveBeenCalled()
     })
 
-    it('returns replies in created-order with parsed mentions per row', () => {
+    it('returns replies with mentions parsed from the body tokens', () => {
         commentRows = [
             {
                 id: 'c_later',
                 suggestion_id: 's1',
                 author: 'uo_alice',
-                body: 'second',
-                // The hook sorts by `comment.created` ASC at the
-                // query level; the mocked query just returns the
-                // array as-given, so we order them here ourselves to
-                // assert the mapping/parsing layer rather than the
-                // sort. (The sort itself is part of the live-query
-                // chain and is covered by the orderBy assertion in a
-                // separate test below.)
+                body: 'hey [[@uo_carol]] and [[@uo_dave]] take a look',
                 created: '2026-05-29T00:00:02Z',
             },
             {
@@ -205,37 +198,18 @@ describe('useSuggestionDiscussion', () => {
                 created: '2026-05-29T00:00:01Z',
             },
         ]
-        mentionRows = [
-            {
-                id: 'm1',
-                comment_record: 'c_later',
-                drive_item: DRIVE_ITEM,
-                mentioned_user_org: 'uo_carol',
-            },
-            {
-                id: 'm2',
-                comment_record: 'c_later',
-                drive_item: DRIVE_ITEM,
-                mentioned_user_org: 'uo_dave',
-            },
-            // Mention against a comment_record outside this thread
-            // (e.g. a regular anchored comment in the same doc). The
-            // grouping bucket exists but the lookup for c_earlier and
-            // c_later won't see it.
-            {
-                id: 'm3',
-                comment_record: 'c_other',
-                drive_item: DRIVE_ITEM,
-                mentioned_user_org: 'uo_eve',
-            },
-        ]
+        // We intentionally do NOT seed mentionRows: the hook no
+        // longer subscribes to comment_mentions on the client
+        // (that collection's listRule is null and would 403). The
+        // mention list per reply is extracted from the body's
+        // [[@userOrgId]] tokens.
         const { result } = renderHook(() => useSuggestionDiscussion('s1', DRIVE_ITEM, ME))
 
         expect(result.current.replies).toHaveLength(2)
         const [a, b] = result.current.replies
         expect(a.id).toBe('c_later')
         expect(a.authorId).toBe('uo_alice')
-        expect(a.body).toBe('second')
+        expect(a.body).toBe('hey [[@uo_carol]] and [[@uo_dave]] take a look')
         expect(a.suggestionId).toBe('s1')
         expect(a.mentions).toEqual(['uo_carol', 'uo_dave'])
         expect(typeof a.createdAt).toBe('number')

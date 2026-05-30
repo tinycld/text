@@ -1,5 +1,6 @@
 import { and, eq, isNull } from '@tanstack/db'
 import type { Transaction } from '@tanstack/react-db'
+import { parseMentions } from '@tinycld/core/lib/comments'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
@@ -18,11 +19,12 @@ import { useCallback, useMemo } from 'react'
 //     absent — suggestion replies anchor on the suggestion's Y.Map
 //     entry, not on a mark in the document.
 //
-// `mentions` is the flattened user_org id list pulled from the
-// `comment_mentions` join. The composer supplies a fresh mention
-// list per reply (the @-picker already knows which user_orgs are
-// referenced), so the read-side mention list is purely for display
-// — e.g. "Alice mentioned Bob".
+// `mentions` is the flattened user_org id list extracted from the
+// reply body's `[[@userOrgId]]` tokens (the same wire format the
+// composer writes when an @-mention is picked). Parsed client-side
+// via `parseMentions(body)` rather than a parallel `comment_mentions`
+// subscription — that collection's listRule is null (system-only,
+// only the notify hook reads it) and a client query would 403.
 export interface SuggestionReply {
     id: string
     suggestionId: string
@@ -86,6 +88,14 @@ export function useSuggestionDiscussion(
     // (Task 6's Y.Map observer) drops rows from the live thread
     // without us having to filter in JS. Ordering is server-stable
     // ascending `created` — replies render chronologically.
+    //
+    // We intentionally do NOT subscribe to comment_mentions on the
+    // client. That collection's listRule/viewRule are null (only the
+    // server-side notify hook reads it; clients only ever insert),
+    // so any client query against it 403s. Mentions for display are
+    // extracted from the reply body's `[[@userOrgId]]` tokens via
+    // parseMentions — the composer writes those tokens directly, so
+    // the body text IS the canonical mention list per row.
     const { data: commentRows = [], isLoading: commentsLoading } = useOrgLiveQuery(
         query =>
             suggestionId
@@ -99,33 +109,8 @@ export function useSuggestionDiscussion(
         [suggestionId]
     )
 
-    // Parallel subscription for the mention rows that point at any
-    // comment in this thread. Pulled by `drive_item` rather than by
-    // a per-comment id list so the dep array stays stable as new
-    // replies arrive — the JS-side filter groups them by
-    // comment_record below. Cheap: most documents have <100 mention
-    // rows in total.
-    const { data: mentionRows = [], isLoading: mentionsLoading } = useOrgLiveQuery(
-        query =>
-            suggestionId
-                ? query
-                      .from({ mention: commentMentionsCollection })
-                      .where(({ mention }) => eq(mention.drive_item, driveItemId))
-                : null,
-        [suggestionId, driveItemId]
-    )
-
     const replies = useMemo<SuggestionReply[]>(() => {
         if (!suggestionId) return EMPTY_REPLIES
-        const mentionsByComment = new Map<string, string[]>()
-        for (const m of mentionRows as Array<{
-            comment_record: string
-            mentioned_user_org: string
-        }>) {
-            const list = mentionsByComment.get(m.comment_record) ?? []
-            list.push(m.mentioned_user_org)
-            mentionsByComment.set(m.comment_record, list)
-        }
         const typedRows = commentRows as Array<{
             id: string
             suggestion_id?: string
@@ -139,9 +124,9 @@ export function useSuggestionDiscussion(
             authorId: row.author,
             body: row.body,
             createdAt: new Date(row.created).getTime(),
-            mentions: mentionsByComment.get(row.id) ?? [],
+            mentions: parseMentions(row.body).map(m => m.userOrgId),
         }))
-    }, [suggestionId, commentRows, mentionRows])
+    }, [suggestionId, commentRows])
 
     const addReplyMutation = useMutation({
         mutationFn: function* (args: { body: string; mentions: string[] }) {
@@ -216,6 +201,6 @@ export function useSuggestionDiscussion(
     return {
         replies,
         addReply,
-        isLoading: commentsLoading || mentionsLoading,
+        isLoading: commentsLoading,
     }
 }

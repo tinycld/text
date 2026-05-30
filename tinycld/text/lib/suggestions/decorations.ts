@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
-import type { EditorState } from '@tiptap/pm/state'
+import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { AddMarkStep, AttrStep, RemoveMarkStep, ReplaceStep } from '@tiptap/pm/transform'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type {
     BlockChangeAfter,
@@ -10,6 +11,93 @@ import type {
 import { colorForUser } from '../color-for-user'
 
 const PLUGIN_KEY = new PluginKey<DecorationSet>('tinycld:suggestion-decorations')
+
+// Mark type names whose presence the plugin renders. Kept as a Set so
+// the per-step probe (transactionMayIntroduceSuggestions) is an O(1)
+// lookup. Mirrored from the buildDecorations switch below — keep these
+// in sync if a new suggestion mark kind is added.
+const SUGGESTION_MARK_TYPES = new Set([
+    'suggestedInsert',
+    'suggestedDelete',
+    'suggestedFormatChange',
+])
+
+// Node attribute name whose presence on a block node the plugin
+// renders. Same in-sync caveat as SUGGESTION_MARK_TYPES.
+const SUGGESTION_BLOCK_CHANGE_ATTR = 'suggestedBlockChange'
+
+// transactionMayIntroduceSuggestions returns true iff `tr` contains a
+// step that could plausibly add a suggestion mark or set the
+// suggestedBlockChange node attribute. False positives are safe (they
+// just trigger a needless full-doc walk that produces an unchanged
+// DecorationSet); false negatives would silently drop legitimate
+// decorations, so we err generous:
+//
+//   - AddMarkStep on a suggestion mark type → yes
+//   - RemoveMarkStep on a suggestion mark type → yes (in case the
+//     existing decoration set was empty due to a transient race; the
+//     walk produces an empty set on no-op, cheap to verify)
+//   - AttrStep setting the suggestedBlockChange attribute → yes
+//   - ReplaceStep whose slice content carries any suggestion mark or
+//     a node with the suggestedBlockChange attribute → yes (covers
+//     pasting suggesting-marked content, undo restoring a deletion,
+//     and the command-layer's restore+mark step in suggesting mode)
+//
+// All other steps (typing in editing mode, normal format toggles,
+// caret moves, scroll, etc.) return false — the dominant case where
+// the per-keystroke perf gate matters.
+function transactionMayIntroduceSuggestions(tr: Transaction): boolean {
+    for (const step of tr.steps) {
+        if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) {
+            if (SUGGESTION_MARK_TYPES.has(step.mark.type.name)) return true
+            continue
+        }
+        if (step instanceof AttrStep) {
+            if (step.attr === SUGGESTION_BLOCK_CHANGE_ATTR) return true
+            continue
+        }
+        if (step instanceof ReplaceStep) {
+            const slice = step.slice
+            if (slice.content.size === 0) continue
+            let found = false
+            slice.content.descendants(node => {
+                if (found) return false
+                if (node.isText) {
+                    for (const mark of node.marks) {
+                        if (SUGGESTION_MARK_TYPES.has(mark.type.name)) {
+                            found = true
+                            return false
+                        }
+                    }
+                    return false
+                }
+                const attr = node.attrs[SUGGESTION_BLOCK_CHANGE_ATTR]
+                if (attr !== undefined && attr !== null) {
+                    found = true
+                    return false
+                }
+                return true
+            })
+            if (found) return true
+            continue
+        }
+        // Unknown step type — be conservative and walk. Custom steps
+        // are rare on the text editor; we'd rather pay one walk than
+        // miss a suggestion stamp from a future extension.
+        return true
+    }
+    return false
+}
+
+// decorationSetIsEmpty reports whether the given DecorationSet contains
+// zero decorations. DecorationSet.find() with no args returns every
+// decoration in the set; checking .length is the cheapest way to
+// detect "the plugin has nothing rendered today" — the precondition
+// for skipping the buildDecorations walk on a transaction that also
+// doesn't introduce any new suggestion content.
+function decorationSetIsEmpty(set: DecorationSet): boolean {
+    return set.find().length === 0
+}
 
 // Human-readable mark names for the tooltip. Falls back to the raw
 // type name when the schema includes a mark we don't have a friendly
@@ -457,6 +545,23 @@ export function createSuggestionDecorationsPlugin(): Plugin<DecorationSet> {
             init: (_config, state) => buildDecorations(state),
             apply: (tr, decoSet, _oldState, newState) => {
                 if (!tr.docChanged) return decoSet.map(tr.mapping, tr.doc)
+                // Fast path for the common case: a doc with NO suggestion
+                // decorations + a transaction that doesn't introduce any.
+                // This is every keystroke in an editing-mode doc that
+                // happens to live on a workspace where Suggesting has
+                // never run. Without this gate the plugin walks
+                // state.doc.descendants(...) on every keystroke, paying
+                // O(n-doc-nodes) cost users will never see suggestions
+                // for. The gate only fires when BOTH conditions hold —
+                // we still walk eagerly whenever there's anything to
+                // preserve (existing decorations need their positions
+                // re-derived) or anything new to draw.
+                if (
+                    decorationSetIsEmpty(decoSet) &&
+                    !transactionMayIntroduceSuggestions(tr)
+                ) {
+                    return DecorationSet.empty
+                }
                 return buildDecorations(newState)
             },
         },

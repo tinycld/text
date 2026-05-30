@@ -83,6 +83,19 @@ type Runtime struct {
 	// rooms that have been evicted.
 	authorship *authorshipCache
 
+	// prevSuggestionKeys holds the most-recent snapshot of the
+	// `suggestions` Y.Map keyset per active room. Read+rewritten by
+	// diffSuggestionKeys on every accepted MsgDocUpdate to detect
+	// suggestion deletions (keys present in the previous snapshot but
+	// absent in the current keyset are the keys this frame removed).
+	// Seeded in noteRoom from the freshly-bootstrapped doc and dropped
+	// in closeDoc so an evicted room doesn't keep its keyset around.
+	//
+	// Guarded by r.mu — the snapshot is keyed by roomID so contention is
+	// minimal in practice; the diff itself runs unsynchronized against
+	// the Y.Doc, which serializes ops internally.
+	prevSuggestionKeys map[string]map[string]struct{}
+
 	// importWarnings holds per-room warnings produced during bootstrap
 	// (e.g. tracked changes stripped, comments dropped). The OnConnect
 	// ServerHelloFn pops the entry for a freshly-bootstrapping
@@ -119,14 +132,15 @@ type importWarningEntry struct {
 // in selectively).
 func NewRuntime() *Runtime {
 	return &Runtime{
-		docs:           map[string]*ycrdt.Doc{},
-		handles:        map[string]*textDocHandle{},
-		rooms:          map[string]*realtime.Room{},
-		editBuffers:    map[string]*editEventBuffer{},
-		authorship:     newAuthorshipCache(),
-		importWarnings: map[string]importWarningEntry{},
-		stop:           make(chan struct{}),
-		janitorDone:    make(chan struct{}),
+		docs:               map[string]*ycrdt.Doc{},
+		handles:            map[string]*textDocHandle{},
+		rooms:              map[string]*realtime.Room{},
+		editBuffers:        map[string]*editEventBuffer{},
+		authorship:         newAuthorshipCache(),
+		prevSuggestionKeys: map[string]map[string]struct{}{},
+		importWarnings:     map[string]importWarningEntry{},
+		stop:               make(chan struct{}),
+		janitorDone:        make(chan struct{}),
 	}
 }
 
@@ -144,9 +158,18 @@ func NewRuntime() *Runtime {
 // invariant "if rooms[roomID] is set, editBuffers[roomID] is too."
 func (r *Runtime) noteRoom(roomID string, room *realtime.Room) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.rooms[roomID] = room
 	r.editBuffers[roomID] = newEditEventBuffer(roomID, r.makeEditEventFlush())
+	doc := r.docs[roomID]
+	r.mu.Unlock()
+	// Seed the `suggestions` Y.Map keyset baseline so the first inbound
+	// update can be diffed for deletions. Done outside r.mu because the
+	// helper takes the lock itself; doing it here keeps the lock-ordering
+	// invariant "Y.Doc reads are unsynchronized; map writes hold r.mu"
+	// consistent with the rest of the runtime.
+	if doc != nil {
+		r.initSuggestionKeySnapshot(roomID, doc)
+	}
 }
 
 // RoomFor returns the *realtime.Room associated with the given roomID,
@@ -456,6 +479,7 @@ func (r *Runtime) closeDoc(roomID string) bool {
 	delete(r.rooms, roomID)
 	buf := r.editBuffers[roomID]
 	delete(r.editBuffers, roomID)
+	delete(r.prevSuggestionKeys, roomID)
 	r.mu.Unlock()
 	r.authorship.dropRoom(roomID)
 	if buf != nil {

@@ -356,6 +356,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     useCommentsLifecycle(driveItemId)
     useCommentTapHandler(driveItemId, commentBridge, documentComments)
     useSuggestionClickHandler(driveItemId, reviewDrawerStore)
+    useFocusSuggestionParam(driveItemId, reviewDrawerStore)
     const newCommentFlow = useNewCommentFlow({
         driveItemId,
         commentBridge,
@@ -618,6 +619,32 @@ function useSuggestionClickHandler(
             state.focusSuggestion(payload.suggestionId)
         })
     }, [driveItemId, reviewDrawerStore])
+}
+
+// Routes deep links from @mention notifications into the review drawer:
+// when a recipient clicks a notification carrying ?focusSuggestion=<id>,
+// the screen opens the drawer (scoped to this document) and focuses the
+// matching row. Without this the link would land the user on the doc
+// with the drawer collapsed and no signal about which suggestion the
+// notification referenced.
+//
+// Re-fires only on param-value change. expo-router updates
+// useLocalSearchParams's identity per navigation, but the effect's dep
+// array keys on the param VALUE — so a re-render with the same
+// focusSuggestion is a no-op, and a navigation that drops the param
+// (route to the same id without ?focusSuggestion=) leaves the drawer
+// state alone rather than auto-closing it.
+function useFocusSuggestionParam(
+    driveItemId: string,
+    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>
+) {
+    const { focusSuggestion } = useLocalSearchParams<{ focusSuggestion?: string }>()
+    useEffect(() => {
+        if (!focusSuggestion) return
+        const state = reviewDrawerStore.getState()
+        state.open(driveItemId)
+        state.focusSuggestion(focusSuggestion)
+    }, [driveItemId, focusSuggestion, reviewDrawerStore])
 }
 
 interface CenteredMessageProps {

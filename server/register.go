@@ -115,7 +115,21 @@ func Register(app *pocketbase.PocketBase) {
 		// the user_org resolver, the writer (writeAuthorshipEntries),
 		// and the broadcast (Room.PublishDocUpdate). See
 		// authorship_stamper.go for the full flow.
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		//
+		// Composed with makeSuggestionDiscussionCleanup so a single
+		// OnDocUpdateContent slot drives both: stamping fires first to
+		// take care of authorship metadata, then the cleanup pass diffs
+		// the suggestions Y.Map keyset against the previous snapshot
+		// and soft-deletes any text_comments rows whose suggestion_id
+		// matches a key that was just removed. Both run synchronously
+		// on the broker's route goroutine; the stamper's work is bounded
+		// by the cache short-circuit, and the cleanup's archive query
+		// is indexed (idx_text_comments_suggestion), so the combined
+		// overhead per frame stays in the low milliseconds.
+		OnDocUpdateContent: composeOnDocUpdateContent(
+			makeAuthorshipStamper(app, runtime),
+			makeSuggestionDiscussionCleanup(app, runtime),
+		),
 		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
 		OnEmpty:            saveCoordinator.OnRoomEmpty,
 		OnConnect:          makeOnConnect(app, runtime),
@@ -153,6 +167,24 @@ func Register(app *pocketbase.PocketBase) {
 		}
 		return e.Next()
 	})
+}
+
+// composeOnDocUpdateContent fans one realtime.OnDocUpdateContentFn slot
+// into multiple callbacks. The broker only accepts a single callback in
+// RoomKindOptions.OnDocUpdateContent; this helper composes the authorship
+// stamper and the suggestion-discussion-cleanup hook (and any future
+// per-update logic) into one invocation. Callbacks run sequentially in
+// the order passed. A panicking callback would take down the broker
+// goroutine — each underlying callback is responsible for its own
+// recover, mirroring the pattern in textDocHandle.ApplyUpdate.
+func composeOnDocUpdateContent(fns ...realtime.OnDocUpdateContentFn) realtime.OnDocUpdateContentFn {
+	return func(roomID string, from *realtime.Client, payload []byte) {
+		for _, fn := range fns {
+			if fn != nil {
+				fn(roomID, from, payload)
+			}
+		}
+	}
 }
 
 // serverHelloPayload is the JSON body of the MsgServerHello frame

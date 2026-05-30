@@ -81,9 +81,9 @@ export function ReviewDrawer({
     anchored,
     // orphaned is part of the prop shape for backward compatibility
     // with existing call sites + tests; the drawer no longer renders
-    // it (the parent's useDocumentSuggestions auto-deletes orphans
-    // before they reach the bridge / drawer). Underscore-prefixed so
-    // biome's noUnusedFunctionParameters stays quiet.
+    // it (the suggestion bridge auto-deletes orphans before they reach
+    // the drawer). Underscore-prefixed so biome's
+    // noUnusedFunctionParameters stays quiet.
     orphaned: _orphaned,
     canResolve,
     isPending,
@@ -282,9 +282,10 @@ export function ReviewDrawer({
                         ))}
                         {/* Orphaned suggestions were entries in the Y.Map */}
                         {/* with no doc anchor (Accept / Reject had nothing */}
-                        {/* to operate on). useDocumentSuggestions now auto- */}
-                        {/* deletes them on observation so they never reach */}
-                        {/* the drawer; this section has been removed. */}
+                        {/* to operate on). The suggestion bridge */}
+                        {/* (createWebSuggestionBridge) auto-deletes them on */}
+                        {/* observation so they never reach the drawer; this */}
+                        {/* section has been removed. */}
                     </ScrollView>
                 </View>
             )}

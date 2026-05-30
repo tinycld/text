@@ -317,7 +317,7 @@ test.describe('Text — Suggestion thread flow', () => {
         // Accept the focused suggestion. The thread renders the Accept
         // button (accessibilityLabel="Accept suggestion") inside the
         // focused panel. Clicking it strips the suggestedInsert mark,
-        // useDocumentSuggestions' auto-delete pass observes the next
+        // the suggestion bridge's auto-delete pass observes the next
         // transaction and removes the Y.Map row — and the server's
         // suggestion_discussion_cleanup hook (Task 6) stamps the row's
         // archived_at on its broker round-trip.

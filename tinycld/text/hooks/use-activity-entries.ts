@@ -7,11 +7,12 @@ import { useEditEvents } from './use-edit-events'
 //
 // Phase 3b briefly merged resolved-suggestion entries into this stream
 // alongside edit events. That path is gone: resolved entries are auto-
-// deleted from the suggestions Y.Map by useDocumentSuggestions (any
-// map row with no doc anchor — including ones whose marks were
-// stripped by Accept / Reject — is considered orphaned and dropped),
-// so there's no resolved row to read back. The broker-emitted
-// editEvents are now the single source of truth for the activity feed.
+// deleted from the suggestions Y.Map by the suggestion bridge
+// (createWebSuggestionBridge — any map row with no doc anchor,
+// including ones whose marks were stripped by Accept / Reject, is
+// considered orphaned and dropped), so there's no resolved row to
+// read back. The broker-emitted editEvents are now the single source
+// of truth for the activity feed.
 //
 // The tagged-union shape with a discriminated `kind` field is kept
 // (rather than just returning EditEvent[]) so a future enhancement

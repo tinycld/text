@@ -84,10 +84,11 @@ export class SuggestionsMap {
     }
 
     // Drop a suggestion entry by id. Used by the orphan-cleanup pass in
-    // useDocumentSuggestions when a Y.Map row has no matching mark/attr
-    // in the doc — that state is unrecoverable (Accept / Reject have no
-    // anchor to operate on) so the row is silently removed to keep the
-    // drawer clean. Idempotent: deleting an absent id is a no-op.
+    // createWebSuggestionBridge when a Y.Map row has no matching
+    // mark/attr in the doc — that state is unrecoverable (Accept /
+    // Reject have no anchor to operate on) so the row is silently
+    // removed to keep the drawer clean. Idempotent: deleting an absent
+    // id is a no-op.
     delete(id: string): void {
         this.map.delete(id)
     }

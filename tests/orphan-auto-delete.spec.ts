@@ -10,8 +10,9 @@ import {
 // `suggestions` map that has no doc anchor (Accept / Reject stripped
 // the mark, a peer destructively edited the marked text, a past
 // version wrote a row without a mark) is unactionable.
-// useDocumentSuggestions detects those rows and deletes them inside a
-// single Yjs transaction on the next observed editor transaction.
+// The suggestion bridge (createWebSuggestionBridge) detects those rows
+// and deletes them inside a single Yjs transaction on the next
+// observed editor transaction.
 //
 // This spec exercises the loop end-to-end:
 //   1. Type a phrase in Suggesting mode → suggestionId row in the map

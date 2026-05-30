@@ -1,6 +1,4 @@
 import type { Node as PMNode } from '@tiptap/pm/model'
-import type { Editor } from '@tiptap/react'
-import { useEffect, useState } from 'react'
 import type * as Y from 'yjs'
 import { SuggestionsMap } from '../lib/suggestions/suggestions-map'
 import type {
@@ -333,47 +331,4 @@ export function computeDocumentSuggestions(doc: PMNode, map: SuggestionsMap): Co
     }
 
     return { anchored, orphaned: [], orphanedIds }
-}
-
-// useDocumentSuggestions subscribes to both the editor's transactions
-// and the suggestions Y.Map, recomputing on either change. Returns
-// empty lists until the editor + yDoc are ready.
-//
-// Auto-cleanup of orphaned Y.Map rows lives in createWebSuggestionBridge
-// (the production observer), NOT here — duplicating it would cause two
-// concurrent cleanup passes and double-delete safe entries. This hook
-// is retained for tests + non-bridge call sites that still want the
-// raw observation surface.
-export function useDocumentSuggestions(
-    editor: Editor | null,
-    yDoc: Y.Doc | null
-): DocumentSuggestionsResult {
-    const [result, setResult] = useState<DocumentSuggestionsResult>({
-        anchored: [],
-        orphaned: [],
-    })
-
-    useEffect(() => {
-        if (!editor || !yDoc) {
-            setResult({ anchored: [], orphaned: [] })
-            return
-        }
-        const map = new SuggestionsMap(yDoc)
-        const recompute = () => {
-            const compute = computeDocumentSuggestions(editor.state.doc, map)
-            setResult({ anchored: compute.anchored, orphaned: compute.orphaned })
-        }
-
-        recompute()
-        const onTr = () => recompute()
-        editor.on('transaction', onTr)
-        const unobserve = map.observe(recompute)
-
-        return () => {
-            editor.off('transaction', onTr)
-            unobserve()
-        }
-    }, [editor, yDoc])
-
-    return result
 }

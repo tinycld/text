@@ -177,11 +177,12 @@ describe('ReviewDrawer', () => {
 
     it('does not render an orphaned section (orphans are auto-deleted upstream)', () => {
         // The drawer no longer renders orphaned entries — the
-        // useDocumentSuggestions hook deletes Y.Map rows with no
-        // doc anchor before they reach the bridge, so any value
-        // passed as `orphaned` (kept for prop-shape compatibility) is
-        // ignored. This test pins the absence of the heading so a
-        // regression that re-introduces the section gets caught.
+        // suggestion bridge (createWebSuggestionBridge) deletes Y.Map
+        // rows with no doc anchor before they reach the drawer, so
+        // any value passed as `orphaned` (kept for prop-shape
+        // compatibility) is ignored. This test pins the absence of the
+        // heading so a regression that re-introduces the section gets
+        // caught.
         const store = createReviewDrawerStore()
         store.getState().open('di_1')
         render(

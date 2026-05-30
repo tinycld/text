@@ -73,6 +73,7 @@ export function SuggestionReplyComposer({
                 error={error}
                 onSubmit={handleSubmit}
                 mentionSuggestions={mentionSuggestions}
+                submitOnEnter
             />
         </View>
     )

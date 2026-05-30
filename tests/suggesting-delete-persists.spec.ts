@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
-    editorRoot,
     EDITOR_READY_TIMEOUT,
+    editorRoot,
     openFreshTextDocument,
     TEXT_TEST_TIMEOUT,
     waitForEditor,
@@ -96,9 +96,9 @@ test.describe('Text — Suggesting-mode delete persists across reload', () => {
         // a deletion proposal. The previous bug let the text vanish
         // entirely on reload — the assertion below would fail with
         // "locator resolved to 0 elements".
-        await expect(
-            page.locator(`[data-suggested-delete]:has-text("${marker}")`)
-        ).toBeVisible({ timeout: EDITOR_READY_TIMEOUT })
+        await expect(page.locator(`[data-suggested-delete]:has-text("${marker}")`)).toBeVisible({
+            timeout: EDITOR_READY_TIMEOUT,
+        })
         await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 })
     })
 })

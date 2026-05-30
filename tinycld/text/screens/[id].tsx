@@ -453,9 +453,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
             <View className="flex-1 bg-background">
-                <View
-                    onLayout={e => setHeaderStackHeight(e.nativeEvent.layout.height)}
-                >
+                <View onLayout={e => setHeaderStackHeight(e.nativeEvent.layout.height)}>
                     <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
                         <DocumentTitle
                             documentId={driveItemId}
@@ -467,10 +465,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         {showCollaborativeAffordances && (
                             <PresenceAvatars awareness={room.awareness} />
                         )}
-                        <SaveStatusIndicator
-                            status={saveStatus}
-                            isConnected={room.isConnected}
-                        />
+                        <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
                         <WordCountBadge wordCount={toolbarState.wordCount} />
                         <ReconnectingIndicator isVisible={!room.isConnected} />
                         <View className="ml-auto flex-row items-center gap-1">

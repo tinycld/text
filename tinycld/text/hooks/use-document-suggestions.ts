@@ -1,6 +1,5 @@
 import type { Node as PMNode } from '@tiptap/pm/model'
-import type * as Y from 'yjs'
-import { SuggestionsMap } from '../lib/suggestions/suggestions-map'
+import type { SuggestionsMap } from '../lib/suggestions/suggestions-map'
 import type {
     BlockChangeAfter,
     BlockChangeBefore,

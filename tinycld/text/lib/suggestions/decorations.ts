@@ -556,10 +556,7 @@ export function createSuggestionDecorationsPlugin(): Plugin<DecorationSet> {
                 // we still walk eagerly whenever there's anything to
                 // preserve (existing decorations need their positions
                 // re-derived) or anything new to draw.
-                if (
-                    decorationSetIsEmpty(decoSet) &&
-                    !transactionMayIntroduceSuggestions(tr)
-                ) {
+                if (decorationSetIsEmpty(decoSet) && !transactionMayIntroduceSuggestions(tr)) {
                     return DecorationSet.empty
                 }
                 return buildDecorations(newState)

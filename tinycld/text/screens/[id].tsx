@@ -352,6 +352,13 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // open state here so both surfaces can drive it; the toolbar still
     // owns its own internal popover for the in-toolbar button path.
     const [contextLinkOpen, setContextLinkOpen] = useState(false)
+    // Measured height of the title + import-warning + menubar + toolbar
+    // stack. Used as the top offset for the absolute-positioned
+    // ReviewDrawer so its top edge meets the bottom edge of the
+    // toolbar exactly (vs. a hardcoded magic number that drifts
+    // whenever the toolbar's content changes height — e.g. the
+    // Suggesting-mode pill change pushed it up by a few pixels).
+    const [headerStackHeight, setHeaderStackHeight] = useState(0)
     const documentComments = useDocumentComments(driveItemId, commentBridge)
     useCommentsLifecycle(driveItemId)
     useCommentTapHandler(driveItemId, commentBridge, documentComments)
@@ -382,55 +389,62 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
             <View className="flex-1 bg-background">
-                <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
-                    <DocumentTitle
-                        documentId={driveItemId}
-                        name={itemName}
-                        isReadOnly={isReadOnly}
-                    />
-                    <PresenceAvatars awareness={room.awareness} />
-                    <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
-                    <WordCountBadge wordCount={toolbarState.wordCount} />
-                    <ReconnectingIndicator isVisible={!room.isConnected} />
-                    <View className="ml-auto flex-row items-center gap-1">
-                        <OpenCommentsDrawerButton
-                            driveItemId={driveItemId}
-                            openCount={openThreadCount}
+                <View
+                    onLayout={e => setHeaderStackHeight(e.nativeEvent.layout.height)}
+                >
+                    <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
+                        <DocumentTitle
+                            documentId={driveItemId}
+                            name={itemName}
+                            isReadOnly={isReadOnly}
                         />
+                        <PresenceAvatars awareness={room.awareness} />
+                        <SaveStatusIndicator
+                            status={saveStatus}
+                            isConnected={room.isConnected}
+                        />
+                        <WordCountBadge wordCount={toolbarState.wordCount} />
+                        <ReconnectingIndicator isVisible={!room.isConnected} />
+                        <View className="ml-auto flex-row items-center gap-1">
+                            <OpenCommentsDrawerButton
+                                driveItemId={driveItemId}
+                                openCount={openThreadCount}
+                            />
+                        </View>
                     </View>
+                    <ImportWarningBanner warnings={hello.importWarnings} />
+                    <MenuBar
+                        documentName={itemName}
+                        documentId={driveItemId}
+                        sourceFile={itemFile}
+                        commands={commands}
+                        toolbarState={toolbarState}
+                        fileActions={fileActions}
+                        disabled={isReadOnly}
+                        isReadOnly={isReadOnly}
+                        onPrint={() => {
+                            void printDocument()
+                        }}
+                        onRequestInsertLink={() => setContextLinkOpen(true)}
+                        onInsertImage={url => commands.insertImage?.(url)}
+                        tiptapEditor={tiptapEditor}
+                    />
+                    <DocumentToolbar
+                        commands={commands}
+                        state={toolbarState}
+                        disabled={isReadOnly}
+                        newCommentFlow={{
+                            canStart: newCommentFlow.canStart,
+                            isOpen: newCommentFlow.isOpen,
+                            start: newCommentFlow.start,
+                        }}
+                        modeStore={modeStore}
+                        canEdit={canEdit}
+                        canSuggest={canSuggest}
+                        reviewDrawerStore={reviewDrawerStore}
+                        driveItemId={driveItemId}
+                    />
                 </View>
-                <ImportWarningBanner warnings={hello.importWarnings} />
-                <MenuBar
-                    documentName={itemName}
-                    documentId={driveItemId}
-                    sourceFile={itemFile}
-                    commands={commands}
-                    toolbarState={toolbarState}
-                    fileActions={fileActions}
-                    disabled={isReadOnly}
-                    isReadOnly={isReadOnly}
-                    onPrint={() => {
-                        void printDocument()
-                    }}
-                    onRequestInsertLink={() => setContextLinkOpen(true)}
-                    onInsertImage={url => commands.insertImage?.(url)}
-                    tiptapEditor={tiptapEditor}
-                />
-                <DocumentToolbar
-                    commands={commands}
-                    state={toolbarState}
-                    disabled={isReadOnly}
-                    newCommentFlow={{
-                        canStart: newCommentFlow.canStart,
-                        isOpen: newCommentFlow.isOpen,
-                        start: newCommentFlow.start,
-                    }}
-                    modeStore={modeStore}
-                    canEdit={canEdit}
-                    canSuggest={canSuggest}
-                    reviewDrawerStore={reviewDrawerStore}
-                    driveItemId={driveItemId}
-                />
                 <DocumentContextMenu
                     commands={commands}
                     toolbarState={toolbarState}
@@ -492,6 +506,11 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     // bulk-reject services) so the row stays
                     // identity-context-free.
                     authorUserOrgId={userOrgId ?? ''}
+                    // Match the drawer's top edge to the bottom of the
+                    // title/menubar/toolbar stack, measured live via
+                    // onLayout above. Falls back to a sane default if
+                    // the layout hasn't fired yet on the first render.
+                    topOffset={headerStackHeight || 96}
                     store={reviewDrawerStore}
                     anchored={anchored}
                     orphaned={orphaned}

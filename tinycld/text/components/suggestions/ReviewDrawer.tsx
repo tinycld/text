@@ -44,6 +44,14 @@ export interface ReviewDrawerProps {
     // the tab control hides itself.
     yDoc?: Y.Doc | null
     editor?: Editor | null
+    // Distance from the top of the screen to the drawer's top edge.
+    // The screen measures the title+menubar+toolbar stack via onLayout
+    // and passes the result here so the drawer's top edge meets the
+    // toolbar's bottom edge exactly (vs. a hardcoded magic offset that
+    // drifts whenever the toolbar's content height changes). Defaults
+    // to 96 — the historical hand-tuned value — for callers / tests
+    // that don't measure.
+    topOffset?: number
 }
 
 // ReviewDrawer is the right-side panel that lists the document's
@@ -89,6 +97,7 @@ export function ReviewDrawer({
     // reason — the drawer's only consumer was the Activity tab merging
     // resolved suggestions, which is gone now.
     editor: _editor,
+    topOffset,
 }: ReviewDrawerProps) {
     const isOpen = useStore(store, s => s.isOpen)
     const openForId = useStore(store, s => s.driveItemId)
@@ -148,11 +157,15 @@ export function ReviewDrawer({
             // Cleared by the title + menubar + toolbar stack so the
             // OpenReviewDrawerButton stays clickable for toggle-close
             // (otherwise the drawer would cover the toolbar trigger
-            // and users would have to find the × close button).
+            // and users would have to find the × close button). The
+            // screen measures the header stack and passes topOffset so
+            // the drawer's top edge aligns with the toolbar's bottom
+            // edge exactly; 96 is the historical default that matches
+            // the toolbar's old hand-tuned height.
             style={{
                 position: 'absolute',
                 right: 0,
-                top: 96,
+                top: topOffset ?? 96,
                 bottom: 0,
                 width: 320,
                 backgroundColor: bg,

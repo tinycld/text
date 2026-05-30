@@ -45,7 +45,22 @@ import (
 // or not the archive succeeded, so we don't loop on transient DB errors.
 // Operators seeing the log can re-run a manual archive query if needed.
 func makeSuggestionDiscussionCleanup(app core.App, runtime *Runtime) realtime.OnDocUpdateContentFn {
-	return func(roomID string, _ *realtime.Client, _ []byte) {
+	return func(roomID string, _ *realtime.Client, payload []byte) {
+		// Fast path: most MsgDocUpdate frames don't touch the
+		// `suggestions` Y.Map at all — typing in a doc that has zero
+		// suggestions, or a normal text edit in a doc that has some,
+		// produces a payload rooted at the `prosemirror` xml fragment.
+		// Probe the payload structurally for a write rooted at
+		// `suggestions` before doing any of the heavier work below:
+		//   - runtime.docFor → r.mu acquisition
+		//   - diffSuggestionKeys → r.mu acquisition + m.Keys() walk
+		// The probe is the same shape validateUpdate uses; ApplyUpdate
+		// against a never-touched probe doc populates Share with
+		// exactly the root keys the payload wrote to, so a single
+		// map lookup tells us whether suggestions was touched.
+		if !payloadTouchesSuggestionsRoot(roomID, payload) {
+			return
+		}
 		doc := runtime.docFor(roomID)
 		if doc == nil {
 			return
@@ -56,6 +71,48 @@ func makeSuggestionDiscussionCleanup(app core.App, runtime *Runtime) realtime.On
 		}
 		archiveOrphanedDiscussions(app, deleted)
 	}
+}
+
+// payloadTouchesSuggestionsRoot returns true iff the inbound Yjs update
+// payload contains a write rooted at the `suggestions` Y.Map. Uses the
+// same probe technique as validateUpdate (suggestions_authz.go): apply
+// the update to a fresh ycrdt.Doc and inspect Share — populated only
+// with the root keys the update actually wrote to.
+//
+// Pure-delete payloads on the suggestions root are a known limitation:
+// y-crdt's delete_set references items by (clientID, clock) and never
+// calls doc.Get(name), so Share stays empty even though a suggestion
+// was deleted. We treat that case as "may touch" and let the full
+// diff path run — same fail-open posture as validateUpdate's parallel
+// limitation, but here the cost of a false positive is only the
+// diffSuggestionKeys call (still cheaper than running it unconditionally
+// because the prevSuggestionKeys snapshot stays in sync).
+//
+// The probe runs ApplyUpdate against a fresh doc, so it's strictly
+// per-frame work, but y-crdt's ApplyUpdate is the same code path the
+// broker already runs anyway — adding a second pass for the probe is
+// roughly the cost of one ApplyUpdate. The gate eliminates a heavier
+// r.mu acquisition + m.Keys() walk on every frame that doesn't touch
+// suggestions, which is the dominant case.
+func payloadTouchesSuggestionsRoot(roomID string, payload []byte) bool {
+	probe := ycrdt.NewDoc(roomID+"-cleanup-probe", false, nil, nil, false)
+	installYXmlElementPatcher(probe)
+	if err := applyForProbe(probe, payload); err != nil {
+		// Decode error: be conservative and fall through. The full
+		// path is robust to a no-op suggestion diff.
+		return true
+	}
+	if probeHasRootKey(probe, "suggestions") {
+		return true
+	}
+	// Pure-delete payloads (delete_set only) don't populate Share for
+	// the deleted root. The check above will miss those. Treat any
+	// payload that contained NO Share entries as "may touch" —
+	// pessimistic but safe and rare (most updates write SOMETHING).
+	if probe.Share == nil || len(probe.Share) == 0 {
+		return true
+	}
+	return false
 }
 
 // readSuggestionKeySet returns the set of keys currently present in the

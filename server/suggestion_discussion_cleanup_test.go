@@ -400,3 +400,39 @@ func TestCloseDocDropsSuggestionSnapshot(t *testing.T) {
 		t.Errorf("snapshot entry survived closeDoc; want dropped")
 	}
 }
+
+// TestPayloadTouchesSuggestionsRoot pins the fast-path probe used by
+// the cleanup hook to skip docFor + diffSuggestionKeys when an inbound
+// MsgDocUpdate doesn't write to the `suggestions` Y.Map. This is the
+// per-frame perf gate flagged by the PR review: without it the server
+// pays an O(suggestions-count) Y.Map walk + r.mu acquisition for every
+// keystroke even though most updates touch only the `prosemirror` xml
+// fragment.
+func TestPayloadTouchesSuggestionsRoot(t *testing.T) {
+	// Build a synthetic payload that writes ONLY to the prosemirror
+	// xml fragment — the shape every text-keystroke update has.
+	docA := ycrdt.NewDoc("a", false, nil, nil, false)
+	docA.GetXmlFragment("prosemirror")
+	// Touch the fragment so the encoded update actually carries a
+	// write rooted at "prosemirror".
+	if frag, ok := docA.GetXmlFragment("prosemirror").(*ycrdt.YXmlFragment); ok {
+		t := ycrdt.NewYXmlText()
+		frag.Push([]any{t})
+	}
+	updateA := ycrdt.EncodeStateAsUpdate(docA, nil)
+	if payloadTouchesSuggestionsRoot("probe", updateA) {
+		t.Errorf("prosemirror-only update should not touch suggestions root")
+	}
+
+	// Build a second payload that writes to the suggestions Y.Map.
+	docB := ycrdt.NewDoc("b", false, nil, nil, false)
+	suggMap, ok := docB.GetMap("suggestions").(*ycrdt.YMap)
+	if !ok {
+		t.Fatalf("GetMap('suggestions') did not return *YMap")
+	}
+	suggMap.Set("s_test", "value")
+	updateB := ycrdt.EncodeStateAsUpdate(docB, nil)
+	if !payloadTouchesSuggestionsRoot("probe", updateB) {
+		t.Errorf("suggestions-Y.Map write should be detected")
+	}
+}

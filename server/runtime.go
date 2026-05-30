@@ -59,7 +59,15 @@ type Runtime struct {
 	// it nil — they construct doc state via ApplyUpdate.
 	bootstrap func(roomID string, doc *ycrdt.Doc) error
 
-	mu      sync.Mutex
+	// mu guards every room-keyed map below. It's an RWMutex because the
+	// hot-path accessors (RoomFor, BufferFor, docFor, handleFor) are
+	// pure map reads fired several times per inbound MsgDocUpdate per
+	// connected peer, while the writers (NewDoc, noteRoom, closeDoc,
+	// SetBootstrap, the snapshot updates in suggestion_discussion_cleanup)
+	// are rare. RLock on the readers lets concurrent peers' frames flow
+	// in parallel through the runtime accessors instead of serializing
+	// on one room's mutex.
+	mu      sync.RWMutex
 	docs    map[string]*ycrdt.Doc
 	handles map[string]*textDocHandle
 	// rooms records the *realtime.Room reference the broker hands us
@@ -174,20 +182,25 @@ func (r *Runtime) noteRoom(roomID string, room *realtime.Room) {
 
 // RoomFor returns the *realtime.Room associated with the given roomID,
 // or nil if the room has not been created or has been torn down.
+// Uses RLock — the accessor is pure map read, fired multiple times
+// per inbound MsgDocUpdate (authorship stamper + suggestion cleanup
+// each call it once per frame).
 func (r *Runtime) RoomFor(roomID string) *realtime.Room {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.rooms[roomID]
 }
 
 // BufferFor returns the *editEventBuffer registered for the given
 // roomID, or nil if the room has not been created or has been torn
-// down. Pure map lookup under r.mu — the buffer is constructed in
-// noteRoom, so a caller observing a non-nil room from RoomFor will
-// also observe a non-nil buffer here.
+// down. Pure map lookup under r.mu (RLock — see RoomFor for the
+// rationale; this accessor fires once per inbound MsgDocUpdate from
+// the authorship stamper). The buffer is constructed in noteRoom, so
+// a caller observing a non-nil room from RoomFor will also observe a
+// non-nil buffer here.
 func (r *Runtime) BufferFor(roomID string) *editEventBuffer {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.editBuffers[roomID]
 }
 
@@ -235,9 +248,13 @@ func (r *Runtime) AuthorshipCache() *authorshipCache {
 // goes through textDocHandle.ApplyUpdate; the Phase 3a stamper goes
 // through textDocHandle.stampAuthorship. This raw accessor exists for
 // the janitor (read-only checks) and integration tests.
+//
+// RLock — pure map read fired on every inbound MsgDocUpdate by the
+// suggestion-discussion cleanup hook (after the gate that probes the
+// payload for a suggestions-root write).
 func (r *Runtime) docFor(roomID string) *ycrdt.Doc {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.docs[roomID]
 }
 
@@ -246,9 +263,12 @@ func (r *Runtime) docFor(roomID string) *ycrdt.Doc {
 // handle's mutex before mutating the doc, so its writes don't race
 // with the broker's concurrent ApplyUpdate / EncodeStateAsUpdate calls
 // on the same doc.
+//
+// RLock — pure map read; the stamper calls this once per first
+// stamping per clientID (cache short-circuits subsequent frames).
 func (r *Runtime) handleFor(roomID string) *textDocHandle {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.handles[roomID]
 }
 
@@ -308,12 +328,15 @@ func (r *Runtime) janitorLoop() {
 // and only then read lastActivity / call Close per handle.
 func (r *Runtime) evictIdleDocs() {
 	cutoff := now().Add(-MaxIdleDuration)
-	r.mu.Lock()
+	// RLock — we only read the handles map to build the snapshot
+	// slice. Concurrent readers (the per-frame accessors) can keep
+	// flowing during the janitor scan.
+	r.mu.RLock()
 	snapshot := make([]*textDocHandle, 0, len(r.handles))
 	for _, h := range r.handles {
 		snapshot = append(snapshot, h)
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
 	for _, h := range snapshot {
 		if h.LastActivity().Before(cutoff) {
 			_ = h.Close()

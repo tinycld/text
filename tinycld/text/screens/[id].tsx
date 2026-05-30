@@ -6,12 +6,13 @@ import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
+import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
-import { router, useLocalSearchParams } from 'expo-router'
+import { router, useLocalSearchParams, usePathname } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import * as Y from 'yjs'
@@ -92,6 +93,10 @@ export default function TextDetail() {
     const [driveItemsCollection] = useStore('drive_items')
     const { user } = useAuth()
     const { userOrgId } = useCurrentRole()
+    const pathname = usePathname()
+    const setLastPackageHref = useWorkspaceStore(s => s.setLastPackageHref)
+    const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
+    const orgHref = useOrgHref()
 
     const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
         (query, { orgId }) =>
@@ -105,6 +110,23 @@ export default function TextDetail() {
     const item = items[0]
 
     useDocumentTitle(item?.name ? `Text — ${item.name}` : 'Text')
+
+    // Persist the rail deep-link only after the file has actually
+    // loaded. Writing on mount would keep a stale href alive even when
+    // the file is gone — the rail would keep dead-linking to it.
+    useEffect(() => {
+        if (id && item) setLastPackageHref('text', pathname)
+    }, [id, item, pathname, setLastPackageHref])
+
+    // When the query has settled with no item, the file is gone (deleted,
+    // access revoked, or the cached rail href referenced a never-existing
+    // id). Clear the rail's deep-link and bounce to /text so the user
+    // lands on the No-File panel instead of a permanent spinner.
+    useEffect(() => {
+        if (!id || isItemLoading || item) return
+        clearLastPackageHref('text')
+        router.replace(orgHref('text'))
+    }, [id, isItemLoading, item, clearLastPackageHref, orgHref])
 
     if (isItemLoading || !item) {
         return <CenteredMessage label="Loading document…" spinner />

@@ -1,155 +1,114 @@
+import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
 import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
+import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
+import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
-import { FilePlus2, FileText, LayoutTemplate } from 'lucide-react-native'
-import { useState } from 'react'
-import { Pressable, ScrollView, Text, View } from 'react-native'
-import { TemplatePicker } from '../components/TemplatePicker'
-import {
-    useCreateBlankTextDocument,
-    useCreateTextDocumentFromTemplate,
-    useTextDocuments,
-} from '../hooks/use-text-documents'
-import type { TemplateId } from '../lib/templates/index'
+import { useCallback } from 'react'
+import { useCreateBlankTextDocument } from '../hooks/use-text-documents'
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const MD_MIME = 'text/markdown'
+const TXT_MIME = 'text/plain'
 
 export default function TextIndex() {
     useDocumentTitle('Text')
     const orgHref = useOrgHref()
-    const { data: items = [] } = useTextDocuments()
     const blank = useCreateBlankTextDocument()
-    const template = useCreateTextDocumentFromTemplate()
-    // Single-component-local UI state, no other surface needs to read /
-    // mutate the picker's open/closed state, so a plain useState is the
-    // right primitive here (a Zustand store would be overkill).
-    const [isPickerOpen, setPickerOpen] = useState(false)
-    const accentFg = useThemeColor('accent-foreground')
-    const foreground = useThemeColor('foreground')
+    const create = useCreateDriveItem()
+    const addToast = useToastStore(s => s.addToast)
 
-    const goToDoc = (itemId: string) => router.push(orgHref('text/[id]', { id: itemId }))
+    const handleCreateNew = useCallback(() => {
+        blank.create(itemId => {
+            router.replace(orgHref('text/[id]', { id: itemId }))
+        })
+    }, [blank, orgHref])
 
-    const handleNew = () => blank.create(goToDoc)
-    const handleOpenPicker = () => setPickerOpen(true)
-    const handleClosePicker = () => setPickerOpen(false)
-    const handlePickTemplate = (id: TemplateId) => {
-        setPickerOpen(false)
-        // Blank picks bypass the template upload path so the existing
-        // server-side empty-docx bootstrap still runs — same behavior the
-        // primary "New document" button has had.
-        if (id === 'blank') {
-            blank.create(goToDoc)
-            return
+    const handleUpload = useCallback(
+        (files: File[]) => {
+            void handleUploadFiles({
+                files,
+                createMutation: create.mutateAsync,
+                orgHref,
+                addToast,
+            })
+        },
+        [create, orgHref, addToast]
+    )
+
+    return (
+        <NoFilePanel
+            headline="A blank page."
+            sublabel="Where the next thought lands."
+            newLabel="New document"
+            uploadHint=".docx, .md, .txt"
+            accept=".docx,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
+            onCreateNew={handleCreateNew}
+            onUpload={handleUpload}
+            isPending={blank.isPending || create.isPending}
+        />
+    )
+}
+
+interface UploadHandlerArgs {
+    files: File[]
+    createMutation: ReturnType<typeof useCreateDriveItem>['mutateAsync']
+    orgHref: ReturnType<typeof useOrgHref>
+    addToast: ReturnType<typeof useToastStore.getState>['addToast']
+}
+
+async function handleUploadFiles({
+    files,
+    createMutation,
+    orgHref,
+    addToast,
+}: UploadHandlerArgs): Promise<void> {
+    const single = files.length === 1
+    const createdIds: string[] = []
+    const failures: string[] = []
+    for (const file of files) {
+        try {
+            const result = await createMutation({
+                body: file,
+                name: file.name,
+                mimeType: mimeForFile(file),
+            })
+            createdIds.push(result.itemId)
+        } catch (err) {
+            captureException('text-upload-file', err, { name: file.name })
+            failures.push(file.name)
         }
-        template.create(id, goToDoc)
     }
 
-    const isEmpty = items.length === 0
-    const isBusy = blank.isPending || template.isPending
+    if (failures.length > 0) {
+        addToast({
+            title: failures.length === files.length ? 'Upload failed' : 'Some files failed',
+            body:
+                failures.length === 1
+                    ? `${failures[0]} could not be uploaded.`
+                    : `${failures.length} files could not be uploaded: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? '…' : ''}`,
+            variant: 'error',
+            duration: 8000,
+        })
+    }
 
-    return (
-        <ScrollView className="flex-1 bg-background">
-            <View className="p-6 gap-4">
-                <View className="flex-row items-center justify-between">
-                    <Text
-                        accessibilityRole="header"
-                        aria-level={2}
-                        className="text-2xl font-semibold text-foreground"
-                    >
-                        Text
-                    </Text>
-                    <View className="flex-row items-center gap-2">
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel="From template…"
-                            onPress={handleOpenPicker}
-                            disabled={isBusy}
-                            className="flex-row items-center gap-2 px-3 py-2 rounded-md bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-50"
-                        >
-                            <LayoutTemplate size={16} color={foreground} />
-                            <Text className="text-sm font-medium text-foreground">
-                                From template…
-                            </Text>
-                        </Pressable>
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel="New document"
-                            onPress={handleNew}
-                            disabled={isBusy}
-                            className="flex-row items-center gap-2 px-3 py-2 rounded-md bg-accent disabled:opacity-50"
-                        >
-                            <FilePlus2 size={16} color={accentFg} />
-                            <Text className="text-sm font-medium text-accent-foreground">
-                                {blank.isPending ? 'Creating…' : 'New document'}
-                            </Text>
-                        </Pressable>
-                    </View>
-                </View>
-
-                <EmptyState isVisible={isEmpty && !isBusy} />
-
-                <View className="gap-1">
-                    {items.map(item => (
-                        <DocumentRow key={item.id} item={item} />
-                    ))}
-                </View>
-            </View>
-
-            <TemplatePicker
-                isOpen={isPickerOpen}
-                onClose={handleClosePicker}
-                onPick={handlePickTemplate}
-                isPending={template.isPending}
-            />
-        </ScrollView>
-    )
+    const [firstId] = createdIds
+    if (single && firstId) {
+        router.replace(orgHref('text/[id]', { id: firstId }))
+        return
+    }
+    if (createdIds.length > 0) {
+        router.replace(orgHref('drive/recent'))
+    }
 }
 
-interface EmptyStateProps {
-    isVisible: boolean
-}
-
-function EmptyState({ isVisible }: EmptyStateProps) {
-    const mutedFg = useThemeColor('muted-foreground')
-    if (!isVisible) return null
-    return (
-        <View className="py-12 items-center gap-2">
-            <FileText size={32} color={mutedFg} />
-            <Text className="text-sm text-muted-foreground">No documents yet</Text>
-            <Text className="text-xs text-muted-foreground">Create one to get started.</Text>
-        </View>
-    )
-}
-
-interface DocumentRowProps {
-    item: { id: string; name: string; updated: string }
-}
-
-function DocumentRow({ item }: DocumentRowProps) {
-    const orgHref = useOrgHref()
-    // `primary` is the project's brand teal — the closest semantic match for the
-    // original `#3b82f6` file-icon tint. `accent` in this theme is a soft
-    // background fill (very pale teal in light mode) and would render invisible
-    // here, so we deliberately don't use it.
-    const primary = useThemeColor('primary')
-    return (
-        <Pressable
-            onPress={() => router.push(orgHref('text/[id]', { id: item.id }))}
-            className="flex-row items-center gap-3 px-3 py-2 rounded-md hover:bg-surface-secondary"
-        >
-            <FileText size={20} color={primary} />
-            <View className="flex-1">
-                <Text className="text-sm text-foreground" numberOfLines={1}>
-                    {item.name}
-                </Text>
-                <Text className="text-xs text-muted-foreground">{formatUpdated(item.updated)}</Text>
-            </View>
-        </Pressable>
-    )
-}
-
-function formatUpdated(iso: string): string {
-    if (!iso) return ''
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return ''
-    return date.toLocaleDateString()
+export function mimeForFile(file: File): string {
+    const explicit = (file.type || '').toLowerCase()
+    if (explicit) return explicit
+    const name = file.name.toLowerCase()
+    if (name.endsWith('.docx')) return DOCX_MIME
+    if (name.endsWith('.md') || name.endsWith('.markdown')) return MD_MIME
+    if (name.endsWith('.txt')) return TXT_MIME
+    return 'application/octet-stream'
 }

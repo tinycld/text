@@ -9,6 +9,7 @@ import (
 
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
+	"tinycld.org/core/userorg"
 	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
@@ -70,6 +71,8 @@ func Register(app *pocketbase.PocketBase) {
 	// shorten the 60s edit-event debounce window without per-test
 	// surgery; production leaves the env unset and runs at the default.
 	configureWindowFromEnv()
+
+	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
 
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))

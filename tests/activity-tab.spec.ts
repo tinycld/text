@@ -1,5 +1,5 @@
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
 import { expect, type Page, test } from '@playwright/test'
+import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
 import {
     editorRoot,
     PB_URL,
@@ -36,9 +36,7 @@ import {
 test.describe('Text — Activity tab', () => {
     test.setTimeout(TEXT_TEST_TIMEOUT)
 
-    test('edits → 1s idle → activity row appears (with audience present)', async ({
-        browser,
-    }) => {
+    test('edits → 1s idle → activity row appears (with audience present)', async ({ browser }) => {
         // Upload the doc + share with a second user up front, before
         // any browser context exists. shareDriveItemWith grants the
         // second user explicit access to the drive item so they can
@@ -67,9 +65,7 @@ test.describe('Text — Activity tab', () => {
 
             // Open the drawer on the writer's page so the Activity
             // empty-state copy is pinned before any edits have landed.
-            await writer
-                .getByRole('button', { name: 'Open suggestion review drawer' })
-                .click()
+            await writer.getByRole('button', { name: 'Open suggestion review drawer' }).click()
             await expect(writer.getByText('Suggestions').first()).toBeVisible({
                 timeout: 5_000,
             })

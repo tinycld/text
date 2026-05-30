@@ -93,10 +93,30 @@ export default function TextDetail() {
     // access revoked, or the cached rail href referenced a never-existing
     // id). Clear the rail's deep-link and bounce to /text so the user
     // lands on the No-File panel instead of a permanent spinner.
+    //
+    // The grace window absorbs the lag between PB's REST-side insert and
+    // the realtime subscription delivering the new row to the local
+    // cache. Without it, navigating straight into a just-uploaded doc
+    // races the liveQuery and bounces back to the index before the row
+    // arrives. 1.5s comfortably covers the realtime trip on CI hardware.
+    const itemEverArrived = useRef(false)
+    if (item) itemEverArrived.current = true
     useEffect(() => {
         if (!id || isItemLoading || item) return
-        clearLastPackageHref('text')
-        router.replace(orgHref('text'))
+        // Item was visible at some point and is now gone — deleted in
+        // another tab, access revoked. Redirect immediately.
+        if (itemEverArrived.current) {
+            clearLastPackageHref('text')
+            router.replace(orgHref('text'))
+            return
+        }
+        // Never seen the item yet — wait for the realtime catch-up
+        // before declaring it missing.
+        const handle = setTimeout(() => {
+            clearLastPackageHref('text')
+            router.replace(orgHref('text'))
+        }, 1500)
+        return () => clearTimeout(handle)
     }, [id, isItemLoading, item, clearLastPackageHref, orgHref])
 
     if (isItemLoading || !item) {

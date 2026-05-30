@@ -1,6 +1,8 @@
 import { getSchema } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
+import { Fragment, Slice } from 'prosemirror-model'
 import { EditorState, TextSelection } from 'prosemirror-state'
+import { ReplaceStep } from 'prosemirror-transform'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { buildSuggestionEditorExtensions } from '~/tinycld/text/lib/suggestions/build-extensions'
@@ -94,6 +96,52 @@ describe('SuggestionCommandLayer', () => {
         )
         const next = withSel.apply(withSel.tr.split(withSel.selection.from))
         expect(next.doc.childCount).toBe(2)
+    })
+
+    it('replace with a structural slice marks only the new content (no overshoot)', () => {
+        // Same bug class as the Enter test but in the replace branch:
+        // a paste that crosses a paragraph boundary produces a ReplaceStep
+        // whose slice carries non-zero openStart/openEnd. applyReplaceStep
+        // previously used slice.content.size as the insert-side mark
+        // width, which overshot by openStart+openEnd characters and bled
+        // the suggestedInsert mark into the restored "original" run.
+        // The fix subtracts the open boundaries.
+        //
+        // Note: state.tr.replace() normalizes structural slices into
+        // closed ones before emitting the step, so we construct the
+        // ReplaceStep directly to exercise the open-slice code path —
+        // exactly what plugins-emitting-steps-by-hand or platform paste
+        // paths produce.
+        const modeStore = createEditorModeStore()
+        modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
+        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        const yDoc = new Y.Doc()
+        const state = makeStateWithText(modeStore, yDoc, 'original text')
+        const { schema } = state
+        // Slice that opens on both sides — content.size = 5
+        // (paragraph wrapper 1 + "NEW" 3 + close 1), openStart=1,
+        // openEnd=1, so the effective inserted width is 3.
+        const fragment = Fragment.from(
+            schema.nodes.paragraph.create({}, schema.text('NEW'))
+        )
+        const openSlice = new Slice(fragment, 1, 1)
+        // Replace positions 1..9 ("original") with the open slice.
+        const next = state.apply(state.tr.step(new ReplaceStep(1, 9, openSlice)))
+
+        const insertRuns: string[] = []
+        const unmarkedRuns: string[] = []
+        next.doc.descendants(node => {
+            if (!node.isText) return
+            const hasInsert = node.marks.some(m => m.type.name === 'suggestedInsert')
+            if (hasInsert) insertRuns.push(node.text ?? '')
+            else unmarkedRuns.push(node.text ?? '')
+        })
+        // "NEW" is the only text that should wear suggestedInsert.
+        expect(insertRuns.join('')).toBe('NEW')
+        // The trailing " text" run must not be marked as inserted —
+        // pre-fix the openStart+openEnd overshoot leaked the mark onto
+        // the first characters of " text".
+        expect(unmarkedRuns.join('')).toContain(' text')
     })
 
     it('two rapid inserts in suggesting mode share one suggestionId', () => {

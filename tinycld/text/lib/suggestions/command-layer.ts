@@ -120,7 +120,7 @@ function applyReplaceStep(
     stepIndex: number,
     from: number,
     to: number,
-    sliceSize: number
+    slice: Slice
 ): void {
     // Replace: typing/pasting over a selection. PM has already
     // removed [from, to) and inserted the new slice at `from` in the
@@ -159,10 +159,21 @@ function applyReplaceStep(
     // immediately after the restored slice — exactly the start of
     // the newly-inserted content. (If Case 2d applied and we didn't
     // insert anything, this maps to the same position as newContentStart.)
+    //
+    // The insert-side mark range spans only the actual new *content*
+    // (slice.content.size minus the slice's open boundaries) — same
+    // reasoning as applyInsertStep. A paste that crosses a paragraph
+    // boundary produces a slice with non-zero openStart/openEnd; using
+    // slice.content.size as the width would overshoot the new doc end
+    // and crash Fragment.nodesBetween. Skip the addMark entirely when
+    // the effective width is zero (the inserted slice is purely
+    // structural with no markable content).
+    const insertWidth = slice.content.size - slice.openStart - slice.openEnd
+    if (insertWidth <= 0) return
     const insertStart = ctx.out.mapping.map(from)
     ctx.out.addMark(
         insertStart,
-        insertStart + sliceSize,
+        insertStart + insertWidth,
         ctx.insertMarkType.create({
             suggestionId: ctx.suggestionId,
             authorId: ctx.authorId,
@@ -935,7 +946,7 @@ function processReplaceSteps(ctx: StepContext, tr: Transaction, consumed: Set<nu
         } else if (isDelete) {
             if (applyDeleteStep(ctx, tr, i, from, to)) hadEffect = true
         } else if (isReplace) {
-            applyReplaceStep(ctx, tr, i, from, to, sliceSize)
+            applyReplaceStep(ctx, tr, i, from, to, slice)
             hadEffect = true
         }
     }

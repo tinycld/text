@@ -66,6 +66,12 @@ import { createReviewDrawerStore } from '../stores/review-drawer-store'
 // React's "result of getSnapshot should be cached" warning.
 const EMPTY_SUGGESTIONS_RESULT: DocumentSuggestionsResult = { anchored: [], orphaned: [] }
 
+// Grace period for the missing-item redirect: the realtime
+// subscription takes a beat to deliver a freshly-inserted row to the
+// local liveQuery cache, so navigating straight into a just-uploaded
+// doc would otherwise race the cache and bounce back to /text.
+const MISSING_ITEM_GRACE_MS = 1500
+
 export function TextEditorFromMount({ mount }: { mount: EditorMount }) {
     const room = useTextRoom(mount.itemId, {
         identity: mount.identity,
@@ -127,9 +133,12 @@ export default function TextDetail() {
     // the realtime subscription delivering the new row to the local
     // cache. Without it, navigating straight into a just-uploaded doc
     // races the liveQuery and bounces back to the index before the row
-    // arrives. 1.5s comfortably covers the realtime trip on CI hardware.
+    // arrives. MISSING_ITEM_GRACE_MS comfortably covers the realtime trip
+    // on CI hardware.
     const itemEverArrived = useRef(false)
-    if (item) itemEverArrived.current = true
+    useEffect(() => {
+        if (item) itemEverArrived.current = true
+    }, [item])
     useEffect(() => {
         if (!id || isItemLoading || item) return
         // Item was visible at some point and is now gone — deleted in
@@ -144,7 +153,7 @@ export default function TextDetail() {
         const handle = setTimeout(() => {
             clearLastPackageHref('text')
             router.replace(orgHref('text'))
-        }, 1500)
+        }, MISSING_ITEM_GRACE_MS)
         return () => clearTimeout(handle)
     }, [id, isItemLoading, item, clearLastPackageHref, orgHref])
 

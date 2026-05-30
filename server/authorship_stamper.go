@@ -57,6 +57,15 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			return
 		}
 		cache := runtime.AuthorshipCache()
+		// Negative cache short-circuit. If a previous frame from this
+		// (roomID, authID) tried to resolve and failed, every subsequent
+		// frame would otherwise hit the DB again — a misbehaving client
+		// (e.g. removed from the org mid-session) could beat PB on every
+		// keystroke. The negative entry lives for the room's lifetime
+		// and is dropped by dropRoom when the doc evicts.
+		if cache.isUnresolvable(roomID, conn.AuthID()) {
+			return
+		}
 		// Resolve user_org BEFORE the cache filter so the Phase 3b
 		// buffer.Note path can use it even when the Phase 3a stamping
 		// branch short-circuits. The resolver result is itself cached
@@ -68,6 +77,7 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			if err != nil {
 				slog.Warn("text: cannot resolve user_org for stamping",
 					"roomID", roomID, "authID", conn.AuthID(), "err", err)
+				cache.markUnresolvable(roomID, conn.AuthID())
 				return
 			}
 			uoID = resolved

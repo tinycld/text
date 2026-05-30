@@ -24,6 +24,9 @@
     "devDependencies": {
         "@tinycld/package-scripts": "*"
     },
+    "dependencies": {
+        "ulid": "^3.0.0"
+    },
     "peerDependencies": {
         "react": ">=19",
         "react-native": ">=0.83",
@@ -31,7 +34,6 @@
         "lucide-react-native": ">=0.400.0",
         "pbtsdb": ">=0.5",
         "@tanstack/react-db": ">=0.1",
-        "@tanstack/db": ">=0.6",
-        "ulid": "^3.0.0"
+        "@tanstack/db": ">=0.6"
     }
 }

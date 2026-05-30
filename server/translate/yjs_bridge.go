@@ -134,14 +134,11 @@ func PMJSONFromYDoc(doc *ycrdt.Doc) ([]byte, error) {
 	}
 
 	for _, item := range frag.ToArray() {
-		decoded, err := decodeXMLChild(item)
+		children, err := decodeXMLChild(item)
 		if err != nil {
 			return nil, err
 		}
-		if decoded == nil {
-			continue
-		}
-		root.Content = append(root.Content, *decoded)
+		root.Content = append(root.Content, children...)
 	}
 	return json.Marshal(root)
 }
@@ -272,13 +269,32 @@ func marksToAttributes(marks []PMMark) ycrdt.Object {
 }
 
 // decodeXMLChild converts one item out of a YXmlFragment / YXmlElement
-// child list back into a PMNode. Items are either *YXmlElement (block
-// nodes), *YXmlText (text runs with optional marks), or — defensively —
-// nil for anything we don't recognize.
-func decodeXMLChild(item any) (*PMNode, error) {
+// child list back into zero-or-more PMNodes. Items are either
+// *YXmlElement (one block node), *YXmlText (one or more text runs —
+// y-tiptap may pack multiple differently-formatted runs into a single
+// YText, e.g. a paragraph "prefix [marked CUTME] suffix" lives as one
+// YText with three delta ops), or — defensively — anything else, which
+// we drop.
+//
+// We return a slice (rather than a single *PMNode) so that the YText
+// case can fan out into N PMNodes — one per delta op — without the
+// callers losing every run past the first. Returning a single node was
+// the source of a silent-data-loss bug: anything after the first
+// formatted segment of a multi-run YText was discarded, so a paragraph
+// like "prefix CUTME suffix" with a suggestedDelete mark on CUTME
+// flushed back to docx as just "prefix " — both CUTME and suffix were
+// gone.
+func decodeXMLChild(item any) ([]PMNode, error) {
 	switch v := item.(type) {
 	case *ycrdt.YXmlElement:
-		return decodeXMLElement(v)
+		node, err := decodeXMLElement(v)
+		if err != nil {
+			return nil, err
+		}
+		if node == nil {
+			return nil, nil
+		}
+		return []PMNode{*node}, nil
 	case *ycrdt.YXmlText:
 		return decodeXMLText(v), nil
 	case ycrdt.IXmlType:
@@ -302,40 +318,46 @@ func decodeXMLElement(el *ycrdt.YXmlElement) (*PMNode, error) {
 	}
 
 	for _, item := range el.ToArray() {
-		child, err := decodeXMLChild(item)
+		children, err := decodeXMLChild(item)
 		if err != nil {
 			return nil, err
 		}
-		if child == nil {
-			continue
-		}
-		node.Content = append(node.Content, *child)
+		node.Content = append(node.Content, children...)
 	}
 
 	return &node, nil
 }
 
-// decodeXMLText splits a YXmlText delta into one PMNode-text per run
+// decodeXMLText splits a YXmlText's delta into one PMNode-text per run
 // of identically-marked characters. A YXmlText with no formatting
-// produces one PMNode with empty Marks.
-func decodeXMLText(text *ycrdt.YXmlText) *PMNode {
+// produces one PMNode with empty Marks; a YXmlText carrying multiple
+// format runs (the common case when y-tiptap stores a whole paragraph's
+// inline content in a single YText) produces one PMNode per delta op.
+//
+// Returning a SLICE rather than a single PMNode is load-bearing: a
+// paragraph whose middle word carries a suggestedDelete mark lives in
+// Y.Doc as a single YText with three delta ops (prefix / CUTME with
+// mark / suffix). Returning only the first op silently dropped CUTME
+// and the suffix on docx flush, so after a reload the trailing text was
+// missing — the symptom the user reported as "everything after the
+// deleted word is gone."
+func decodeXMLText(text *ycrdt.YXmlText) []PMNode {
 	delta := text.ToDelta(nil, nil, nil)
 	if len(delta) == 0 {
 		return nil
 	}
-	// Path A's storage shape is one YXmlText per text run today, so
-	// the delta is usually a single insert. We keep the loop general
-	// in case a future writer formats portions of a longer YXmlText
-	// (e.g. when the JS client sends partial updates).
-	if len(delta) == 1 {
-		return deltaOpToTextNode(delta[0])
-	}
+	out := make([]PMNode, 0, len(delta))
 	for _, op := range delta {
-		if op.IsInsertDefined {
-			return deltaOpToTextNode(op)
+		if !op.IsInsertDefined {
+			continue
 		}
+		node := deltaOpToTextNode(op)
+		if node == nil {
+			continue
+		}
+		out = append(out, *node)
 	}
-	return nil
+	return out
 }
 
 func deltaOpToTextNode(op ycrdt.EventOperator) *PMNode {

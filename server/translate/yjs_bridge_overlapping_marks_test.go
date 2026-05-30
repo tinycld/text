@@ -116,6 +116,98 @@ func TestPMJSONFromYDoc_StripsYTiptapHashSuffixOnMarkKey(t *testing.T) {
 	}
 }
 
+// Regression for the "trailing text vanished after mid-paragraph
+// suggesting-mode delete" bug. y-tiptap stores a paragraph's inline
+// content in a SINGLE YText that carries multiple format runs — e.g.
+// a paragraph "prefix CUTME suffix" with a suggestedDelete mark on
+// CUTME lives in Y.Doc as one YText whose delta has three insert ops
+// (prefix / CUTME with mark / suffix). The Go decoder previously
+// returned only the FIRST delta op as a single PMNode, silently
+// dropping every later run from the PM JSON it produced. On flush
+// the docx file then contained only "prefix " — both CUTME and the
+// suffix were lost. After reload the editor saw exactly that:
+// everything from the deleted word to the paragraph end was gone.
+//
+// This test pins the fix: a YText with multi-run formatting decodes
+// into N PMNode-text entries, one per delta op.
+func TestPMJSONFromYDoc_MultiRunFormattingDecodesAllRuns(t *testing.T) {
+	doc := ycrdt.NewDoc("multi-run-room", false, nil, nil, false)
+	if err := SeedFromPMJSON(doc, []byte(`{
+		"type": "doc",
+		"content": [{
+			"type": "paragraph",
+			"content": [{"type": "text", "text": "placeholder"}]
+		}]
+	}`)); err != nil {
+		t.Fatalf("SeedFromPMJSON: %v", err)
+	}
+
+	// Reach into the seeded YText and rewrite its content so the
+	// single YText carries the same three-run shape y-tiptap writes
+	// for a "prefix [marked CUTME] suffix" paragraph. We delete the
+	// placeholder content, then insert the three runs with their
+	// respective format attributes (the middle run carrying the
+	// hashed-key suggestedDelete attribute y-tiptap encodes).
+	frag, _ := doc.GetXmlFragment("prosemirror").(*ycrdt.YXmlFragment)
+	paraEl := frag.ToArray()[0].(*ycrdt.YXmlElement)
+	yText := paraEl.YXmlFragment.ToArray()[0].(*ycrdt.YXmlText)
+	yText.Delete(0, len("placeholder"))
+	yText.Insert(0, "prefix ", nil)
+	markAttrs := ycrdt.NewObject()
+	markAttrs["suggestedDelete--AbCd1234"] = map[string]any{
+		"suggestionId": "s_1",
+		"authorId":     "uo_alice",
+		"ts":           int64(1700000000),
+	}
+	yText.Insert(len("prefix "), "CUTME", markAttrs)
+	clearAttrs := ycrdt.NewObject()
+	clearAttrs["suggestedDelete--AbCd1234"] = nil
+	yText.Insert(len("prefix CUTME"), " suffix", clearAttrs)
+
+	got, err := PMJSONFromYDoc(doc)
+	if err != nil {
+		t.Fatalf("PMJSONFromYDoc: %v", err)
+	}
+
+	var parsed PMNode
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(parsed.Content) != 1 {
+		t.Fatalf("expected 1 paragraph, got %d", len(parsed.Content))
+	}
+	textNodes := parsed.Content[0].Content
+	if len(textNodes) != 3 {
+		t.Fatalf("expected 3 text nodes (prefix, CUTME, suffix) after decoding multi-run YText, got %d. PM: %s",
+			len(textNodes), got)
+	}
+	// All three text segments must survive — pre-fix the bug
+	// silently dropped CUTME and " suffix" because the decoder
+	// returned only the first delta op.
+	if textNodes[0].Text != "prefix " {
+		t.Errorf("text node 0: got %q, want %q", textNodes[0].Text, "prefix ")
+	}
+	if textNodes[1].Text != "CUTME" {
+		t.Errorf("text node 1: got %q, want %q", textNodes[1].Text, "CUTME")
+	}
+	if textNodes[2].Text != " suffix" {
+		t.Errorf("text node 2: got %q, want %q", textNodes[2].Text, " suffix")
+	}
+	// The middle node carries the suggestedDelete mark (hash-stripped
+	// to its canonical name by the read-side normalization).
+	if len(textNodes[1].Marks) != 1 || textNodes[1].Marks[0].Type != MarkTypeSuggestedDelete {
+		t.Errorf("text node 1 should carry one suggestedDelete mark, got marks: %+v",
+			textNodes[1].Marks)
+	}
+	// And the outer nodes carry no marks.
+	if len(textNodes[0].Marks) != 0 {
+		t.Errorf("text node 0 should have no marks, got: %+v", textNodes[0].Marks)
+	}
+	if len(textNodes[2].Marks) != 0 {
+		t.Errorf("text node 2 should have no marks, got: %+v", textNodes[2].Marks)
+	}
+}
+
 // Companion regression: the full path the live editor exercises —
 // PMJSONFromYDoc with a hashed key -> PMJSONToDocxWithSuggestions ->
 // DocxToPMJSONWithSuggestions — must surface the suggestedDelete mark

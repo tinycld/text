@@ -37,8 +37,18 @@ describe('SuggestionReplyList', () => {
 
     it('renders one row per reply with the author id and a relative timestamp', () => {
         const replies: SuggestionReply[] = [
-            reply({ id: 'r1', authorId: 'uo_alice', body: 'first', createdAt: Date.now() - 60_000 }),
-            reply({ id: 'r2', authorId: 'uo_bob', body: 'second', createdAt: Date.now() - 3600_000 }),
+            reply({
+                id: 'r1',
+                authorId: 'uo_alice',
+                body: 'first',
+                createdAt: Date.now() - 60_000,
+            }),
+            reply({
+                id: 'r2',
+                authorId: 'uo_bob',
+                body: 'second',
+                createdAt: Date.now() - 3600_000,
+            }),
         ]
         render(<SuggestionReplyList replies={replies} />)
 

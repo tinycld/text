@@ -1,19 +1,41 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Check, type LucideIcon, Minus, Pencil, Plus, X } from 'lucide-react-native'
+import { type LucideIcon, Minus, Pencil, Plus } from 'lucide-react-native'
+import { useEffect, useRef } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { useAuthorName } from '../../hooks/use-author-name'
 import type { AnchoredSuggestion } from '../../hooks/use-document-suggestions'
 import { colorForUser } from '../../lib/color-for-user'
+import { formatRelative } from '../../lib/format-relative'
 import { summarizeBlockChange, summarizeFormatChange } from '../../lib/suggestions/decorations'
+import { SuggestionThread } from './SuggestionThread'
 
 export interface SuggestionRowProps {
     suggestion: AnchoredSuggestion
+    // driveItemId + authorUserOrgId thread through to <SuggestionThread />
+    // for the focused-state body — the discussion adapter writes
+    // text_comments rows scoped to (drive_item, suggestion_id, author),
+    // and the screen owns those identifiers. Plumbed down rather than
+    // re-read from useEditorMount/useCurrentRole here so the row stays
+    // identity-context-free and trivially mountable in unit tests.
+    driveItemId: string
+    authorUserOrgId: string
     isFocused: boolean
     canResolve: boolean
     isPending: boolean
     onAccept: () => void
     onReject: () => void
-    onJump: () => void
+    // onFocus replaces the old "click → jump to mark" wiring as the
+    // primary affordance. Clicking the static header now focuses the
+    // row (so the thread body opens). The drawer's parent maps this to
+    // reviewDrawerStore.focusSuggestion(s.id).
+    onFocus: () => void
+    // onJump is preserved for back-compat — the drawer still wants to
+    // scroll the editor to the mark when a row first gets focused so
+    // the editor surface stays in sync with the drawer. The row calls
+    // onJump once per focus-edge (when isFocused transitions from
+    // false → true). Marked optional so unit tests that don't care
+    // about scroll behavior can omit it.
+    onJump?: () => void
 }
 
 // summarizeSuggestion composes the "Proposed: …" line shown beneath
@@ -55,24 +77,35 @@ function kindLabelFor(kind: AnchoredSuggestion['kind']): string {
     return 'Block change'
 }
 
-// SuggestionRow renders one entry in the review drawer's list.
-// - Left: kind icon (Plus for insert, Minus for delete, Pencil for
-//   format/block/cell changes) in the author's color
-// - Center: snippet of the affected text + "Proposed: …" summary for
-//   Phase 5 kinds + author attribution line
-// - Right: Accept/Reject buttons (only when canResolve)
+// SuggestionRow (web) renders one entry in the review drawer's list,
+// split into:
+//   - The always-visible HEADER: avatar (kind icon in the author's
+//     color) + name + relative timestamp + snippet + "Proposed: …"
+//     summary line + "Added/Removed/… by <name>" attribution.
+//   - The focused-state BODY: when isFocused is true, renders
+//     <SuggestionThread> underneath. The thread owns the Accept /
+//     Reject buttons + reply composer.
 //
-// The whole row is pressable — tapping anywhere outside the action
-// buttons calls onJump (focus the suggestion in the editor). The
-// Accept/Reject buttons stopPropagation so they don't double-fire
-// onJump.
+// The header is pressable: tapping anywhere on it calls onFocus
+// (which the drawer maps to reviewDrawerStore.focusSuggestion(id)).
+// onJump runs once per focus-edge (false → true) so the editor scrolls
+// to the matching mark when the row first gains focus. Re-tapping a
+// focused row is a no-op.
+//
+// Task 5 (native) ships SuggestionRow.native.tsx, which renders only
+// the header and opens a bottom sheet on tap. The shared thread body
+// is the same component (<SuggestionThread />) — only the wrapping
+// chrome differs across platforms.
 export function SuggestionRow({
     suggestion,
+    driveItemId,
+    authorUserOrgId,
     isFocused,
     canResolve,
-    isPending,
+    isPending: _isPending,
     onAccept,
     onReject,
+    onFocus,
     onJump,
 }: SuggestionRowProps) {
     const fg = useThemeColor('foreground')
@@ -89,73 +122,79 @@ export function SuggestionRow({
     // place. accessibilityLabel uses the resolved name when available.
     const authorName = useAuthorName(suggestion.authorId) ?? suggestion.authorId
 
+    // Fire onJump once per focus-edge (transition from unfocused to
+    // focused). A ref keeps prevFocused across renders without forcing
+    // an extra re-render the way useState would. The drawer's onJump
+    // typically calls editor.commands.focus(s.anchorRange.from), which
+    // is fine to invoke once but wasteful to re-fire on every render
+    // while the row stays focused.
+    const wasFocusedRef = useRef(false)
+    useEffect(() => {
+        if (isFocused && !wasFocusedRef.current) {
+            onJump?.()
+        }
+        wasFocusedRef.current = isFocused
+    }, [isFocused, onJump])
+
     return (
-        <Pressable
-            onPress={onJump}
-            style={{
-                flexDirection: 'row',
-                gap: 8,
-                padding: 8,
-                backgroundColor: isFocused ? focusBg : 'transparent',
-                alignItems: 'flex-start',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`Suggestion by ${authorName}`}
-        >
-            <View
+        <View>
+            <Pressable
+                onPress={onFocus}
                 style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 4,
-                    backgroundColor: authorColor,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: 2,
+                    flexDirection: 'row',
+                    gap: 8,
+                    padding: 8,
+                    backgroundColor: isFocused ? focusBg : 'transparent',
+                    alignItems: 'flex-start',
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Suggestion by ${authorName}`}
             >
-                <KindIcon size={12} color="#ffffff" strokeWidth={3} />
-            </View>
-            <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: fg, fontSize: 13 }} numberOfLines={2}>
-                    {suggestion.snippet}
-                </Text>
-                {summary && (
-                    <Text style={{ color: muted, fontSize: 12 }} numberOfLines={2}>
-                        {summary}
-                    </Text>
-                )}
-                <Text style={{ color: muted, fontSize: 11 }}>
-                    {kindLabel} by {authorName}
-                </Text>
-            </View>
-            {canResolve && (
-                <View style={{ flexDirection: 'row', gap: 4 }}>
-                    <Pressable
-                        onPress={e => {
-                            e.stopPropagation()
-                            onAccept()
-                        }}
-                        disabled={isPending}
-                        style={{ padding: 4 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Accept suggestion"
-                    >
-                        <Check size={16} color={fg} />
-                    </Pressable>
-                    <Pressable
-                        onPress={e => {
-                            e.stopPropagation()
-                            onReject()
-                        }}
-                        disabled={isPending}
-                        style={{ padding: 4 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Reject suggestion"
-                    >
-                        <X size={16} color={fg} />
-                    </Pressable>
+                <View
+                    style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        backgroundColor: authorColor,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 2,
+                    }}
+                >
+                    <KindIcon size={12} color="#ffffff" strokeWidth={3} />
                 </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'baseline' }}>
+                        <Text style={{ color: fg, fontSize: 13, fontWeight: '600' }}>
+                            {authorName}
+                        </Text>
+                        <Text style={{ color: muted, fontSize: 11 }}>
+                            {formatRelative(suggestion.ts)}
+                        </Text>
+                    </View>
+                    <Text style={{ color: fg, fontSize: 13 }} numberOfLines={2}>
+                        {suggestion.snippet}
+                    </Text>
+                    {summary && (
+                        <Text style={{ color: muted, fontSize: 12 }} numberOfLines={2}>
+                            {summary}
+                        </Text>
+                    )}
+                    <Text style={{ color: muted, fontSize: 11 }}>
+                        {kindLabel} by {authorName}
+                    </Text>
+                </View>
+            </Pressable>
+            {isFocused && (
+                <SuggestionThread
+                    suggestion={suggestion}
+                    driveItemId={driveItemId}
+                    authorUserOrgId={authorUserOrgId}
+                    canResolve={canResolve}
+                    onAccept={onAccept}
+                    onReject={onReject}
+                />
             )}
-        </Pressable>
+        </View>
     )
 }

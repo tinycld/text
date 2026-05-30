@@ -1,6 +1,6 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import type { Editor } from '@tiptap/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import type * as Y from 'yjs'
 import { useStore } from 'zustand'
@@ -16,6 +16,15 @@ type ReviewDrawerTab = 'suggestions' | 'activity' | 'authorship'
 
 export interface ReviewDrawerProps {
     driveItemId: string
+    // authorUserOrgId is the current user's user_org id; threaded into
+    // each <SuggestionRow /> for the focused-state thread body (the
+    // discussion adapter writes text_comments rows authored by this id).
+    // Optional so existing tests that don't exercise the focused panel
+    // can omit it; an empty string is safe — the discussion adapter
+    // only fires its insert mutation when a focused suggestion exists,
+    // and any focus-driven write requires the screen to have wired a
+    // real id by then.
+    authorUserOrgId?: string
     store: ReviewDrawerStore
     anchored: AnchoredSuggestion[]
     orphaned: OrphanedSuggestion[]
@@ -59,6 +68,7 @@ export interface ReviewDrawerProps {
 // later refinement.
 export function ReviewDrawer({
     driveItemId,
+    authorUserOrgId = '',
     store,
     anchored,
     // orphaned is part of the prop shape for backward compatibility
@@ -89,6 +99,31 @@ export function ReviewDrawer({
     const bg = useThemeColor('background')
     const border = useThemeColor('border')
     const primary = useThemeColor('primary')
+
+    // ESC clears the focused-suggestion state so the user can collapse
+    // the open thread without resorting to clicking another row. Web
+    // only — native uses a bottom sheet (Task 5) whose own dismiss
+    // gesture is the equivalent affordance. Bound to document keydown
+    // rather than the drawer's container so the shortcut works even
+    // when focus is inside the reply composer.
+    const drawerIsOpenForThisDoc = isOpen && openForId === driveItemId
+    useEffect(() => {
+        if (Platform.OS !== 'web') return
+        if (typeof document === 'undefined') return
+        if (!drawerIsOpenForThisDoc) return
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            // Only consume the keystroke when there's something focused
+            // to clear. Without the guard, ESC would silently no-op
+            // every time it fires; with the guard, other ESC handlers
+            // (e.g. closing a popover) still get a shot at the event.
+            const state = store.getState()
+            if (state.focusedSuggestionId === null) return
+            state.focusSuggestion(null)
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+    }, [drawerIsOpenForThisDoc, store])
     // Active tab. Defaults to Suggestions (the established Phase 2b
     // surface) so opening the drawer behaves identically for users who
     // never touch the Activity tab. Local state — there's no reason
@@ -221,11 +256,14 @@ export function ReviewDrawer({
                             <SuggestionRow
                                 key={`${s.id}-${s.kind}`}
                                 suggestion={s}
+                                driveItemId={driveItemId}
+                                authorUserOrgId={authorUserOrgId}
                                 isFocused={s.id === focusedId}
                                 canResolve={canResolve}
                                 isPending={isPending}
                                 onAccept={() => onAccept(s.id)}
                                 onReject={() => onReject(s.id)}
+                                onFocus={() => store.getState().focusSuggestion(s.id)}
                                 onJump={() => onJump(s)}
                             />
                         ))}

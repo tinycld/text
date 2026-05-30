@@ -90,10 +90,10 @@ describe('SuggestionReplyComposer', () => {
         await capturedProps.onSubmit?.('cc [[@uo_bob]] [[@uo_carol]] please review')
 
         expect(parentOnSubmit).toHaveBeenCalledTimes(1)
-        expect(parentOnSubmit).toHaveBeenCalledWith(
-            'cc [[@uo_bob]] [[@uo_carol]] please review',
-            ['uo_bob', 'uo_carol']
-        )
+        expect(parentOnSubmit).toHaveBeenCalledWith('cc [[@uo_bob]] [[@uo_carol]] please review', [
+            'uo_bob',
+            'uo_carol',
+        ])
     })
 
     it('emits an empty mentions array when the body contains no mention tokens', async () => {

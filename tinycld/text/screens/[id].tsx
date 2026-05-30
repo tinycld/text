@@ -482,6 +482,14 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 />
                 <ReviewDrawer
                     driveItemId={driveItemId}
+                    // The drawer's focused-state thread renders a
+                    // <SuggestionThread /> whose discussion adapter
+                    // writes text_comments rows authored by the
+                    // current user_org. Thread it down once at the
+                    // screen scope (same source as the bulk-accept /
+                    // bulk-reject services) so the row stays
+                    // identity-context-free.
+                    authorUserOrgId={userOrgId ?? ''}
                     store={reviewDrawerStore}
                     anchored={anchored}
                     orphaned={orphaned}
@@ -492,9 +500,12 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     onBulkAccept={onBulkAccept}
                     onBulkReject={onBulkReject}
                     onJump={s => {
+                        // Scroll the editor to the suggestion's mark
+                        // when a row gains focus. The row itself drives
+                        // the focusedSuggestionId state via onFocus —
+                        // onJump is purely the editor-side affordance.
                         if (!tiptapEditor) return
                         tiptapEditor.commands.focus(s.anchorRange.from)
-                        reviewDrawerStore.getState().focusSuggestion(s.id)
                     }}
                     yDoc={room.doc}
                     editor={tiptapEditor ?? null}

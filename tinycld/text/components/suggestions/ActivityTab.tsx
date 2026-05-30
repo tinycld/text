@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from 'react-native'
 import type { ActivityEntry } from '../../hooks/use-activity-entries'
 import { useAuthorName } from '../../hooks/use-author-name'
 import { colorForUser } from '../../lib/color-for-user'
+import { formatRelative } from '../../lib/format-relative'
 
 export interface ActivityTabProps {
     entries: ActivityEntry[]
@@ -96,22 +97,4 @@ function summarize(entry: ActivityEntry, name: string | null): string {
     const who = name ?? 'Someone'
     const { editCount } = entry.event
     return `${who} made ${editCount} edit${editCount === 1 ? '' : 's'}`
-}
-
-// formatRelative renders a UNIX-millis timestamp as a human-friendly
-// "N minutes ago" style string. Handles the just-now / minute / hour /
-// day buckets. We deliberately avoid Intl.RelativeTimeFormat here —
-// activity rows render densely, so the explicit bucketing keeps the
-// strings short ("3 minutes ago" vs. "3 minutes ago" + locale-specific
-// quirks) and predictable.
-function formatRelative(ts: number): string {
-    const minutes = Math.floor((Date.now() - ts) / 60_000)
-    if (minutes < 1) return 'just now'
-    if (minutes === 1) return '1 minute ago'
-    if (minutes < 60) return `${minutes} minutes ago`
-    const hours = Math.floor(minutes / 60)
-    if (hours === 1) return '1 hour ago'
-    if (hours < 24) return `${hours} hours ago`
-    const days = Math.floor(hours / 24)
-    return `${days} day${days === 1 ? '' : 's'} ago`
 }

@@ -101,6 +101,14 @@ test.describe('Text — Viewer cannot resolve', () => {
             // .tinycld-suggestion-insert span exists anywhere.
             await expect(bobPage.locator('.tinycld-suggestion-insert')).toHaveCount(0)
 
+            // Collaboration cursors are a writer-side affordance — the
+            // CollaborationCaret extension is omitted from viewer
+            // mounts (see use-document-editor.web.tsx's isReadOnly
+            // branch). No floating caret labels OR remote selections
+            // surface for Bob, even though Alice is actively typing.
+            await expect(bobPage.locator('.collaboration-carets__caret')).toHaveCount(0)
+            await expect(bobPage.locator('.ProseMirror-yjs-selection')).toHaveCount(0)
+
             // The drawer-open toolbar button itself is omitted entirely
             // for viewers — screens/[id].tsx gates the
             // OpenCommentsDrawerButton + DocumentToolbar's review-drawer

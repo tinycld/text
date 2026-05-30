@@ -14,15 +14,25 @@ import { useMemo } from 'react'
 // The current user is excluded — mentioning yourself is noise and the
 // notify hook would drop it anyway, but leaving the entry in the
 // popover invites accidental self-mentions.
-export function useMentionSuggestions(currentUserOrgId: string): MentionSuggestion[] {
+//
+// `disabled` short-circuits the org-roster query without running it.
+// Used by read-only viewer mounts where mention pickers are
+// unreachable — see screens/[id].tsx for the read-only design decision.
+export function useMentionSuggestions(
+    currentUserOrgId: string,
+    options?: { disabled?: boolean }
+): MentionSuggestion[] {
+    const disabled = options?.disabled === true
     const { capabilities } = useEditorMount()
     const [userOrgCollection, usersCollection] = useStore('user_org', 'users')
 
     const { data: members = [] } = useOrgLiveQuery(
         (query, { orgId }) => {
             // Guests must not enumerate the org roster — skip the query
-            // entirely (returning null runs no query) when mentions are off.
-            if (!capabilities.canMention) return null
+            // entirely (returning null runs no query) when mentions are
+            // off. Same short-circuit applies for `disabled` (read-only
+            // viewer mount).
+            if (disabled || !capabilities.canMention) return null
             return query
                 .from({ uo: userOrgCollection })
                 .join({ u: usersCollection }, ({ uo, u }) => eq(uo.user, u.id))
@@ -33,7 +43,7 @@ export function useMentionSuggestions(currentUserOrgId: string): MentionSuggesti
                     email: u.email,
                 }))
         },
-        [capabilities.canMention]
+        [capabilities.canMention, disabled]
     )
 
     return useMemo(() => {

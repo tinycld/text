@@ -40,7 +40,11 @@ export function useNewCommentFlow({
     const { add } = useCommentMutations()
     const openDrawer = useCommentsDrawerStore(s => s.open)
     const { userOrgId } = useCurrentRole()
-    const mentionSuggestions = useMentionSuggestions(userOrgId)
+    // Skip the org-roster live query for read-only mounts: the user
+    // can't open the composer, so the mention pool would be unused.
+    // The `editable` flag is the read-only signal threaded down by
+    // the screen — see the read-only design decision.
+    const mentionSuggestions = useMentionSuggestions(userOrgId, { disabled: !editable })
 
     const canStart = editable && !selectionEmpty && commentBridge != null
 

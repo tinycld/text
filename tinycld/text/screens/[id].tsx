@@ -288,6 +288,9 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     const resolveService = useResolveSuggestionService({
         editor: tiptapEditor,
         yDoc: room.doc,
+        // Viewers can't reach the resolve buttons (the drawers are
+        // unmounted) — skip the closure construction work.
+        disabled: !showCollaborativeAffordances,
     })
     const onBulkAccept = useCallback(
         (ids: string[]) => {
@@ -358,7 +361,12 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // the editor) and the contextmenu listener has to attach to the
     // editor's DOM container — both reads that live above the editor's
     // own hook.
-    const clientAuthors = useClientAuthors(room.doc)
+    // Read-only viewers don't see authorship: skip the clientAuthors
+    // Y.Map observer (pass null so the bridge returns an empty
+    // snapshot without subscribing) and don't wire the contextmenu
+    // handler. See the read-only design decision near the isReadOnly
+    // derivation.
+    const clientAuthors = useClientAuthors(showCollaborativeAffordances ? room.doc : null)
     const [authorshipPopover, setAuthorshipPopover] = useState<{
         x: number
         y: number
@@ -366,9 +374,10 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     } | null>(null)
     useAuthorshipContextMenu({
         tiptapEditor,
-        yDoc: room.doc,
+        yDoc: showCollaborativeAffordances ? room.doc : null,
         clientAuthors,
         onOpen: setAuthorshipPopover,
+        disabled: !showCollaborativeAffordances,
     })
 
     // Print routes through the server's /api/text/render endpoint
@@ -395,8 +404,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     })
     useCommentsLifecycle(driveItemId)
     useCommentTapHandler(driveItemId, commentBridge, documentComments)
-    useSuggestionClickHandler(driveItemId, reviewDrawerStore)
-    useFocusSuggestionParam(driveItemId, reviewDrawerStore)
+    useSuggestionClickHandler(driveItemId, reviewDrawerStore, !showCollaborativeAffordances)
+    useFocusSuggestionParam(driveItemId, reviewDrawerStore, !showCollaborativeAffordances)
     const newCommentFlow = useNewCommentFlow({
         driveItemId,
         commentBridge,
@@ -431,7 +440,11 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                             name={itemName}
                             isReadOnly={isReadOnly}
                         />
-                        <PresenceAvatars awareness={room.awareness} />
+                        {/* Read-only viewers don't see peer presence. */}
+                        {/* See the read-only design decision near isReadOnly. */}
+                        {showCollaborativeAffordances && (
+                            <PresenceAvatars awareness={room.awareness} />
+                        )}
                         <SaveStatusIndicator
                             status={saveStatus}
                             isConnected={room.isConnected}
@@ -615,16 +628,22 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                     yDoc={room.doc}
                     canResolve={canResolve}
                 />
-                <AuthorshipPopover
-                    isOpen={authorshipPopover !== null}
-                    position={
-                        authorshipPopover === null
-                            ? null
-                            : { x: authorshipPopover.x, y: authorshipPopover.y }
-                    }
-                    contributors={authorshipPopover?.contributors ?? []}
-                    onClose={() => setAuthorshipPopover(null)}
-                />
+                {/* Authorship popover is contextmenu-triggered; the */}
+                {/* trigger is gated by showCollaborativeAffordances on */}
+                {/* the context-menu hook above, so this is just the    */}
+                {/* matching gate at mount scope for clarity.           */}
+                {showCollaborativeAffordances && (
+                    <AuthorshipPopover
+                        isOpen={authorshipPopover !== null}
+                        position={
+                            authorshipPopover === null
+                                ? null
+                                : { x: authorshipPopover.x, y: authorshipPopover.y }
+                        }
+                        contributors={authorshipPopover?.contributors ?? []}
+                        onClose={() => setAuthorshipPopover(null)}
+                    />
+                )}
             </View>
         </FindReplaceEditorContext.Provider>
     )
@@ -685,9 +704,14 @@ function useCommentTapHandler(
 // pattern Google Docs deprecates in favor of the always-on sidebar.
 function useSuggestionClickHandler(
     driveItemId: string,
-    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>
+    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>,
+    disabled: boolean
 ) {
     useEffect(() => {
+        // Read-only viewers don't have a review drawer to open; skip
+        // the WebView ui-message subscription entirely. See the
+        // read-only design decision near the isReadOnly derivation.
+        if (disabled) return
         return subscribeUiMessage(message => {
             if (message.namespace !== 'ui') return
             if (message.type !== 'suggestion-clicked') return
@@ -697,7 +721,7 @@ function useSuggestionClickHandler(
             state.open(driveItemId)
             state.focusSuggestion(payload.suggestionId)
         })
-    }, [driveItemId, reviewDrawerStore])
+    }, [driveItemId, reviewDrawerStore, disabled])
 }
 
 // Routes deep links from @mention notifications into the review drawer:
@@ -715,15 +739,20 @@ function useSuggestionClickHandler(
 // state alone rather than auto-closing it.
 function useFocusSuggestionParam(
     driveItemId: string,
-    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>
+    reviewDrawerStore: ReturnType<typeof createReviewDrawerStore>,
+    disabled: boolean
 ) {
     const { focusSuggestion } = useLocalSearchParams<{ focusSuggestion?: string }>()
     useEffect(() => {
+        // Read-only viewers can't open the review drawer; ignore the
+        // notification deep link. See the read-only design decision
+        // near the isReadOnly derivation.
+        if (disabled) return
         if (!focusSuggestion) return
         const state = reviewDrawerStore.getState()
         state.open(driveItemId)
         state.focusSuggestion(focusSuggestion)
-    }, [driveItemId, focusSuggestion, reviewDrawerStore])
+    }, [driveItemId, focusSuggestion, reviewDrawerStore, disabled])
 }
 
 interface CenteredMessageProps {
@@ -823,16 +852,21 @@ interface AuthorshipContextMenuOptions {
     yDoc: Y.Doc | null
     clientAuthors: Map<number, string>
     onOpen: (popover: { x: number; y: number; contributors: ContributorSummary[] }) => void
+    // When true, the contextmenu handler is not registered. Used by
+    // read-only viewer mounts where authorship attribution isn't
+    // surfaced — see the read-only design decision near isReadOnly.
+    disabled: boolean
 }
 
 function useAuthorshipContextMenu(opts: AuthorshipContextMenuOptions) {
-    const { tiptapEditor, yDoc, clientAuthors, onOpen } = opts
+    const { tiptapEditor, yDoc, clientAuthors, onOpen, disabled } = opts
     const clientAuthorsRef = useRef(clientAuthors)
     clientAuthorsRef.current = clientAuthors
     const onOpenRef = useRef(onOpen)
     onOpenRef.current = onOpen
 
     useEffect(() => {
+        if (disabled) return
         if (Platform.OS !== 'web') return
         if (tiptapEditor === null || yDoc === null) return
         const dom = tiptapEditor.view.dom
@@ -884,7 +918,7 @@ function useAuthorshipContextMenu(opts: AuthorshipContextMenuOptions) {
         return () => {
             dom.removeEventListener('contextmenu', handler)
         }
-    }, [tiptapEditor, yDoc])
+    }, [tiptapEditor, yDoc, disabled])
 }
 
 // summarizeRuns collapses an ordered AuthorshipRun[] into per-author

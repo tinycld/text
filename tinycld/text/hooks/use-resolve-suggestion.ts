@@ -36,13 +36,21 @@ export interface UseResolveSuggestionService {
 export function useResolveSuggestionService(options: {
     editor: Editor | null
     yDoc: Y.Doc | null
+    // When true, accept/reject collapse to no-ops without running the
+    // resolver. Used by read-only viewer mounts where the resolve
+    // affordances are never reachable — the live-query in
+    // useCurrentRole still runs (the screen calls it elsewhere too)
+    // but the callbacks themselves don't carry the resolver closures.
+    // See screens/[id].tsx for the read-only design decision.
+    disabled?: boolean
 }): UseResolveSuggestionService {
     const { userOrgId } = useCurrentRole()
-    const { editor, yDoc } = options
+    const { editor, yDoc, disabled } = options
     const [isPending, setIsPending] = useState(false)
 
     const accept = useCallback(
         async (suggestionId: string) => {
+            if (disabled) return
             if (!editor || !yDoc || !userOrgId) return
             setIsPending(true)
             try {
@@ -59,11 +67,12 @@ export function useResolveSuggestionService(options: {
                 setIsPending(false)
             }
         },
-        [editor, yDoc, userOrgId]
+        [editor, yDoc, userOrgId, disabled]
     )
 
     const reject = useCallback(
         async (suggestionId: string) => {
+            if (disabled) return
             if (!editor || !yDoc || !userOrgId) return
             setIsPending(true)
             try {
@@ -80,7 +89,7 @@ export function useResolveSuggestionService(options: {
                 setIsPending(false)
             }
         },
-        [editor, yDoc, userOrgId]
+        [editor, yDoc, userOrgId, disabled]
     )
 
     return { accept, reject, isPending }

@@ -281,9 +281,15 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const authorshipYDocRef = useRef<Y.Doc | null>(null)
     const authorshipClientAuthorsRef = useRef<Map<number, string>>(new Map())
     const authorshipColoringEnabled = useAuthorshipDisplayStore(s => s.coloringEnabled)
-    const authorshipClientAuthors = useClientAuthors(options.yDoc)
-    authorshipEnabledRef.current = authorshipColoringEnabled
-    authorshipYDocRef.current = options.yDoc
+    // Read-only viewer mounts skip the clientAuthors Y.Map observer
+    // entirely (pass null) — authorship coloring is forced off on
+    // viewers per the read-only design decision (see screens/[id].tsx).
+    // The store flag (authorshipColoringEnabled) is the user-toggle for
+    // writers; ANDing it with !readOnly is the right composition.
+    const isReadOnly = options.editable === false
+    const authorshipClientAuthors = useClientAuthors(isReadOnly ? null : options.yDoc)
+    authorshipEnabledRef.current = authorshipColoringEnabled && !isReadOnly
+    authorshipYDocRef.current = isReadOnly ? null : options.yDoc
     authorshipClientAuthorsRef.current = authorshipClientAuthors
 
     const tiptapEditor = useEditor(
@@ -407,10 +413,20 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     document: options.yDoc,
                     field: 'prosemirror',
                 }),
-                CollaborationCaret.configure({
-                    provider: { awareness: options.awareness },
-                    user: options.user,
-                }),
+                // Collaboration cursors are a writer-side affordance:
+                // the extension broadcasts THIS user's caret to peers
+                // and renders OTHER peers' carets here. Read-only
+                // viewer mounts omit it so a viewer is invisible to
+                // peers AND doesn't render their cursors. See the
+                // read-only design decision in screens/[id].tsx.
+                ...(isReadOnly
+                    ? []
+                    : [
+                          CollaborationCaret.configure({
+                              provider: { awareness: options.awareness },
+                              user: options.user,
+                          }),
+                      ]),
                 FindReplaceExtension,
                 SlashMenu.configure({
                     openImageInsert: () => onRequestInsertImageRef.current?.(),
@@ -423,16 +439,24 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     // schema marks stay so y-prosemirror's mark-set
                     // matches the on-disk doc on parse. See
                     // screens/[id].tsx for the design decision.
-                    readOnly: options.editable === false,
+                    readOnly: isReadOnly,
                 }),
-                AuthorshipExtension.configure({
-                    getEnabled: () => authorshipEnabledRef.current,
-                    getYDoc: () => authorshipYDocRef.current,
-                    getClientAuthors: () => authorshipClientAuthorsRef.current,
-                }),
+                // Authorship coloring is also a writer-side affordance;
+                // omit on read-only mounts so the Yjs observer doesn't
+                // run and the editor doesn't spend cycles re-deriving
+                // attribution decorations the viewer can't see.
+                ...(isReadOnly
+                    ? []
+                    : [
+                          AuthorshipExtension.configure({
+                              getEnabled: () => authorshipEnabledRef.current,
+                              getYDoc: () => authorshipYDocRef.current,
+                              getClientAuthors: () => authorshipClientAuthorsRef.current,
+                          }),
+                      ]),
             ],
         },
-        [options.yDoc, options.awareness, options.user?.name, options.user?.color]
+        [options.yDoc, options.awareness, options.user?.name, options.user?.color, isReadOnly]
     )
 
     const editor: EditorHandle = useMemo(

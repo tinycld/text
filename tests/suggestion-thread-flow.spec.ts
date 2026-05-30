@@ -109,7 +109,11 @@ test.describe('Text — Suggestion thread flow', () => {
         const composer = page.getByRole('textbox', { name: 'body' }).first()
         await composer.click()
         await composer.pressSequentially(replyBody, { delay: 5 })
-        await page.getByRole('button', { name: 'Reply', exact: true }).first().click()
+        // The composer is in submitOnEnter mode (see
+        // SuggestionReplyComposer.tsx), so there's no explicit submit
+        // button — Enter fires the submit handler. Shift+Enter would
+        // insert a newline.
+        await composer.press('Enter')
 
         // The composer clears after submit. Form reset wires through
         // react-hook-form's reset({ body: '' }) in CommentComposer.
@@ -205,7 +209,8 @@ test.describe('Text — Suggestion thread flow', () => {
             const composer = alicePage.getByRole('textbox', { name: 'body' }).first()
             await composer.click()
             await composer.fill(`Pinging [[@${bob.userOrgId}]] please review`)
-            await alicePage.getByRole('button', { name: 'Reply' }).first().click()
+            // submitOnEnter mode — Enter submits, no Reply button rendered.
+            await composer.press('Enter')
 
             // Wait for the comment to land in PB so we can pin the
             // mention assertion to its id.
@@ -307,7 +312,8 @@ test.describe('Text — Suggestion thread flow', () => {
         const composer = page.getByRole('textbox', { name: 'body' }).first()
         await composer.click()
         await composer.fill(`pre-archive reply ${Date.now()}`)
-        await page.getByRole('button', { name: 'Reply' }).first().click()
+        // submitOnEnter mode — Enter submits, no Reply button rendered.
+        await composer.press('Enter')
 
         // Reply lands in PB with archived_at empty (live row).
         const reply = await waitForTextCommentBySuggestion(request, suggestionId, 5_000)

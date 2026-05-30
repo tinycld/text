@@ -138,16 +138,21 @@ func readYjsStateBytes(app core.App, version *core.Record) ([]byte, error) {
 
 // captureYjsStateAndMetadata reads the live doc under h.mu and returns
 // the encoded full state + computed metadata JSON. The mutex covers both
-// reads so a concurrent ApplyUpdate / stampAuthorship can't slip an edit
-// between the state encode and the metadata walk.
+// the state encode AND the metadata walk so a concurrent ApplyUpdate /
+// stampAuthorship can't slip an edit between them. The JSON marshal is
+// pure (operates on the already-captured metadata struct, no doc access),
+// so we drop the lock before marshaling — keeps concurrent peer edits
+// from blocking on the encode.
 func captureYjsStateAndMetadata(h *textDocHandle) ([]byte, []byte, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.closed || h.doc == nil {
+		h.mu.Unlock()
 		return nil, nil, fmt.Errorf("text: handle closed during snapshot")
 	}
 	state := ycrdt.EncodeStateAsUpdate(h.doc, nil)
 	metadata := computeMetadata(h.doc)
+	h.mu.Unlock()
+
 	js, err := json.Marshal(metadata)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal metadata: %w", err)

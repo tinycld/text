@@ -48,3 +48,13 @@ These act on the entire paragraph (or heading) containing the caret — no need 
 | **⌘F** | Opens the Find / Replace bar. Enter cycles forward through matches; Shift+Enter cycles backward. |
 | **⌘P** | Opens the print dialog with the document rendered as a printable page. |
 | **⌘/** | Opens the help search palette. Type any topic title or keyword to jump to a topic. |
+
+## Suggesting & reviewing
+
+Most of [Suggesting mode](help://text:suggesting) is mouse- and tap-driven — switching modes, accepting, and rejecting all happen through the toolbar and the Review drawer. The shortcuts that _do_ exist:
+
+| Shortcut | What it does |
+|---|---|
+| **ESC** | With a suggestion focused in the Review drawer, clears the focus and collapses its open reply thread. Doesn't resolve the suggestion. Web only. |
+| **Enter** | Inside a suggestion's reply composer, sends the reply. **Shift+Enter** inserts a line break instead. |
+| **⌘Z** | Undoes the last accept or reject the same way it undoes a regular edit — collaborative-aware, so you only undo your own decisions. Valid until the next save. |

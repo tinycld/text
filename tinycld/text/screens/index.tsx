@@ -1,8 +1,8 @@
+import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
@@ -21,7 +21,6 @@ const MD_MIME = 'text/markdown'
 const TXT_MIME = 'text/plain'
 
 export default function TextIndex() {
-    useDocumentTitle('Text')
     const orgHref = useOrgHref()
     const blank = useCreateBlankTextDocument()
     const template = useCreateTextDocumentFromTemplate()
@@ -74,6 +73,7 @@ export default function TextIndex() {
 
     return (
         <View className="flex-1">
+            <DocumentTitle pkg="Text" />
             <NoFilePanel
                 headline="A blank page."
                 sublabel="Where the next thought lands."

@@ -91,9 +91,7 @@ describe('SuggestionCommandLayer', () => {
         const yDoc = new Y.Doc()
         const state = makeStateWithText(modeStore, yDoc, 'hi')
         const end = state.doc.content.size - 1
-        const withSel = state.apply(
-            state.tr.setSelection(TextSelection.create(state.doc, end))
-        )
+        const withSel = state.apply(state.tr.setSelection(TextSelection.create(state.doc, end)))
         const next = withSel.apply(withSel.tr.split(withSel.selection.from))
         expect(next.doc.childCount).toBe(2)
     })
@@ -121,9 +119,7 @@ describe('SuggestionCommandLayer', () => {
         // Slice that opens on both sides — content.size = 5
         // (paragraph wrapper 1 + "NEW" 3 + close 1), openStart=1,
         // openEnd=1, so the effective inserted width is 3.
-        const fragment = Fragment.from(
-            schema.nodes.paragraph.create({}, schema.text('NEW'))
-        )
+        const fragment = Fragment.from(schema.nodes.paragraph.create({}, schema.text('NEW')))
         const openSlice = new Slice(fragment, 1, 1)
         // Replace positions 1..9 ("original") with the open slice.
         const next = state.apply(state.tr.step(new ReplaceStep(1, 9, openSlice)))

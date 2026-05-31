@@ -15,6 +15,7 @@ const manifest = {
     collections: { register: 'collections', types: 'types' },
     help: { directory: 'help' },
     server: { package: 'server', module: 'tinycld.org/packages/text' },
+    repository: { url: 'https://github.com/tinycld/text' },
     seed: { script: 'seed' },
     // The WebView editor (used by native screens via TenTap's
     // customSource) is bundled from tinycld/text/webview-editor/source/

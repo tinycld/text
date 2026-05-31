@@ -19,34 +19,87 @@ Editing features:
 - Font family and font size pickers; text color and highlight
 - Tables with cell shading and per-edge borders, plus a `TableMenu`
   for structural ops
-- Inline images (paste / drag-drop / file picker), with resize
+- Inline images (paste / drag-drop / file picker), with resize and
+  text-wrap modes (inline, left, right, breakText)
 - Threaded comments anchored to selections (`CommentPopover`,
   `useDocumentComments`)
 - @-mentions of org members (`useMentionSuggestions`)
 - Slash menu (`SlashMenu`) for block-level insertions; link popover
   (`LinkPopover`) for inline link editing
-- Document templates (`TemplatePicker` + `lib/templates/`)
+- Document templates — Blank, Letter, Resume, Report
+  (`TemplatePicker` + `lib/templates/`)
 - Markdown import and export — **Edit → Paste as Markdown** parses the
   clipboard as Markdown and inserts structured content; **File →
   Download (.md)** saves the document as Markdown alongside the
   canonical `.docx` (`lib/markdown/`)
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
-  state can be restored later
+  state can be restored later. Each row stores both the canonical
+  `.docx` blob and the raw Yjs snapshot, so a restore round-trips
+  suggestions and authorship metadata losslessly.
 - Find and replace (`FindReplaceBar`) — open via ⌘F on web or via
   **Edit → Find…** on iOS / Android (the bar is wired on every platform;
   the ⌘F shortcut binding is web-only)
 - Undo / redo via Y.UndoManager
 - Print (browser print on web, iOS print sheet on iPad)
 - Live presence — peer cursors and selections through Yjs awareness
-- Document context menu and File menu actions (rename, move to trash,
-  details) via `useDocumentFileActions`
+- Document context menu and File menu actions (rename, make a copy,
+  share, move to trash, details) via `useDocumentFileActions` and
+  drive's `ShareDialogConnected`
 - Save status indicator and reconnecting indicator wired to the
   realtime room's state
 - Word count badge
 - iOS soft-keyboard accessory toolbar (`MobileToolbarAccessory.ios.tsx`)
+- Landing panel (`No-File panel`) — when the workspace has no
+  last-opened doc, the rail surfaces **New document** / **Upload
+  files** / **Recent files**; otherwise the rail deep-links straight
+  back to the most recent doc
 - Keyboard shortcuts (full list in the in-app help topic
   `text:keyboard-shortcuts`)
+
+Change tracking (Google-Docs-style):
+
+- **Editor mode dropdown** (`EditorModeMenu`) — toggle the editor
+  between **Editing** / **Suggesting** / **Viewing**. Viewing is always
+  available; Editing and Suggesting are gated by the live drive_share
+  role through `use-suggestion-permissions`. The non-Editing modes
+  light up the dropdown trigger in the primary accent color so the
+  writer can see at a glance their edits aren't behaving like normal
+  edits.
+- **Suggesting marks** — inline inserts (`SuggestedInsert`), deletes
+  (`SuggestedDelete`), block-level changes (`SuggestedBlockChange`),
+  format changes (`SuggestedFormatChange`), and a `SuggestedTable`
+  family that captures cell additions, removals, and reshapes. Each
+  suggestion carries an `authorId` and `ts` so the renderer can
+  per-author-color and attribute it.
+- **Review drawer** (`ReviewDrawer`, `OpenReviewDrawerButton`) — opens
+  alongside the editor with three tabs:
+    - **Suggestions** — anchored and orphaned suggestions, per-row
+      Accept / Reject, **Accept all** / **Reject all** across every
+      open suggestion, click-to-focus that scrolls the editor to the
+      suggestion's range and highlights it (`click-to-focus.ts`)
+    - **Activity** — reverse-chronological feed of edit events
+      (60-second debounced windows of free typing) and resolved
+      suggestion decisions, gated behind audience-presence (the log
+      only fills while at least one collaborator is in the room with
+      the writer)
+    - **Authorship** — per-author bar chart of who wrote how much, plus
+      a "Color text by author" toggle that paints every run in its
+      author's color through a ProseMirror decoration plugin
+- **Threaded discussion per suggestion** (`SuggestionThread`,
+  `SuggestionThreadSheet`, `SuggestionReplyComposer`) — every
+  suggestion can have a back-and-forth reply thread, stored in the
+  same `text_comments` collection that powers regular comments and
+  cleaned up by `suggestion_discussion_cleanup.go` when the suggestion
+  resolves.
+- **docx round-trip** — `<w:ins>` / `<w:del>` runs and tracked
+  block/format changes are translated both directions by
+  `server/translate/suggestion_*.go`, so a suggestion authored in
+  tinycld survives a download → reupload through Word and vice versa.
+- **Server-stamped authorship** — the realtime broker rejects client
+  frames that touch reserved Y.Doc roots (`clientAuthors`,
+  `clientFirstSeen`, `editEvents`); only the server stamps authorship
+  metadata, so a malicious client can't forge who wrote what.
 
 Text depends on `@tinycld/drive` — the `drive_item` row is the document's
 identity, drive's share rules govern who can open the room, and the
@@ -267,6 +320,10 @@ mutations go through `useMutation`. Mentions resolve through
 | Slash menu                         | ✅  | ✅                      |
 | Find / replace                     | ✅  | ✅                      |
 | Word count                         | ✅  | ✅                      |
+| Suggesting mode (track changes)    | ✅  | ✅                      |
+| Review drawer (suggestions tab)    | ✅  | ✅                      |
+| Activity tab (edit timeline)       | ✅  | ✅                      |
+| Authorship coloring                | ✅  | ✅                      |
 | Print                              | browser print | iOS print sheet |
 | Soft-keyboard accessory toolbar    | n/a | ✅ (iOS)               |
 
@@ -293,18 +350,48 @@ text/
         bootstrap.go        docx → Y.Doc on first open
         flush.go            Y.Doc → docx → drive_items.file
         authorize.go        drive_shares-based access
-        translate/          WordZero docx ↔ ProseMirror JSON
+        suggestions_authz.go            per-frame validator: reject
+                                        client writes to server-owned
+                                        authorship roots
+        suggestion_discussion_cleanup.go  drop reply threads when their
+                                          suggestion resolves
+        translate/          WordZero docx ↔ ProseMirror JSON, plus
+                            suggestion_marks, suggestion_rewriter,
+                            suggestions_part, suggestions_zip — full
+                            round-trip of <w:ins>/<w:del>/tracked block
+                            changes
         wal_e2e_test.go     end-to-end WAL replay / truncate / cleanup
     tinycld/text/           TypeScript source
         provider.tsx        registers DocumentPreview + drive actions
         sidebar.tsx
         screens/            index + [id]
         components/         toolbar, menubar, popovers, dialogs
-        hooks/              use-document-editor (.web / .native), useTextRoom, …
+            menubar/        File/Edit/Format/Insert/Help menus
+            suggestions/    ReviewDrawer (Suggestions/Activity/Authorship),
+                            SuggestionThread, SuggestionRow,
+                            OpenReviewDrawerButton, AuthorshipPopover
+            comments/       NewCommentModal, OpenCommentsDrawerButton,
+                            TextCommentDrawer
+            EditorModeMenu  Editing / Suggesting / Viewing toggle
+        hooks/              use-document-editor (.web / .native), useTextRoom,
+                            use-document-suggestions, use-suggestion-bridge,
+                            use-suggestion-permissions, use-resolve-suggestion,
+                            use-activity-entries, use-client-authors, …
+        stores/             editor-mode-store, review-drawer-store,
+                            authorship-display-store
         lib/                editor config, find/replace, image handling, templates
+            suggestions/    build-extensions, command-layer, decorations,
+                            block/format/table change utils, bulk-resolve,
+                            click-to-focus, discussions, resolve,
+                            session-grouping, suggestions-map
+            authorship/     aggregate-contributors, decoration plugin glue
+            markdown/       md-to-pm, pm-to-md
+            templates/      Blank, Letter, Resume, Report
         webview-editor/     ProseMirror build hosted by the native editor
+                            (includes suggested-* extensions + authorship
+                             decoration plugin)
         collections.ts, types.ts
-        tests/              vitest unit tests
+        tests/              vitest unit tests (including suggestions/)
 ```
 
 Go module: `tinycld.org/packages/text`. Imports `tinycld.org/core/realtime`

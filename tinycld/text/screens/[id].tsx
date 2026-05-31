@@ -1,4 +1,8 @@
 import { eq } from '@tanstack/db'
+// DocumentTitle (core) sets the browser tab title; aliased to TabTitle here
+// to avoid collision with text's own DocumentTitle (the in-editor title bar
+// component imported from '../components/DocumentTitle').
+import { DocumentTitle as TabTitle } from '@tinycld/core/components/DocumentTitle'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { type EditorMount, EditorMountProvider } from '@tinycld/core/lib/editor/editor-mount'
@@ -8,7 +12,6 @@ import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
-import { useDocumentTitle } from '@tinycld/core/lib/use-document-title'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
@@ -114,8 +117,6 @@ export default function TextDetail() {
     )
 
     const item = items[0]
-
-    useDocumentTitle(item?.name ? `Text — ${item.name}` : 'Text')
 
     // Persist the rail deep-link only after the file has actually
     // loaded. Writing on mount would keep a stale href alive even when
@@ -481,6 +482,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
 
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
+            <TabTitle pkg="Text" title={itemName} />
             <View className="flex-1 bg-background">
                 <View onLayout={e => setHeaderStackHeight(e.nativeEvent.layout.height)}>
                     <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">

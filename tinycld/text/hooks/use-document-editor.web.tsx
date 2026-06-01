@@ -142,7 +142,19 @@ const EDITOR_STYLE_TAG_ID = 'tinycld-text-editor-styles'
 if (typeof document !== 'undefined' && !document.getElementById(EDITOR_STYLE_TAG_ID)) {
     const style = document.createElement('style')
     style.id = EDITOR_STYLE_TAG_ID
-    style.textContent = EDITOR_CONTENT_STYLES
+    // EDITOR_CONTENT_STYLES targets a bare `.ProseMirror` selector. On native
+    // it's injected into the WebView's isolated document, so that's fine. On
+    // web it goes into the shared document.head, where the unscoped selector
+    // leaks onto every other ProseMirror editor on the page — notably mail's
+    // compose body, which then inherited this editor's 680px page-width cap and
+    // auto-centering (mail #2). Scope the rules to the document editor's wrapper
+    // so they only style this editor. Every selector in the shared sheet starts
+    // with `.ProseMirror`; prefixing it with the wrapper class confines them.
+    // (@keyframes blocks have no `.ProseMirror` token and are left untouched.)
+    style.textContent = EDITOR_CONTENT_STYLES.replace(
+        /\.ProseMirror/g,
+        '.tinycld-document-editor .ProseMirror'
+    )
     document.head.appendChild(style)
 }
 

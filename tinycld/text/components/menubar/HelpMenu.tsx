@@ -1,5 +1,6 @@
 import { openHelp, openHelpPackage } from '@tinycld/core/lib/help/open-help'
 import { useHelpSearchStore } from '@tinycld/core/lib/help/search-store'
+import { useReportIssue } from '@tinycld/core/lib/help/use-report-issue'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { Platform } from 'react-native'
 import type { MenuBarProps } from './MenuBar'
@@ -10,6 +11,8 @@ import type { MenuBarProps } from './MenuBar'
 // entries live in the search palette now — listing them inline made
 // the menu a wall of text.
 export function HelpMenu(_props: MenuBarProps) {
+    const reportIssue = useReportIssue('text')
+
     return (
         <MenuBarMenu menuId="help" label="Help">
             <Menu.Item onPress={() => useHelpSearchStore.getState().open()}>
@@ -23,6 +26,11 @@ export function HelpMenu(_props: MenuBarProps) {
             <Menu.Item onPress={() => openHelpPackage('text')}>
                 <Menu.ItemTitle>Browse text help</Menu.ItemTitle>
             </Menu.Item>
+            {reportIssue && (
+                <Menu.Item onPress={reportIssue}>
+                    <Menu.ItemTitle>Report an issue</Menu.ItemTitle>
+                </Menu.Item>
+            )}
         </MenuBarMenu>
     )
 }

@@ -283,17 +283,51 @@ test.describe('Text — Menubar', () => {
     })
 
     test.describe('Help menu', () => {
-        test('three-item launcher set is present', async ({ page }) => {
+        test('launcher set is present', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-help')
             await openMenubarMenu(page, 'Help')
-            // The Help menu was trimmed to three launchers: the search
-            // palette, the keyboard-shortcuts reference, and the
-            // package's own topic-index drawer. The cross-package hub
-            // moved off the menu — it's reachable from inside the
+            // The Help menu carries the search palette, the
+            // keyboard-shortcuts reference, the package's own topic-index
+            // drawer, and a "Report an issue" launcher. The cross-package
+            // hub moved off the menu — it's reachable from inside the
             // drawer via the "Read all tinycld help" link.
             await expect(page.getByRole('menuitem', { name: /Search help/ })).toBeVisible()
             await expect(page.getByRole('menuitem', { name: 'Keyboard shortcuts' })).toBeVisible()
             await expect(page.getByRole('menuitem', { name: 'Browse text help' })).toBeVisible()
+            await expect(page.getByRole('menuitem', { name: 'Report an issue' })).toBeVisible()
+        })
+
+        test('Report an issue opens the text GitHub new-issue page with diagnostic context', async ({
+            page,
+        }) => {
+            await openFreshTextDocument(page, 'menubar-help')
+
+            // openPackageIssue → Linking.openURL → window.open on web. Stub
+            // window.open so the assertion stays deterministic and never
+            // makes a real request to github.com (which would add network
+            // flakiness and an outbound side-effect to the suite).
+            await page.evaluate(() => {
+                ;(window as unknown as { __openedUrl?: string }).__openedUrl = undefined
+                window.open = (url?: string | URL) => {
+                    ;(window as unknown as { __openedUrl?: string }).__openedUrl = String(url)
+                    return null
+                }
+            })
+
+            await openMenubarMenu(page, 'Help')
+            await page.getByRole('menuitem', { name: 'Report an issue' }).click()
+
+            const opened = await page.evaluate(
+                () => (window as unknown as { __openedUrl?: string }).__openedUrl
+            )
+            expect(opened).toContain('github.com/tinycld/text/issues/new')
+            // The pre-filled body carries the package identity and platform so
+            // an issue arrives with real diagnostic context. URLSearchParams
+            // encodes spaces as '+', which decodeURIComponent leaves intact —
+            // normalize them back so the body assertions read naturally.
+            const decoded = decodeURIComponent(opened ?? '').replace(/\+/g, ' ')
+            expect(decoded).toContain('@tinycld/text')
+            expect(decoded).toContain('**Platform:** web')
         })
     })
 })

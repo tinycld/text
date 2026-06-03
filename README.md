@@ -407,14 +407,14 @@ git clone git@github.com:tinycld/text.git
 
 # Install deps in the app shell
 cd tinycld
-npm install
+pnpm install
 
 # Link this package (and its dependency, @tinycld/drive) into the app shell
-npm run packages:link ../drive
-npm run packages:link ../text
+pnpm run packages:link ../drive
+pnpm run packages:link ../text
 
 # Run the full stack
-npm run dev
+pnpm run dev
 ```
 
 ## Standalone checks
@@ -428,11 +428,11 @@ config lives in `tinycld/biome.json` and applies to every linked package
 
 ```sh
 cd ../tinycld
-npm run packages:link ../text    # only needed once per checkout
-npm run lint                     # scans this package via the app's biome rules
-npm run typecheck                # full app-shell tsc
-npm run test:unit                # vitest, including this package's tests/
-npm run test:go                  # go test on this package's server/
+pnpm run packages:link ../text    # only needed once per checkout
+pnpm run lint                     # scans this package via the app's biome rules
+pnpm run typecheck                # full app-shell tsc
+pnpm run test:unit                # vitest, including this package's tests/
+pnpm run test:go                  # go test on this package's server/
 ```
 
 ## CI

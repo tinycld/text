@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { login, navigateToPackage, ORG_SLUG } from '../../app/tests/e2e/helpers'
+import { login, navigateToPackage, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 import { FEATURE_DOC_HEADING } from './_menubar-helpers'
 
 // The text index renders the shared NoFilePanel whenever the user lands

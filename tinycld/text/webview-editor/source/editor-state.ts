@@ -228,7 +228,7 @@ export function deriveImageSelection(
     const selection = editor.state.selection
     if (!(selection instanceof NodeSelection)) return null
     const node = selection.node
-    if (!node || node.type?.name !== 'image') return null
+    if (node?.type?.name !== 'image') return null
     const attrs = (node.attrs ?? {}) as Record<string, unknown>
     const src = typeof attrs.src === 'string' ? attrs.src : ''
     const alt = typeof attrs.alt === 'string' && attrs.alt !== '' ? attrs.alt : null

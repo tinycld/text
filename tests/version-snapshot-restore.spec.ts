@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG } from '../../app/tests/e2e/helpers'
+import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 import {
     authAsTestUser,
     editorRoot,

@@ -1,5 +1,10 @@
 import { expect, type Page, test } from '@playwright/test'
-import { login, ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
+import {
+    login,
+    ORG_SLUG,
+    TEST_USER_EMAIL,
+    TEST_USER_PASSWORD,
+} from '../../tinycld/tests/e2e/helpers'
 import {
     EDITOR_READY_TIMEOUT,
     editorRoot,

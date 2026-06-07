@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
-import { login, ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../app/tests/e2e/helpers'
+import {
+    login,
+    ORG_SLUG,
+    TEST_USER_EMAIL,
+    TEST_USER_PASSWORD,
+} from '../../tinycld/tests/e2e/helpers'
 
 // Realtime sync + .docx parse + Y.Doc bootstrap blows past the default
 // 30s under worker contention.

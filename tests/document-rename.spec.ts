@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../app/tests/e2e/helpers'
+import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 import {
     EDITOR_REACTION_TIMEOUT,
     TEXT_TEST_TIMEOUT,

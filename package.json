@@ -1,6 +1,6 @@
 {
     "name": "@tinycld/text",
-    "version": "0.0.3",
+    "version": "0.1.0",
     "private": true,
     "type": "module",
     "description": "Plain-text and rich-text documents.",

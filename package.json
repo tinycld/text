@@ -62,7 +62,7 @@
         "expo-router": ">=55.0.0",
         "lucide-react-native": ">=0.400.0",
         "markdown-it": "^14.1.1",
-        "pbtsdb": ">=0.5",
+        "pbtsdb": ">=0.6.3",
         "pocketbase": "^0.26.8",
         "prosemirror-model": "^1.25.7",
         "prosemirror-state": "^1.4.4",

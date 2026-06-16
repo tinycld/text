@@ -27,12 +27,21 @@ const buildDir = resolve(here, 'build')
 const appShellRoot = process.env.TINYCLD_APP_ROOT ?? resolve(here, '../../../../tinycld')
 const appShellNodeModules = resolve(appShellRoot, 'node_modules')
 
+// Under `nodeLinker: hoisted`, the third-party deps this bundle pulls in
+// (react-dom, @tiptap, yjs, …) live in the WORKSPACE-ROOT node_modules, not the
+// app shell's. esbuild's own walk-up finds them in the dev layout, but breaks in
+// the EAS cloud build where @tinycld/core is reached via a symlink — so add the
+// workspace-root node_modules to nodePaths explicitly. TINYCLD_WS_ROOT is set by
+// the generator's runPackageBuilds; fall back to one level above the app shell.
+const wsRoot = process.env.TINYCLD_WS_ROOT ?? resolve(appShellRoot, '..')
+const wsRootNodeModules = resolve(wsRoot, 'node_modules')
+
 async function main() {
     const result = await bundleWebViewEditor({
         entryHtml: resolve(sourceDir, 'index.html'),
         entryScript: resolve(sourceDir, 'entry.tsx'),
         outFile: resolve(buildDir, 'editorHtml.ts'),
-        nodePaths: [appShellNodeModules],
+        nodePaths: [appShellNodeModules, wsRootNodeModules],
     })
     // biome-ignore lint/suspicious/noConsole: build-time helper; surfacing the bundle size is intentional
     console.log(`[text webview-editor] bundled ${result.htmlSize} bytes → ${result.outFile}`)

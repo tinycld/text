@@ -11,7 +11,7 @@ import type {
 } from '@tinycld/drive/lib/upload-to-drive'
 import { DOCX_MIME_TYPE } from './mime'
 import { getTemplate, type TemplateId } from './templates/index'
-import { loadTemplateBlob } from './templates/load-template'
+import { loadTemplateBody } from './templates/load-template'
 
 export interface CreateTextDocumentFromTemplateDeps {
     templateId: TemplateId
@@ -23,18 +23,19 @@ export interface CreateTextDocumentFromTemplateDeps {
 // We separate the bytes-load failure path from the mutate failure path
 // so a corrupt generated.ts (bad base64, missing id) is reported with
 // the same tag and the call site doesn't have to thread a try/catch
-// just to handle a programmer error. The handler is sync because
-// loadTemplateBlob is sync — base64 decoding doesn't await anything.
-export function createTextDocumentFromTemplate({
+// just to handle a programmer error. The body load is async because the
+// native path writes a temp file (web resolves synchronously); we await
+// it before mutate so a load failure never reaches the mutation.
+export async function createTextDocumentFromTemplate({
     templateId,
     mutate,
     onCreated,
     captureException,
-}: CreateTextDocumentFromTemplateDeps): void {
-    let body: Blob
+}: CreateTextDocumentFromTemplateDeps): Promise<void> {
+    let body: CreateDriveItemInput['body']
     let name: string
     try {
-        body = loadTemplateBlob(templateId)
+        body = await loadTemplateBody(templateId)
         name = getTemplate(templateId).fileName
     } catch (err) {
         captureException('text.createDocFromTemplate', err)

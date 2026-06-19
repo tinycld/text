@@ -58,6 +58,7 @@
         "@tiptap/react": "^3.22.3",
         "@tiptap/starter-kit": "^3.22.3",
         "@tiptap/suggestion": "^3.23.4",
+        "expo-file-system": "~55.0.19",
         "expo-print": "^55.0.14",
         "expo-router": ">=55.0.0",
         "lucide-react-native": ">=0.400.0",

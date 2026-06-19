@@ -48,10 +48,13 @@ export function useCreateBlankTextDocument() {
 
 // Same shape as useCreateBlankTextDocument but takes a templateId at
 // call time so one mutation instance backs all template choices. The
-// underlying helper materializes the embedded bytes synchronously, so
-// switching templates between clicks doesn't require resetting the
-// mutation. Returning the same `{ create, isPending }` tuple keeps the
-// caller code at parity with the blank flow.
+// underlying helper materializes the embedded bytes (async on native,
+// where it writes a temp file), so switching templates between clicks
+// doesn't require resetting the mutation. Returning the same
+// `{ create, isPending }` tuple keeps the caller code at parity with the
+// blank flow. The helper swallows its own failures via captureException;
+// the .catch is a belt-and-suspenders guard against an unhandled
+// rejection escaping the fire-and-forget call.
 export function useCreateTextDocumentFromTemplate() {
     const mutation = useCreateDriveItem()
     const create = useCallback(
@@ -61,7 +64,7 @@ export function useCreateTextDocumentFromTemplate() {
                 mutate: mutation.mutate,
                 onCreated,
                 captureException,
-            })
+            }).catch(err => captureException('text.createDocFromTemplate', err))
         },
         [mutation.mutate]
     )

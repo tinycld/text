@@ -23,11 +23,11 @@ function fakeMutate(impl: (input: unknown, opts: unknown) => void): Mutate {
 }
 
 describe('createTextDocumentFromTemplate', () => {
-    it('passes a docx-tagged Blob built from the template bytes to mutate', () => {
+    it('passes a docx-tagged Blob built from the template bytes to mutate', async () => {
         const mutate = vi.fn()
         const onCreated = vi.fn()
         const captureException = vi.fn()
-        createTextDocumentFromTemplate({
+        await createTextDocumentFromTemplate({
             templateId: 'letter',
             mutate: mutate as unknown as Mutate,
             onCreated,
@@ -47,14 +47,14 @@ describe('createTextDocumentFromTemplate', () => {
         expect(input.name).toBe(getTemplate('letter').fileName)
     })
 
-    it('routes the freshly-minted itemId via onCreated on success', () => {
+    it('routes the freshly-minted itemId via onCreated on success', async () => {
         const mutate = fakeMutate((_input, opts) => {
             const onSuccess = (opts as { onSuccess?: (r: unknown) => void } | undefined)?.onSuccess
             onSuccess?.({ itemId: 'doc-abc', finalName: 'Resume.docx', parentId: '' })
         })
         const onCreated = vi.fn()
         const captureException = vi.fn()
-        createTextDocumentFromTemplate({
+        await createTextDocumentFromTemplate({
             templateId: 'resume',
             mutate,
             onCreated,
@@ -64,7 +64,7 @@ describe('createTextDocumentFromTemplate', () => {
         expect(captureException).not.toHaveBeenCalled()
     })
 
-    it('reports mutate failures via captureException with the text.createDocFromTemplate tag', () => {
+    it('reports mutate failures via captureException with the text.createDocFromTemplate tag', async () => {
         const boom = new Error('drive offline')
         const mutate = fakeMutate((_input, opts) => {
             const onError = (opts as { onError?: (e: unknown) => void } | undefined)?.onError
@@ -72,7 +72,7 @@ describe('createTextDocumentFromTemplate', () => {
         })
         const onCreated = vi.fn()
         const captureException = vi.fn()
-        createTextDocumentFromTemplate({
+        await createTextDocumentFromTemplate({
             templateId: 'report',
             mutate,
             onCreated,
@@ -85,11 +85,11 @@ describe('createTextDocumentFromTemplate', () => {
         expect(onCreated).not.toHaveBeenCalled()
     })
 
-    it('reports a missing template id via captureException without calling mutate', () => {
+    it('reports a missing template id via captureException without calling mutate', async () => {
         const mutate = vi.fn()
         const onCreated = vi.fn()
         const captureException = vi.fn()
-        createTextDocumentFromTemplate({
+        await createTextDocumentFromTemplate({
             templateId: 'bogus' as TemplateId,
             mutate: mutate as unknown as Mutate,
             onCreated,

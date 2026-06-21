@@ -50,12 +50,14 @@ test.describe('Text No-File panel', () => {
         })
 
         // The upload card hides its <input type="file"> behind a label
-        // wrapper; setInputFiles targets the input directly. The fixture
-        // is the seeded tests/assets/feature-test.docx — the same one
+        // wrapper; target the panel's input by testid — a bare
+        // input[type="file"] selector also matches frozen sibling screens the
+        // app shell keeps mounted (freezeOnBlur), tripping strict mode. The
+        // fixture is the seeded tests/assets/feature-test.docx — the same one
         // the other text e2e specs use, with a known "Sample Document"
         // heading at the top.
         const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
-        await page.locator('input[type="file"]').setInputFiles(fixturePath)
+        await page.getByTestId('nofile-upload-input').setInputFiles(fixturePath)
 
         // Single .docx upload routes straight to the editor.
         await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })

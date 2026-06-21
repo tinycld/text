@@ -5,7 +5,6 @@ import {
     editorRoot,
     openFreshTextDocument,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     waitForEditor,
 } from './_menubar-helpers'
 
@@ -35,8 +34,6 @@ import {
 // the bytes of the .docx file.
 
 test.describe('Text — Version snapshot + restore', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('snapshot at v1 → edit → restore → original content returns', async ({ page }) => {
         const itemId = await openFreshTextDocument(page, 'version-restore')
         await editorRoot(page).click()
@@ -49,7 +46,7 @@ test.describe('Text — Version snapshot + restore', () => {
         await page.keyboard.press('Enter')
         const v1Marker = `version 1 content ${Date.now()}`
         await page.keyboard.type(v1Marker, { delay: 20 })
-        await expect(page.getByText(v1Marker)).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText(v1Marker)).toBeVisible()
 
         // Give the save coordinator past its debounce window before
         // snapshotting. SaveCoordinator.DefaultDebounceInterval is 3s
@@ -95,7 +92,7 @@ test.describe('Text — Version snapshot + restore', () => {
         await page.keyboard.press('Enter')
         const v2Marker = `plus more ${Date.now()}`
         await page.keyboard.type(v2Marker, { delay: 20 })
-        await expect(page.getByText(v2Marker)).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText(v2Marker)).toBeVisible()
 
         // Navigate the page away from the doc BEFORE issuing the
         // restore. Once this tab's WebSocket disconnects (the only
@@ -135,7 +132,7 @@ test.describe('Text — Version snapshot + restore', () => {
         await waitForEditor(page)
 
         // v1 marker is back; v2 marker is gone.
-        await expect(page.getByText(v1Marker)).toBeVisible({ timeout: 15_000 })
-        await expect(page.getByText(v2Marker)).not.toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText(v1Marker)).toBeVisible()
+        await expect(page.getByText(v2Marker)).not.toBeVisible()
     })
 })

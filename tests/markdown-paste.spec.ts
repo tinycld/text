@@ -1,19 +1,11 @@
 import { expect, test } from '@playwright/test'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    openMenubarMenu,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Markdown text put on the clipboard and then routed through
 // Edit → Paste as Markdown should land in the editor as structured PM
 // content (headings, lists, strong marks) — not as a literal string of
 // `# Heading\n- item` characters.
 test.describe('Text — Markdown paste', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('Paste as Markdown entry is visible in the Edit menu', async ({ page }) => {
         await openFreshTextDocument(page, 'md-paste-visible')
         await openMenubarMenu(page, 'Edit')
@@ -48,7 +40,7 @@ test.describe('Text — Markdown paste', () => {
         // Assert the parsed Markdown landed as live PM nodes inside the
         // editor: heading → <h1>, list → <ul><li>, **bold word** → <strong>.
         const h1 = editorRoot(page).locator('h1', { hasText: 'Hello from MD' }).first()
-        await expect(h1).toBeVisible({ timeout: 15_000 })
+        await expect(h1).toBeVisible()
 
         const ul = editorRoot(page)
             .locator('ul')
@@ -56,10 +48,10 @@ test.describe('Text — Markdown paste', () => {
                 has: page.locator('li', { hasText: 'one' }),
             })
             .first()
-        await expect(ul).toBeVisible({ timeout: 15_000 })
-        await expect(ul.locator('li')).toHaveCount(2, { timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(ul).toBeVisible()
+        await expect(ul.locator('li')).toHaveCount(2)
 
         const strong = editorRoot(page).locator('strong', { hasText: 'bold word' }).first()
-        await expect(strong).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(strong).toBeVisible()
     })
 })

@@ -1,6 +1,14 @@
 import { ulid } from 'ulid'
 
-const IDLE_TIMEOUT_MS = 30_000
+// Idle window after which the next suggestion edit mints a fresh suggestionId
+// (so a run of typing groups into one reviewable suggestion, and a pause
+// starts a new one). 30s in production. The e2e bundle inlines
+// EXPO_PUBLIC_TEXT_SUGGESTION_IDLE_MS=1000 (set in scripts/export-web.ts) so
+// the bulk-resolve spec can mint three distinct suggestions in a few seconds
+// instead of sleeping out a 30s window twice. Mirrors the server-side
+// TINYCLD_EDIT_EVENT_WINDOW_MS override. EXPO_PUBLIC_* vars are inlined at
+// bundle time, so this is a compile-time constant in any given build.
+const IDLE_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_TEXT_SUGGESTION_IDLE_MS) || 30_000
 
 export interface SuggestionSession {
     // touch records a user-driven edit and returns the suggestionId

@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Image wrap toolbar v1: clicking a selected image surfaces a row of
 // four mode buttons (inline / left / right / break) above the image.
@@ -33,8 +28,6 @@ function makePngBuffer(): Buffer {
 }
 
 test.describe('Text — Image wrap toolbar', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('each toolbar button writes the matching data-wrap attribute', async ({ page }) => {
         await openFreshTextDocument(page, 'image-wrap')
 
@@ -52,7 +45,7 @@ test.describe('Text — Image wrap toolbar', () => {
         })
 
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
-        await expect(inserted).toBeVisible({ timeout: 30_000 })
+        await expect(inserted).toBeVisible()
 
         // The image renders inside the React NodeView's wrapper span. The
         // NodeView mounts a beat after the raw <img> first paints, so wait
@@ -60,13 +53,13 @@ test.describe('Text — Image wrap toolbar', () => {
         // host for both the data-wrap attribute and the toolbar. There's a
         // single image in this doc, so the first wrapper is ours.
         const wrapper = editorRoot(page).locator('[data-node-view-wrapper]').first()
-        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toBeVisible()
 
         // Selecting the image flips the NodeView's `selected` prop and
         // mounts the toolbar + resize handles.
         await inserted.click()
         const toolbar = editorRoot(page).locator('[data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(toolbar).toBeVisible()
 
         // All four mode buttons render in order.
         await expect(toolbar.locator('[data-image-wrap-mode]')).toHaveCount(4)
@@ -82,7 +75,7 @@ test.describe('Text — Image wrap toolbar', () => {
         async function clickWrapMode(mode: string) {
             await inserted.click()
             const btn = toolbar.locator(`[data-image-wrap-mode="${mode}"]`)
-            await expect(btn).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await expect(btn).toBeVisible()
             await btn.click()
         }
 
@@ -94,24 +87,19 @@ test.describe('Text — Image wrap toolbar', () => {
             // parallel-worker contention that microtask can be starved
             // for several seconds. Wait the shared reaction budget rather
             // than assuming same-tick paint.
-            await expect(wrapper).toHaveAttribute('data-wrap', mode, {
-                timeout: EDITOR_REACTION_TIMEOUT,
-            })
+            await expect(wrapper).toHaveAttribute('data-wrap', mode)
         }
 
         // Click inline — the wrapper should LOSE the data-wrap attribute
         // entirely (inline mode = absence-of-attribute).
         await clickWrapMode('inline')
-        await expect(wrapper).not.toHaveAttribute('data-wrap', /.*/, {
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(wrapper).not.toHaveAttribute('data-wrap', /.*/)
     })
 
     test('wrap mode persists through reload (Yjs round-trip)', async ({ page }) => {
         // Upload an image, set a wrap, then reload and re-bootstrap the
         // whole editor from the server Y.Doc — two full editor boots in
         // one test. Give it headroom over the default budget.
-        test.setTimeout(180_000)
 
         await openFreshTextDocument(page, 'image-wrap-persist')
         await editorRoot(page).click()
@@ -127,18 +115,16 @@ test.describe('Text — Image wrap toolbar', () => {
         })
 
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
-        await expect(inserted).toBeVisible({ timeout: 30_000 })
+        await expect(inserted).toBeVisible()
         // Wait for the NodeView wrapper (single image → first wrapper) so
         // the toolbar is mountable, then select + apply break.
         const wrapper = editorRoot(page).locator('[data-node-view-wrapper]').first()
-        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toBeVisible()
         await inserted.click()
         const breakBtn = editorRoot(page).locator('[data-image-wrap-mode="break"]')
-        await expect(breakBtn).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(breakBtn).toBeVisible()
         await breakBtn.click()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'break', {
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'break')
 
         // Wait past the broker's flush debounce before reloading. The
         // image insert AND the wrap attr both need to reach the server's
@@ -158,11 +144,11 @@ test.describe('Text — Image wrap toolbar', () => {
         // serialization regressed, the attribute would arrive missing or
         // 'inline' on this round-trip.
         await page.reload()
-        await editorRoot(page).waitFor({ timeout: 30_000 })
+        await editorRoot(page).waitFor()
         const reloadedWrapper = editorRoot(page).locator(
             '[data-node-view-wrapper][data-wrap="break"]'
         )
-        await expect(reloadedWrapper).toHaveCount(1, { timeout: 30_000 })
-        await expect(reloadedWrapper.locator('img')).toBeVisible({ timeout: 30_000 })
+        await expect(reloadedWrapper).toHaveCount(1)
+        await expect(reloadedWrapper.locator('img')).toBeVisible()
     })
 })

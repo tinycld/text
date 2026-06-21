@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // End-to-end flow for a block-change suggestion (Phase 5 kind):
 // in Suggesting mode, applying a heading transform to a paragraph
@@ -23,8 +18,6 @@ import {
 // the block.
 
 test.describe('Text — Block-change flow', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('toggle heading in Suggesting → drawer summary → accept transforms block', async ({
         page,
     }) => {
@@ -61,14 +54,12 @@ test.describe('Text — Block-change flow', () => {
                 })
                 .run()
         }, phrase)
-        await expect(page.getByText(phrase)).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText(phrase)).toBeVisible()
 
         // Switch into Suggesting mode via the toolbar dropdown.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         // Place the caret inside the phrase's paragraph. setBlockType
         // (used by toggleHeading) operates on the block containing
@@ -122,9 +113,7 @@ test.describe('Text — Block-change flow', () => {
         // renderHTML serializes the payload as a URL-encoded JSON
         // string on the block element). Wait for the attribute to
         // land on some paragraph in the doc.
-        await expect(page.locator('p[data-block-change]').first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('p[data-block-change]').first()).toBeVisible()
 
         // The phrase still lives inside a <p>, NOT an <h2> — the
         // command layer reverted the user's setBlockType, so the
@@ -134,7 +123,7 @@ test.describe('Text — Block-change flow', () => {
 
         // Open the drawer.
         await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()
-        await expect(page.getByText('Suggestions').first()).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText('Suggestions').first()).toBeVisible()
 
         // The row's "Proposed:" line is composed by
         // summarizeSuggestionEntry → summarizeBlockChange. With a
@@ -142,9 +131,7 @@ test.describe('Text — Block-change flow', () => {
         // change to heading 2" (BLOCK_TYPE_LABELS maps heading +
         // level=2 to "heading 2"; the level isn't repeated as a
         // separate attr fragment).
-        await expect(page.getByText(/Proposed:.*change to heading 2/i).first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.getByText(/Proposed:.*change to heading 2/i).first()).toBeVisible()
 
         // Switch back to Editing mode BEFORE clicking Accept. Same
         // discipline as the format-change spec: the resolver's
@@ -153,7 +140,7 @@ test.describe('Text — Block-change flow', () => {
         // another block-change.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible()
 
         // Click Accept all to resolve the block-change row. The
         // resolver runs setNodeMarkup(pos, headingType, {level:2}) on
@@ -164,8 +151,6 @@ test.describe('Text — Block-change flow', () => {
         // The block transforms into an <h2> containing the phrase. The
         // schema renders heading nodes as <h{level}>, so the phrase
         // now lives inside an <h2>.
-        await expect(page.locator(`h2:has-text("${phrase}")`)).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator(`h2:has-text("${phrase}")`)).toBeVisible()
     })
 })

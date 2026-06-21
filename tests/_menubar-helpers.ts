@@ -8,37 +8,11 @@ import {
     TEST_USER_PASSWORD,
 } from '../../tinycld/tests/e2e/helpers'
 
-// Realtime sync + .docx parse + Y.Doc bootstrap blows past the default
-// 30s under worker contention.
-export const TEXT_TEST_TIMEOUT = 120_000
-
 export const PB_URL = 'http://127.0.0.1:7200'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 export const FEATURE_DOC_HEADING = 'Sample Document'
-
-// Editor readiness budget. Mounting the editor requires: REST upload →
-// drive create-hook → realtime room open → server parses the docx →
-// seeds the Y.Doc → SyncReply → Tiptap binds. End to end that runs well
-// under 30s on an idle machine but can approach a minute when several
-// realtime rooms are booting at once, so callers wait this long for the
-// `.ProseMirror` host and the fixture heading.
-export const EDITOR_READY_TIMEOUT = 60_000
-
-// Budget for assertions that wait on an editor-driven DOM change after a
-// toolbar/menu click — e.g. a NodeView re-render writing `data-wrap`, or
-// a popover/toolbar mounting. These were previously written with 2s–5s
-// timeouts on the assumption that "Yjs/PM transactions are sync within a
-// single click". That assumption holds on an idle machine but NOT under
-// parallel-worker CPU/IO starvation: the PM transaction is synchronous,
-// but the React NodeView re-render that paints the attribute is not, and
-// the realtime broker servicing every worker's room can stall the
-// microtask queue. A single shared, generous budget removes the whole
-// class of "attribute didn't land in 2s" flakes without masking a real
-// regression (a genuinely broken command never lands the attribute at
-// all, so the test still fails — it just takes longer to do so).
-export const EDITOR_REACTION_TIMEOUT = 15_000
 
 interface OrgContext {
     orgId: string
@@ -138,8 +112,8 @@ export function editorRoot(page: Page): Locator {
     return page.locator('.tinycld-document-editor .ProseMirror')
 }
 
-export async function waitForEditor(page: Page, timeout = EDITOR_READY_TIMEOUT): Promise<void> {
-    await expect(editorRoot(page)).toBeVisible({ timeout })
+export async function waitForEditor(page: Page): Promise<void> {
+    await expect(editorRoot(page)).toBeVisible()
 }
 
 // Opens a freshly-uploaded text document and waits for the editor to be
@@ -153,9 +127,11 @@ export async function openTextDocument(page: Page, label: string): Promise<strin
     await login(page)
     await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
     await waitForEditor(page)
-    await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-        timeout: EDITOR_READY_TIMEOUT,
-    })
+    // Scope the heading match to the editor: a bare getByText also matches the
+    // frozen no-file-panel sibling's "<name>.docx" recent-files label (the app
+    // shell keeps prior screens mounted via freezeOnBlur), and .first() can
+    // resolve to that hidden DOM-earlier element.
+    await expect(editorRoot(page).getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
     return itemId
 }
 

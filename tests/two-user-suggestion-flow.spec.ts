@@ -1,11 +1,9 @@
 import { expect, type Page, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_READY_TIMEOUT,
     editorRoot,
     FEATURE_DOC_HEADING,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
@@ -27,15 +25,12 @@ import {
 // adds the cross-tab dimension.
 
 test.describe('Text — Two-user suggestion flow', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('alice suggests insert → bob accepts → alice sees mark gone', async ({ browser }) => {
         // Two browser contexts simulate two collaborators on the same
         // doc. Each context boots its own realtime room + Yjs Doc; we
         // wait on realtime replication between them, so the budget needs
         // headroom over the default. Same envelope the comments
         // concurrent-tabs spec uses.
-        test.setTimeout(180_000)
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('two-user-suggestion'))
         const bob = await createSecondUser()
@@ -50,23 +45,17 @@ test.describe('Text — Two-user suggestion flow', () => {
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
             await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(alicePage)
-            await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
             await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(bobPage)
-            await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             // Alice switches to Suggesting mode via the toolbar dropdown.
             await alicePage.getByRole('button', { name: 'Editor mode' }).click()
             await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
-            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
             // Alice types a marker phrase. In Suggesting mode the
             // command layer rewrites each insert step into addMark
@@ -82,23 +71,17 @@ test.describe('Text — Two-user suggestion flow', () => {
 
             // Alice sees the suggestedInsert decoration on her tab
             // first — local PM transaction landed.
-            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible()
             // Bob's tab sees the same span after realtime replication.
             // The broker fans out the Yjs delta; y-prosemirror on Bob
             // applies it and the schema's renderHTML emits
             // data-suggested-insert just like on Alice's side.
-            await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible({
-                timeout: 15_000,
-            })
-            await expect(bobPage.getByText(marker)).toBeVisible({ timeout: 10_000 })
+            await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible()
+            await expect(bobPage.getByText(marker)).toBeVisible()
 
             // Bob opens the review drawer.
             await bobPage.getByRole('button', { name: 'Open suggestion review drawer' }).click()
-            await expect(bobPage.getByText('Suggestions').first()).toBeVisible({
-                timeout: 5_000,
-            })
+            await expect(bobPage.getByText('Suggestions').first()).toBeVisible()
 
             // The drawer's SuggestionRow renders Alice's user_org id
             // as the authorId via accessibilityLabel "Suggestion by
@@ -108,7 +91,7 @@ test.describe('Text — Two-user suggestion flow', () => {
             // editor (canResolve=true).
             await expect(
                 bobPage.getByRole('button', { name: /^Suggestion by /i }).first()
-            ).toBeVisible({ timeout: 15_000 })
+            ).toBeVisible()
 
             // Bob clicks Accept all. Bob is in Editing mode by
             // default (the menu defaults to Editing on first mount
@@ -122,21 +105,17 @@ test.describe('Text — Two-user suggestion flow', () => {
             // disappears once the resolver's removeMark step lands.
             // (The Y.Map entry persists but the bridge surfaces it
             // as an Orphaned row, separate from the Open list.)
-            await expect(bobPage.locator('[data-suggested-insert]')).toHaveCount(0, {
-                timeout: 10_000,
-            })
+            await expect(bobPage.locator('[data-suggested-insert]')).toHaveCount(0)
 
             // Alice's tab: the suggestedInsert decoration is gone
             // after the Yjs delta replicates. The broker fans Bob's
             // resolver transaction out; y-prosemirror on Alice
             // applies it and the schema strips the attribute.
-            await expect(alicePage.locator('[data-suggested-insert]')).toHaveCount(0, {
-                timeout: 15_000,
-            })
+            await expect(alicePage.locator('[data-suggested-insert]')).toHaveCount(0)
             // The underlying text Alice typed is still in the doc as
             // a regular paragraph run — Accept never removes content,
             // it only strips the suggestion wrapper.
-            await expect(alicePage.getByText(marker)).toBeVisible({ timeout: 5_000 })
+            await expect(alicePage.getByText(marker)).toBeVisible()
         } finally {
             await aliceContext.close()
             await bobContext.close()
@@ -241,5 +220,5 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }

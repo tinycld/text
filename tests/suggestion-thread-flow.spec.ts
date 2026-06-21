@@ -4,7 +4,6 @@ import {
     editorRoot,
     openFreshTextDocument,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
@@ -29,8 +28,6 @@ import {
 // These three tests pin those three contracts.
 
 test.describe('Text — Suggestion thread flow', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('focused row: reply persists as a text_comments row with suggestion_id', async ({
         page,
         request,
@@ -43,9 +40,7 @@ test.describe('Text — Suggestion thread flow', () => {
         // suggestedInsert mark with a fresh suggestionId in the Y.Map.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         await editorRoot(page).click()
         const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -53,31 +48,25 @@ test.describe('Text — Suggestion thread flow', () => {
         await page.keyboard.press('Enter')
         const phrase = `thread reply target ${Date.now()}`
         await page.keyboard.type(phrase, { delay: 25 })
-        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible()
 
         // Wait for the suggestion to materialize in the Y.Map. Read out
         // the single suggestionId so we can scope the PB assertion later.
         const suggestionId = await page
-            .waitForFunction(
-                () => {
-                    const w = window as unknown as {
-                        __tinyTextDoc?: {
-                            getMap: (name: string) => {
-                                size: number
-                                keys: () => Iterable<string>
-                            }
+            .waitForFunction(() => {
+                const w = window as unknown as {
+                    __tinyTextDoc?: {
+                        getMap: (name: string) => {
+                            size: number
+                            keys: () => Iterable<string>
                         }
                     }
-                    const map = w.__tinyTextDoc?.getMap('suggestions')
-                    if (!map || map.size === 0) return null
-                    const first = Array.from(map.keys())[0]
-                    return first ?? null
-                },
-                null,
-                { timeout: 10_000 }
-            )
+                }
+                const map = w.__tinyTextDoc?.getMap('suggestions')
+                if (!map || map.size === 0) return null
+                const first = Array.from(map.keys())[0]
+                return first ?? null
+            }, null)
             .then(handle => handle.jsonValue() as Promise<string>)
         expect(suggestionId).toBeTruthy()
 
@@ -85,10 +74,8 @@ test.describe('Text — Suggestion thread flow', () => {
         // which renders the SuggestionThread body (Task 4). The thread
         // root carries data-testid="suggestion-thread".
         await page.locator('[data-suggested-insert]').first().click()
-        await expect(page.getByText('Suggestions').first()).toBeVisible({ timeout: 5_000 })
-        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
-            timeout: 5_000,
-        })
+        await expect(page.getByText('Suggestions').first()).toBeVisible()
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible()
 
         // Reply through the composer. The composer's textbox carries the
         // accessibility label "body" from the underlying MentionInput
@@ -120,12 +107,12 @@ test.describe('Text — Suggestion thread flow', () => {
         // Acts as the deterministic "form submission landed" signal —
         // assert this BEFORE the PB-side check so a slow live query
         // doesn't mask a no-op click.
-        await expect(composer).toHaveValue('', { timeout: 10_000 })
+        await expect(composer).toHaveValue('')
 
         // PB-side: the row landed with suggestion_id set + a synthetic
         // comment_id distinct from the suggestionId (the adapter uses
         // newRecordId() for the comment_id discriminator).
-        const row = await waitForTextCommentBySuggestion(request, suggestionId, 15_000)
+        const row = await waitForTextCommentBySuggestion(request, suggestionId)
         expect(row).toBeTruthy()
         expect(row?.suggestion_id).toBe(suggestionId)
         expect(row?.body).toBe(replyBody)
@@ -143,7 +130,6 @@ test.describe('Text — Suggestion thread flow', () => {
         // posts a suggestion + a reply mentioning Bob; we then assert
         // Bob's notifications row lands with ?focusSuggestion=<id> so
         // clicking it deep-links into the focused thread on the doc.
-        test.setTimeout(180_000)
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('sug-thread-mention'))
         const bob = await createSecondUser()
@@ -159,46 +145,36 @@ test.describe('Text — Suggestion thread flow', () => {
             // Alice writes a suggestion.
             await alicePage.getByRole('button', { name: 'Editor mode' }).click()
             await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
-            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible()
             await editorRoot(alicePage).click()
             const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
             await alicePage.keyboard.press(`${meta}+End`)
             await alicePage.keyboard.press('Enter')
             const phrase = `mention target ${Date.now()}`
             await alicePage.keyboard.type(phrase, { delay: 25 })
-            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible()
 
             // Capture the suggestionId so we can assert the deep-link URL.
             const suggestionId = await alicePage
-                .waitForFunction(
-                    () => {
-                        const w = window as unknown as {
-                            __tinyTextDoc?: {
-                                getMap: (name: string) => {
-                                    size: number
-                                    keys: () => Iterable<string>
-                                }
+                .waitForFunction(() => {
+                    const w = window as unknown as {
+                        __tinyTextDoc?: {
+                            getMap: (name: string) => {
+                                size: number
+                                keys: () => Iterable<string>
                             }
                         }
-                        const map = w.__tinyTextDoc?.getMap('suggestions')
-                        if (!map || map.size === 0) return null
-                        const first = Array.from(map.keys())[0]
-                        return first ?? null
-                    },
-                    null,
-                    { timeout: 10_000 }
-                )
+                    }
+                    const map = w.__tinyTextDoc?.getMap('suggestions')
+                    if (!map || map.size === 0) return null
+                    const first = Array.from(map.keys())[0]
+                    return first ?? null
+                }, null)
                 .then(handle => handle.jsonValue() as Promise<string>)
 
             // Click the decoration to focus the row's thread.
             await alicePage.locator('[data-suggested-insert]').first().click()
-            await expect(alicePage.locator('[data-testid="suggestion-thread"]')).toBeVisible({
-                timeout: 5_000,
-            })
+            await expect(alicePage.locator('[data-testid="suggestion-thread"]')).toBeVisible()
 
             // Type a reply with an embedded mention token. The wire
             // format `[[@<userOrgId>]]` is what the composer would emit
@@ -214,18 +190,13 @@ test.describe('Text — Suggestion thread flow', () => {
 
             // Wait for the comment to land in PB so we can pin the
             // mention assertion to its id.
-            const comment = await waitForTextCommentBySuggestion(request, suggestionId, 10_000)
+            const comment = await waitForTextCommentBySuggestion(request, suggestionId)
             expect(comment).toBeTruthy()
             expect(comment?.suggestion_id).toBe(suggestionId)
 
             // The composer wrote one comment_mentions row pointing at
             // Bob's user_org. The notify hook keys off that insert.
-            const mention = await waitForCommentMention(
-                request,
-                comment?.id ?? '',
-                bob.userOrgId,
-                5_000
-            )
+            const mention = await waitForCommentMention(request, comment?.id ?? '', bob.userOrgId)
             expect(mention).toBeTruthy()
             expect(mention?.mentioned_user_org).toBe(bob.userOrgId)
             expect(mention?.comment_collection).toBe('text_comments')
@@ -235,13 +206,7 @@ test.describe('Text — Suggestion thread flow', () => {
             // notify hook's URL builder treats suggestion_id as the
             // priority discriminator: if set, the URL uses
             // ?focusSuggestion=<id> instead of ?thread=<thread>.
-            const notif = await waitForNotification(
-                request,
-                bob.id,
-                'comment_mention',
-                itemId,
-                15_000
-            )
+            const notif = await waitForNotification(request, bob.id, 'comment_mention', itemId)
             expect(notif).toBeTruthy()
             expect(notif?.type).toBe('comment_mention')
             expect(notif?.url).toContain(`/${itemId}?focusSuggestion=${suggestionId}`)
@@ -262,38 +227,30 @@ test.describe('Text — Suggestion thread flow', () => {
         // Switch to Suggesting → type → mark lands.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
         await editorRoot(page).click()
         const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
         await page.keyboard.press(`${meta}+End`)
         await page.keyboard.press('Enter')
         const phrase = `archive target ${Date.now()}`
         await page.keyboard.type(phrase, { delay: 25 })
-        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible()
 
         const suggestionId = await page
-            .waitForFunction(
-                () => {
-                    const w = window as unknown as {
-                        __tinyTextDoc?: {
-                            getMap: (name: string) => {
-                                size: number
-                                keys: () => Iterable<string>
-                            }
+            .waitForFunction(() => {
+                const w = window as unknown as {
+                    __tinyTextDoc?: {
+                        getMap: (name: string) => {
+                            size: number
+                            keys: () => Iterable<string>
                         }
                     }
-                    const map = w.__tinyTextDoc?.getMap('suggestions')
-                    if (!map || map.size === 0) return null
-                    const first = Array.from(map.keys())[0]
-                    return first ?? null
-                },
-                null,
-                { timeout: 10_000 }
-            )
+                }
+                const map = w.__tinyTextDoc?.getMap('suggestions')
+                if (!map || map.size === 0) return null
+                const first = Array.from(map.keys())[0]
+                return first ?? null
+            }, null)
             .then(handle => handle.jsonValue() as Promise<string>)
 
         // Switch to Editing so the resolver's mark-strip isn't
@@ -302,13 +259,11 @@ test.describe('Text — Suggestion thread flow', () => {
         // would re-stamp the text as another suggestion).
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible()
 
         // Focus the row → thread body visible → post a reply.
         await page.locator('[data-suggested-insert]').first().click()
-        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
-            timeout: 5_000,
-        })
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible()
         const composer = page.getByRole('textbox', { name: 'body' }).first()
         await composer.click()
         await composer.fill(`pre-archive reply ${Date.now()}`)
@@ -316,7 +271,7 @@ test.describe('Text — Suggestion thread flow', () => {
         await composer.press('Enter')
 
         // Reply lands in PB with archived_at empty (live row).
-        const reply = await waitForTextCommentBySuggestion(request, suggestionId, 5_000)
+        const reply = await waitForTextCommentBySuggestion(request, suggestionId)
         expect(reply).toBeTruthy()
         expect(reply?.archived_at ?? '').toBe('')
 
@@ -331,15 +286,13 @@ test.describe('Text — Suggestion thread flow', () => {
 
         // Y.Map empties out — the auto-delete pass landed.
         await expect
-            .poll(
-                async () =>
-                    page.evaluate(() => {
-                        const w = window as unknown as {
-                            __tinyTextDoc?: { getMap: (n: string) => { size: number } }
-                        }
-                        return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
-                    }),
-                { timeout: 15_000 }
+            .poll(async () =>
+                page.evaluate(() => {
+                    const w = window as unknown as {
+                        __tinyTextDoc?: { getMap: (n: string) => { size: number } }
+                    }
+                    return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
+                })
             )
             .toBe(0)
 
@@ -348,13 +301,10 @@ test.describe('Text — Suggestion thread flow', () => {
         // 15s gives the goroutine a generous window even under worker
         // contention.
         await expect
-            .poll(
-                async () => {
-                    const row = await fetchTextCommentById(request, reply?.id ?? '')
-                    return row?.archived_at ?? ''
-                },
-                { timeout: 15_000 }
-            )
+            .poll(async () => {
+                const row = await fetchTextCommentById(request, reply?.id ?? '')
+                return row?.archived_at ?? ''
+            })
             .not.toBe('')
     })
 })
@@ -390,26 +340,26 @@ interface TextCommentRow {
 // reply per test so a single match is the expected shape.
 async function waitForTextCommentBySuggestion(
     request: import('@playwright/test').APIRequestContext,
-    suggestionId: string,
-    timeoutMs: number
+    suggestionId: string
 ): Promise<TextCommentRow | null> {
     const token = await adminToken(request)
     if (!token) return null
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-        const res = await request.get(
-            `${PB_URL}/api/collections/text_comments/records?filter=${encodeURIComponent(
-                `suggestion_id='${suggestionId}'`
-            )}&perPage=5&sort=-created`,
-            { headers: { Authorization: token } }
-        )
-        if (res.ok()) {
+    let row: TextCommentRow | undefined
+    await expect
+        .poll(async () => {
+            const res = await request.get(
+                `${PB_URL}/api/collections/text_comments/records?filter=${encodeURIComponent(
+                    `suggestion_id='${suggestionId}'`
+                )}&perPage=5&sort=-created`,
+                { headers: { Authorization: token } }
+            )
+            if (!res.ok()) return undefined
             const body = (await res.json()) as { items: TextCommentRow[] }
-            if (body.items.length > 0) return body.items[0]
-        }
-        await new Promise(r => setTimeout(r, 200))
-    }
-    return null
+            row = body.items[0]
+            return row
+        })
+        .toBeTruthy()
+    return row ?? null
 }
 
 async function fetchTextCommentById(
@@ -435,53 +385,52 @@ interface CommentMentionRow {
 async function waitForCommentMention(
     request: import('@playwright/test').APIRequestContext,
     commentRecord: string,
-    mentionedUserOrgId: string,
-    timeoutMs: number
+    mentionedUserOrgId: string
 ): Promise<CommentMentionRow | null> {
     const token = await adminToken(request)
     if (!token) return null
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-        const res = await request.get(
-            `${PB_URL}/api/collections/comment_mentions/records?filter=${encodeURIComponent(
-                `comment_record='${commentRecord}' && mentioned_user_org='${mentionedUserOrgId}'`
-            )}&perPage=5`,
-            { headers: { Authorization: token } }
-        )
-        if (res.ok()) {
+    let row: CommentMentionRow | undefined
+    await expect
+        .poll(async () => {
+            const res = await request.get(
+                `${PB_URL}/api/collections/comment_mentions/records?filter=${encodeURIComponent(
+                    `comment_record='${commentRecord}' && mentioned_user_org='${mentionedUserOrgId}'`
+                )}&perPage=5`,
+                { headers: { Authorization: token } }
+            )
+            if (!res.ok()) return undefined
             const body = (await res.json()) as { items: CommentMentionRow[] }
-            if (body.items.length > 0) return body.items[0]
-        }
-        await new Promise(r => setTimeout(r, 200))
-    }
-    return null
+            row = body.items[0]
+            return row
+        })
+        .toBeTruthy()
+    return row ?? null
 }
 
 async function waitForNotification(
     request: import('@playwright/test').APIRequestContext,
     userId: string,
     type: string,
-    driveItemId: string,
-    timeoutMs: number
+    driveItemId: string
 ): Promise<{ type: string; url: string } | null> {
     const token = await adminToken(request)
     if (!token) return null
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-        const res = await request.get(
-            `${PB_URL}/api/collections/notifications/records?filter=${encodeURIComponent(
-                `user='${userId}' && type='${type}'`
-            )}&perPage=10&sort=-created`,
-            { headers: { Authorization: token } }
-        )
-        if (res.ok()) {
+    let match: { type: string; url: string } | undefined
+    await expect
+        .poll(async () => {
+            const res = await request.get(
+                `${PB_URL}/api/collections/notifications/records?filter=${encodeURIComponent(
+                    `user='${userId}' && type='${type}'`
+                )}&perPage=10&sort=-created`,
+                { headers: { Authorization: token } }
+            )
+            if (!res.ok()) return undefined
             const body = (await res.json()) as { items: Array<{ type: string; url: string }> }
-            const match = body.items.find(n => n.url.includes(driveItemId))
-            if (match) return match
-        }
-        await new Promise(r => setTimeout(r, 200))
-    }
-    return null
+            match = body.items.find(n => n.url.includes(driveItemId))
+            return match
+        })
+        .toBeTruthy()
+    return match ?? null
 }
 
 // ---- Second-user helpers (inlined per the established directory convention) ----
@@ -577,5 +526,5 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }

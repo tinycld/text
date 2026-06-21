@@ -4,7 +4,7 @@ import type { AnchoredSuggestion } from '../../hooks/use-document-suggestions'
 // the static header + inline focused-state body (the discussion thread
 // shows underneath the row when isFocused). SuggestionRow.native.tsx
 // renders ONLY the header — the focused-state body lives in a
-// screen-scoped <SuggestionThreadSheet /> Actionsheet on native.
+// screen-scoped <SuggestionThreadSheet /> bottom sheet on native.
 //
 // This .d.ts mirrors the use-suggestion-bridge pattern: Metro and the
 // vitest resolver pick the right .web.tsx / .native.tsx variant via

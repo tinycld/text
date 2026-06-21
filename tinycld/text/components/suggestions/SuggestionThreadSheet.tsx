@@ -1,11 +1,5 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import {
-    Actionsheet,
-    ActionsheetBackdrop,
-    ActionsheetContent,
-    ActionsheetDragIndicator,
-    ActionsheetDragIndicatorWrapper,
-} from '@tinycld/core/ui/actionsheet'
+import { BottomDrawer } from '@tinycld/core/ui/bottom-drawer'
 import { X } from 'lucide-react-native'
 import { Platform, Pressable, Text, View } from 'react-native'
 import { useStore } from 'zustand'
@@ -28,7 +22,7 @@ export interface SuggestionThreadSheetProps {
     store: ReviewDrawerStore
 }
 
-// SuggestionThreadSheet — native-only Actionsheet that rises whenever
+// SuggestionThreadSheet — native-only bottom sheet that rises whenever
 // reviewDrawerStore.focusedSuggestionId points at a suggestion that
 // exists in the current bridge snapshot. Wraps <SuggestionThread />
 // (the same component the web variant of SuggestionRow renders inline
@@ -86,25 +80,19 @@ function NativeSuggestionThreadSheet({
     if (!isOpen || !focused) return null
 
     return (
-        <Actionsheet isOpen={isOpen} onClose={handleClose}>
-            <ActionsheetBackdrop />
-            <ActionsheetContent>
-                <ActionsheetDragIndicatorWrapper>
-                    <ActionsheetDragIndicator />
-                </ActionsheetDragIndicatorWrapper>
-                <View className="w-full gap-2 px-2 py-2">
-                    <Header onClose={handleClose} />
-                    <SuggestionThread
-                        suggestion={focused}
-                        driveItemId={driveItemId}
-                        authorUserOrgId={authorUserOrgId}
-                        canResolve={canResolve}
-                        onAccept={() => onAccept(focused.id)}
-                        onReject={() => onReject(focused.id)}
-                    />
-                </View>
-            </ActionsheetContent>
-        </Actionsheet>
+        <BottomDrawer isOpen={isOpen} onClose={handleClose}>
+            <View className="w-full gap-2 px-4 py-2">
+                <Header onClose={handleClose} />
+                <SuggestionThread
+                    suggestion={focused}
+                    driveItemId={driveItemId}
+                    authorUserOrgId={authorUserOrgId}
+                    canResolve={canResolve}
+                    onAccept={() => onAccept(focused.id)}
+                    onReject={() => onReject(focused.id)}
+                />
+            </View>
+        </BottomDrawer>
     )
 }
 

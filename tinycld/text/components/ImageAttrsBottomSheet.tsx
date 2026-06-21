@@ -1,12 +1,6 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import {
-    Actionsheet,
-    ActionsheetBackdrop,
-    ActionsheetContent,
-    ActionsheetDragIndicator,
-    ActionsheetDragIndicatorWrapper,
-} from '@tinycld/core/ui/actionsheet'
+import { BottomDrawer } from '@tinycld/core/ui/bottom-drawer'
 import { X } from 'lucide-react-native'
 import { Platform, Pressable, Text, View } from 'react-native'
 import { IMAGE_MAX_WIDTH } from '../lib/image-resize'
@@ -23,7 +17,7 @@ import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 // a NodeView overlay (ImageNodeView.web.tsx) for the same wrap-mode +
 // size operations; on native the WebView renders bare <img>s with no
 // place to anchor in-document chrome, so we surface the controls as
-// an Actionsheet anchored to the screen bottom.
+// a BottomDrawer anchored to the screen bottom.
 //
 // Flow:
 //   - WebView's Editor.tsx broadcasts ui.selection-changed whenever
@@ -86,44 +80,38 @@ function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands })
     }
 
     return (
-        <Actionsheet isOpen={isOpen} onClose={clearSelection}>
-            <ActionsheetBackdrop />
-            <ActionsheetContent>
-                <ActionsheetDragIndicatorWrapper>
-                    <ActionsheetDragIndicator />
-                </ActionsheetDragIndicatorWrapper>
-                <View className="w-full gap-4 px-2 py-3">
-                    <Header onClose={clearSelection} />
-                    <Section label="Wrap">
-                        <View className="flex-row flex-wrap gap-2">
-                            {IMAGE_WRAP_MODES.map(mode => (
-                                <WrapChip
-                                    key={mode}
-                                    label={WRAP_LABELS[mode]}
-                                    isActive={mode === activeMode}
-                                    onPress={() => onWrapPress(mode)}
-                                />
-                            ))}
-                        </View>
-                    </Section>
-                    <Section
-                        label="Size"
-                        hint={sizeAvailable ? `Max width ${IMAGE_MAX_WIDTH}px` : 'Loading image…'}
-                    >
-                        <View className="flex-row flex-wrap gap-2">
-                            {IMAGE_SIZE_PRESETS.map(preset => (
-                                <SizeChip
-                                    key={preset.id}
-                                    label={preset.label}
-                                    disabled={!sizeAvailable}
-                                    onPress={() => onSizePress(preset)}
-                                />
-                            ))}
-                        </View>
-                    </Section>
-                </View>
-            </ActionsheetContent>
-        </Actionsheet>
+        <BottomDrawer isOpen={isOpen} onClose={clearSelection}>
+            <View className="w-full gap-4 px-4 py-3">
+                <Header onClose={clearSelection} />
+                <Section label="Wrap">
+                    <View className="flex-row flex-wrap gap-2">
+                        {IMAGE_WRAP_MODES.map(mode => (
+                            <WrapChip
+                                key={mode}
+                                label={WRAP_LABELS[mode]}
+                                isActive={mode === activeMode}
+                                onPress={() => onWrapPress(mode)}
+                            />
+                        ))}
+                    </View>
+                </Section>
+                <Section
+                    label="Size"
+                    hint={sizeAvailable ? `Max width ${IMAGE_MAX_WIDTH}px` : 'Loading image…'}
+                >
+                    <View className="flex-row flex-wrap gap-2">
+                        {IMAGE_SIZE_PRESETS.map(preset => (
+                            <SizeChip
+                                key={preset.id}
+                                label={preset.label}
+                                disabled={!sizeAvailable}
+                                onPress={() => onSizePress(preset)}
+                            />
+                        ))}
+                    </View>
+                </Section>
+            </View>
+        </BottomDrawer>
     )
 }
 

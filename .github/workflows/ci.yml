@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The validation branch is included so CI runs while this PR is stacked on
+    # the (unmerged) bottom-drawer migration branch rather than main; the
+    # pull_request trigger only fires for PRs targeting main. Drop the extra
+    # branch once this retargets to main.
+    branches: [main, ci/static-serve-on-bottomsheets]
   pull_request:
     branches: [main]
 

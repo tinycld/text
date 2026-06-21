@@ -3,7 +3,6 @@ import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tes
 import {
     editorRoot,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
@@ -34,8 +33,6 @@ import {
 // same doc so the writer's edits are recorded.
 
 test.describe('Text — Activity tab', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('edits → 1s idle → activity row appears (with audience present)', async ({ browser }) => {
         // Upload the doc + share with a second user up front, before
         // any browser context exists. shareDriveItemWith grants the
@@ -66,12 +63,10 @@ test.describe('Text — Activity tab', () => {
             // Open the drawer on the writer's page so the Activity
             // empty-state copy is pinned before any edits have landed.
             await writer.getByRole('button', { name: 'Open suggestion review drawer' }).click()
-            await expect(writer.getByText('Suggestions').first()).toBeVisible({
-                timeout: 5_000,
-            })
+            await expect(writer.getByText('Suggestions').first()).toBeVisible()
 
             await writer.getByRole('tab', { name: 'Activity' }).click()
-            await expect(writer.getByText(/No activity yet/i)).toBeVisible({ timeout: 5_000 })
+            await expect(writer.getByText(/No activity yet/i)).toBeVisible()
 
             // Re-focus the editor (tab click moved focus to the drawer)
             // and type a few characters. Each keystroke flows through
@@ -83,7 +78,7 @@ test.describe('Text — Activity tab', () => {
             await writer.keyboard.press('Enter')
             const marker = `activity-${Date.now()}`
             await writer.keyboard.type(marker, { delay: 25 })
-            await expect(writer.getByText(marker).first()).toBeVisible({ timeout: 10_000 })
+            await expect(writer.getByText(marker).first()).toBeVisible()
 
             // Wait past the shortened window so the buffer's per-
             // clientID timer fires and writes an EditEvent into
@@ -91,9 +86,7 @@ test.describe('Text — Activity tab', () => {
             // scheduler/network/observer slack.
             await writer.waitForTimeout(2_500)
 
-            await expect(writer.getByText(/made \d+ edits?/i).first()).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(writer.getByText(/made \d+ edits?/i).first()).toBeVisible()
         } finally {
             await writerCtx.close()
             await audienceCtx.close()
@@ -194,5 +187,5 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Slash-menu v1: typing "/" at the start of a node (or after a space)
 // opens a floating command palette listing block-insertion commands.
@@ -10,8 +10,6 @@ import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar
 // merging into the text package's main branch.
 
 test.describe('Text — Slash menu', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('typing "/" opens the slash menu popover', async ({ page }) => {
         await openFreshTextDocument(page, 'slash-open')
         await editorRoot(page).click()

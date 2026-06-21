@@ -1,16 +1,12 @@
 import { expect, type Page, test } from '@playwright/test'
 import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_READY_TIMEOUT,
     editorRoot,
     FEATURE_DOC_HEADING,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
-
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 // Locate the freshly-inserted table by its total cell count. We can't
 // rely on document position — `editorRoot.click()` parks the caret
@@ -40,16 +36,12 @@ async function openTablePopover(page: Page): Promise<void> {
 }
 
 test.describe('Text — Table toolbar', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('not in a table: popover shows grid picker, no row/col options', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-picker'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Put the caret in a paragraph that is NOT inside a table — the
         // H1 at the top of the fixture is a safe anchor.
@@ -73,18 +65,14 @@ test.describe('Text — Table toolbar', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
         // The fixture's tables (Simple + Complex) render asynchronously
         // through the bootstrap → Y.Doc → Tiptap pipeline. Wait for the
         // "Complex Table" h3 to ensure both tables are present before
         // we snapshot the pre-insert count; otherwise the `before` count
         // races the second table and we can pick the wrong .nth() index
         // after our insert.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
 
         // The fixture already contains a few tables. Count them up
         // front so we can assert that the click adds exactly one new
@@ -107,7 +95,7 @@ test.describe('Text — Table toolbar', () => {
         // have exactly four cells: the fixture's existing Simple and
         // Complex tables have 18 and 33 cells respectively, so any
         // 4-cell table can only be a freshly-inserted 2×2.
-        await expect(editorRoot(page).locator('table')).toHaveCount(before + 1, { timeout: 10_000 })
+        await expect(editorRoot(page).locator('table')).toHaveCount(before + 1)
         const cellCounts = await editorRoot(page)
             .locator('table')
             .evaluateAll(tables => tables.map(t => t.querySelectorAll('th,td').length))
@@ -120,16 +108,12 @@ test.describe('Text — Table toolbar', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         // First: insert a table so we have one to land the caret in.
@@ -162,16 +146,12 @@ test.describe('Text — Table toolbar', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         await editorRoot(page).click()
@@ -201,9 +181,7 @@ test.describe('Text — Table toolbar', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Outside any table — borders button should be disabled.
         await editorRoot(page).click()
@@ -226,16 +204,12 @@ test.describe('Text — Table toolbar', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Fixture tables (Simple + Complex) render asynchronously; wait
         // for the second tables-section heading before snapshotting the
         // table count so we don't race the renderer.
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
         const tablesBefore = await editorRoot(page).locator('table').count()
 
         await editorRoot(page).click()
@@ -254,8 +228,6 @@ test.describe('Text — Table toolbar', () => {
         // runs. setCellBorders walks the current cell selection, which
         // for a plain caret defaults to the single enclosing cell — so
         // we expect at least one cell in the new table to be annotated.
-        await expect(insertedTable.locator('[data-borders]').first()).toBeAttached({
-            timeout: 10_000,
-        })
+        await expect(insertedTable.locator('[data-borders]').first()).toBeAttached()
     })
 })

@@ -1,17 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    TEXT_TEST_TIMEOUT,
-    uniqueDocName,
-    uploadDocxAsDriveItem,
-} from './_menubar-helpers'
-
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
+import { uniqueDocName, uploadDocxAsDriveItem } from './_menubar-helpers'
 
 test.describe('Text — Document rename', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('inline rename: click title, type new name, Enter — persists across reload', async ({
         page,
     }) => {
@@ -27,11 +18,11 @@ test.describe('Text — Document rename', () => {
         // it cheap to locate without leaning on a brittle text match
         // (the document index list may also display the same name).
         const titleTrigger = page.getByLabel(`Rename document, currently ${originalName}`)
-        await expect(titleTrigger).toBeVisible({ timeout: 60_000 })
+        await expect(titleTrigger).toBeVisible()
         await titleTrigger.click()
 
         const input = page.getByLabel('Document name')
-        await expect(input).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(input).toBeVisible()
         await expect(input).toBeFocused()
 
         await page.keyboard.press('Meta+A')
@@ -40,14 +31,10 @@ test.describe('Text — Document rename', () => {
 
         // After commit the input swaps back to a static label. The
         // new accessibilityLabel embeds the renamed value.
-        await expect(page.getByLabel(`Rename document, currently ${newName}`)).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.getByLabel(`Rename document, currently ${newName}`)).toBeVisible()
 
         await page.reload()
-        await expect(page.getByLabel(`Rename document, currently ${newName}`)).toBeVisible({
-            timeout: 60_000,
-        })
+        await expect(page.getByLabel(`Rename document, currently ${newName}`)).toBeVisible()
     })
 
     test('Escape cancels: title reverts and no rename is persisted', async ({ page }) => {
@@ -58,11 +45,11 @@ test.describe('Text — Document rename', () => {
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
 
         const titleTrigger = page.getByLabel(`Rename document, currently ${originalName}`)
-        await expect(titleTrigger).toBeVisible({ timeout: 60_000 })
+        await expect(titleTrigger).toBeVisible()
         await titleTrigger.click()
 
         const input = page.getByLabel('Document name')
-        await expect(input).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(input).toBeVisible()
         await page.keyboard.press('Meta+A')
         await page.keyboard.type('a draft the user backs out of')
         await page.keyboard.press('Escape')
@@ -71,8 +58,6 @@ test.describe('Text — Document rename', () => {
         // rename never reached pbtsdb, so a reload still shows the
         // original — but the in-tab assertion is enough for this
         // case; the persist case above already covers the reload path.
-        await expect(page.getByLabel(`Rename document, currently ${originalName}`)).toBeVisible({
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(page.getByLabel(`Rename document, currently ${originalName}`)).toBeVisible()
     })
 })

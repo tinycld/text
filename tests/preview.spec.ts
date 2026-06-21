@@ -4,7 +4,6 @@ import {
     authAsTestUser,
     FEATURE_DOC_HEADING,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
 } from './_menubar-helpers'
@@ -15,11 +14,7 @@ import {
 // correctness exhaustively); this spec exercises the integration
 // loop: PB drive_item → /api/text/render → iframe content.
 
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
-
 test.describe('Text — Server-rendered preview', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('GET /api/text/render returns an HTML fragment with tinycld-text classes', async ({
         request,
     }) => {
@@ -142,12 +137,10 @@ test.describe('Text — Server-rendered preview', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/drive`)
         const tile = page.getByText(docxName).first()
-        await tile.waitFor({ state: 'visible', timeout: 30_000 })
+        await tile.waitFor({ state: 'visible' })
         await tile.dblclick()
         const iframe = page.frameLocator('iframe[aria-label*="Preview of"]').first()
-        await expect(iframe.locator('article.tinycld-text')).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(iframe.locator('article.tinycld-text')).toBeVisible()
         await expect(iframe.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
     })
 })

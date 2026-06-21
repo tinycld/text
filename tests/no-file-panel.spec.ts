@@ -16,9 +16,7 @@ test.describe('Text No-File panel', () => {
     })
 
     test('renders the headline, sublabel, and three CTA cards', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await expect(page.getByText('Where the next thought lands.')).toBeVisible()
 
         await expect(page.getByRole('button', { name: 'New document' })).toBeVisible()
@@ -33,21 +31,15 @@ test.describe('Text No-File panel', () => {
     })
 
     test('New document creates a document and opens it', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('button', { name: 'New document' }).click()
 
-        await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
-        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
-            timeout: 75_000,
-        })
+        await page.waitForURL(/\/text\/[^/]+$/)
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
     })
 
     test('Upload docx creates a document whose content is editable', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
 
         // The upload card hides its <input type="file"> behind a label
         // wrapper; target the panel's input by testid — a bare
@@ -60,54 +52,55 @@ test.describe('Text No-File panel', () => {
         await page.getByTestId('nofile-upload-input').setInputFiles(fixturePath)
 
         // Single .docx upload routes straight to the editor.
-        await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
-        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
-            timeout: 75_000,
-        })
+        await page.waitForURL(/\/text\/[^/]+$/)
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
 
         // The fixture's H1 must render in the editor — proves the upload
-        // landed and the editor loaded it for editing.
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: 30_000,
-        })
+        // landed and the editor loaded it for editing. Scope the match to the
+        // editor: a bare getByText('Sample Document') also matches the frozen
+        // no-file-panel sibling's recent-files label "Sample Document.docx"
+        // (the app shell keeps prior screens mounted via freezeOnBlur), and
+        // .first() resolves to that hidden DOM-earlier element → toBeVisible
+        // fails even though the editor heading rendered fine.
+        await expect(
+            page
+                .locator('.tinycld-document-editor .ProseMirror')
+                .getByText(FEATURE_DOC_HEADING)
+                .first()
+        ).toBeVisible()
     })
 
     test('Browse Recent navigates to drive recent view', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'Recent' }).click()
-        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/recent/?$`), {
-            timeout: 15_000,
-        })
+        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/recent/?$`))
     })
 
     test('Browse All navigates to drive root', async ({ page }) => {
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'All' }).click()
-        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/?$`), {
-            timeout: 15_000,
-        })
+        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/?$`))
     })
 
     test('the rail reopens the last edited document', async ({ page }) => {
         // Create a document so the rail caches a deep-link.
-        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('button', { name: 'New document' }).click()
-        await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
+        // Wait for the editor to actually render, not just the URL to change.
+        // The rail's deep-link is recorded only once the document's drive item
+        // loads (screens/[id].tsx persists lastPackageHref when `id && item`),
+        // and the editor becoming visible is the user-perceptible proof that
+        // the doc opened — i.e. that the deep-link has been cached. Gating on
+        // the URL alone races that write: a real user sees the doc open before
+        // navigating away, so the test should too.
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
         const editorUrl = page.url()
 
         // Detour through home, then click the Text rail icon — we should
         // land back on the document we just created, not on the panel.
         await page.goto(`/a/${ORG_SLUG}`)
         await page.getByTestId('nav-text').click()
-        await page.waitForURL(editorUrl, { timeout: 15_000 })
-        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
-            timeout: 30_000,
-        })
+        await page.waitForURL(editorUrl)
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
     })
 })

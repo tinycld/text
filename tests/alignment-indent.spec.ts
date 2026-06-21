@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Alignment + indent v1: paragraphs (and headings) can be aligned
 // left / center / right / justify and their left-indent level can
@@ -13,8 +8,6 @@ import {
 // server/translate/alignment_indent_test.go.
 
 test.describe('Text — Alignment & indent', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('clicking Center alignment applies text-align:center to the paragraph', async ({
         page,
     }) => {
@@ -73,8 +66,6 @@ test.describe('Text — Alignment & indent', () => {
         await page.keyboard.press(`${mod}+Shift+R`)
 
         const paragraph = editorRoot(page).locator('p', { hasText: marker }).first()
-        await expect(paragraph).toHaveAttribute('style', /text-align:\s*right/, {
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(paragraph).toHaveAttribute('style', /text-align:\s*right/)
     })
 })

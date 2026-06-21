@@ -1,12 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    openMenubarMenu,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Help drawer package-index mode: the Help menu's "Browse text help"
 // item now opens an in-app drawer with a topic list (no route change).
@@ -19,8 +13,6 @@ import {
 // merging into the text package's main branch.
 
 test.describe('Text — Help drawer package-index mode', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('Help → Browse text help opens the drawer with the text topic list', async ({ page }) => {
         await openFreshTextDocument(page, 'help-drawer-open')
         await editorRoot(page).click()
@@ -37,12 +29,8 @@ test.describe('Text — Help drawer package-index mode', () => {
         // the generated help registry, which can lag a beat under worker
         // contention, so wait the reaction budget rather than the implicit
         // 5s default.
-        await expect(page.getByText(/slash menu/i).first()).toBeVisible({
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
-        await expect(page.getByText(/from a template/i).first()).toBeVisible({
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(page.getByText(/slash menu/i).first()).toBeVisible()
+        await expect(page.getByText(/from a template/i).first()).toBeVisible()
     })
 
     test('clicking a row switches to topic mode and shows a back arrow', async ({ page }) => {
@@ -60,17 +48,15 @@ test.describe('Text — Help drawer package-index mode', () => {
         const templatesRow = page.getByRole('button', {
             name: /Open help topic:.*from a template/i,
         })
-        await expect(templatesRow).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(templatesRow).toBeVisible()
         await templatesRow.click()
 
         // Topic body is now showing — assert on text from the rendered
         // markdown. Every templates topic mentions "template" repeatedly.
-        await expect(page.getByText(/template/i).first()).toBeVisible({
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(page.getByText(/template/i).first()).toBeVisible()
 
         const backArrow = page.getByRole('button', { name: 'Back to package help' })
-        await expect(backArrow).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(backArrow).toBeVisible()
     })
 
     test('back arrow returns to the package list without leaving the drawer', async ({ page }) => {
@@ -82,18 +68,16 @@ test.describe('Text — Help drawer package-index mode', () => {
         const templatesRow = page.getByRole('button', {
             name: /Open help topic:.*from a template/i,
         })
-        await expect(templatesRow).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(templatesRow).toBeVisible()
         await templatesRow.click()
 
         const backArrow = page.getByRole('button', { name: 'Back to package help' })
-        await expect(backArrow).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(backArrow).toBeVisible()
         await backArrow.click()
 
         // The slash-menu row is once again visible — same package
         // index we came from, no route change.
-        await expect(page.getByText(/slash menu/i).first()).toBeVisible({
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(page.getByText(/slash menu/i).first()).toBeVisible()
     })
 
     test('"Read all tinycld help" navigates to the routed hub and dismisses the drawer', async ({

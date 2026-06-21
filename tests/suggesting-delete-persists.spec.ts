@@ -1,11 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    EDITOR_READY_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // Regression: deletes performed in Suggesting mode must survive a page
 // reload as strikethrough proposals, not as silent hard deletions.
@@ -29,8 +23,6 @@ import {
 // session would pass even if the docx flush dropped the mark.
 
 test.describe('Text — Suggesting-mode delete persists across reload', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('delete in suggesting mode → reload → strikethrough proposal still there', async ({
         page,
     }) => {
@@ -50,14 +42,12 @@ test.describe('Text — Suggesting-mode delete persists across reload', () => {
         await page.keyboard.press('Enter')
         const marker = `delete-me-${Date.now()}`
         await page.keyboard.type(marker, { delay: 20 })
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText(marker)).toBeVisible()
 
         // Flip the editor into Suggesting mode via the toolbar dropdown.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         // Re-focus the editor and select the marker run, then delete it.
         // The command layer rewrites the delete into:
@@ -77,9 +67,9 @@ test.describe('Text — Suggesting-mode delete persists across reload', () => {
         // signal the command layer actually rewrote the delete instead
         // of letting it commit as a hard removal.
         const struck = page.locator(`[data-suggested-delete]:has-text("${marker}")`)
-        await expect(struck).toBeVisible({ timeout: 10_000 })
+        await expect(struck).toBeVisible()
         // And the underlying text is still on the page.
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText(marker)).toBeVisible()
 
         // The persistence step. The realtime SaveCoordinator debounces
         // and then flushes the Y.Doc through translate.PMJSONToDocx
@@ -96,9 +86,7 @@ test.describe('Text — Suggesting-mode delete persists across reload', () => {
         // a deletion proposal. The previous bug let the text vanish
         // entirely on reload — the assertion below would fail with
         // "locator resolved to 0 elements".
-        await expect(page.locator(`[data-suggested-delete]:has-text("${marker}")`)).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator(`[data-suggested-delete]:has-text("${marker}")`)).toBeVisible()
+        await expect(page.getByText(marker)).toBeVisible()
     })
 })

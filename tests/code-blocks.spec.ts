@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Code blocks + inline code v1: the toolbar gains an "Inline code"
 // toggle (wraps a selection in <code>) and a "Code block" toggle
@@ -11,8 +11,6 @@ import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar
 // stabilise the realtime / Playwright harness for the new affordances.
 
 test.describe('Text — Code blocks & inline code', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('clicking Inline code wraps the selection in <code>', async ({ page }) => {
         await openFreshTextDocument(page, 'inline-code')
         await editorRoot(page).click()

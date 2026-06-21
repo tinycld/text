@@ -1,32 +1,24 @@
 import { expect, type Page, test } from '@playwright/test'
 import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_READY_TIMEOUT,
     editorRoot,
     FEATURE_DOC_HEADING,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
-
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 async function openTablePopover(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Table', exact: true }).click()
 }
 
 test.describe('Text — Cell shading', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('shading button is disabled outside a table and enabled inside', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('shading-disabled'))
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         await editorRoot(page).click()
         await page.keyboard.press('Home')
@@ -48,10 +40,8 @@ test.describe('Text — Cell shading', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
 
         const tablesBefore = await editorRoot(page).locator('table').count()
         await editorRoot(page).click()
@@ -66,7 +56,7 @@ test.describe('Text — Cell shading', () => {
         await page.getByRole('button', { name: 'Apply Yellow shading' }).click()
 
         const shadedCell = editorRoot(page).locator('[data-shading="#FFFF00"]').first()
-        await expect(shadedCell).toBeAttached({ timeout: 10_000 })
+        await expect(shadedCell).toBeAttached()
         // Inline style should carry the actual color so the visible
         // background is yellow (not just an annotation in the DOM).
         const backgroundColor = await shadedCell.evaluate(
@@ -80,10 +70,8 @@ test.describe('Text — Cell shading', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
-        await expect(page.getByText('Complex Tables').first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
+        await expect(page.getByText('Complex Tables').first()).toBeVisible()
 
         const tablesBefore = await editorRoot(page).locator('table').count()
         await editorRoot(page).click()

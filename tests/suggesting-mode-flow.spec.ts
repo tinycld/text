@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // Single-user end-to-end flow for the Suggesting mode happy path:
 // switch into Suggesting → type a phrase → it surfaces with an
@@ -22,8 +17,6 @@ import {
 // UI a real user touches.
 
 test.describe('Text — Suggesting mode flow', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('type in suggesting mode → drawer row → accept', async ({ page }) => {
         await openFreshTextDocument(page, 'suggesting-mode-flow')
         await editorRoot(page).click()
@@ -40,9 +33,7 @@ test.describe('Text — Suggesting mode flow', () => {
         // "Suggesting mode" (and styles itself in the primary color
         // pill) when the current mode is not Editing — the signal that
         // the mode actually flipped on the store.
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         // Re-focus the editor (the menu click can shift focus) and
         // drop the caret at the very end so the new content doesn't
@@ -64,10 +55,8 @@ test.describe('Text — Suggesting mode flow', () => {
         // data-suggested-insert (schema renderHTML). When it lands the
         // suggestion has been stamped through the Yjs round-trip and
         // the editor has re-rendered.
-        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible({
-            timeout: 10_000,
-        })
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible()
+        await expect(page.getByText(marker)).toBeVisible()
 
         // Open the review drawer. The toolbar's drawer-toggle uses
         // accessibilityLabel "Open suggestion review drawer".
@@ -76,7 +65,7 @@ test.describe('Text — Suggesting mode flow', () => {
         // The drawer's Suggestions tab/header copy reads "Suggestions"
         // — visible regardless of whether we're on the extended-tabs
         // (web) or simple-header (native/no-yDoc) path.
-        await expect(page.getByText('Suggestions').first()).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText('Suggestions').first()).toBeVisible()
 
         // SuggestionRow carries accessibilityLabel="Suggestion by <authorId>".
         // First() is necessary because session-grouping can produce
@@ -84,16 +73,14 @@ test.describe('Text — Suggesting mode flow', () => {
         // initial Enter keystroke and the typed marker; the drawer
         // renders Accept on every row and .first() is sufficient.
         const suggestionRow = page.getByRole('button', { name: /^Suggestion by /i }).first()
-        await expect(suggestionRow).toBeVisible({ timeout: 10_000 })
+        await expect(suggestionRow).toBeVisible()
 
         // Phase 5+: the per-row Accept button now renders only in the
         // focused-state thread body (SuggestionRow split — Task 4).
         // Tap the row to focus it; the thread mounts with the Accept
         // icon button (accessibilityLabel="Accept suggestion") inside.
         await suggestionRow.click()
-        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
-            timeout: 5_000,
-        })
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible()
 
         // Click Accept on the focused row. The mutation strips the
         // suggestedInsert mark (the text remains in the doc as a
@@ -105,7 +92,7 @@ test.describe('Text — Suggesting mode flow', () => {
         // The accepted text remains as a normal paragraph run — the
         // editor still shows the marker. We assert the underlying
         // text survives the accept (no silent data loss).
-        await expect(page.getByText(marker)).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText(marker)).toBeVisible()
 
         // Once the row's mark is gone the decoration is dropped too —
         // no more data-suggested-insert spans for this suggestion. If
@@ -114,6 +101,6 @@ test.describe('Text — Suggesting mode flow', () => {
         // count drops by one. Either way the original row is now gone:
         // its Accept button no longer exists. Wait on that signal to
         // pin the accept actually completed.
-        await expect(suggestionRow).not.toBeVisible({ timeout: 10_000 })
+        await expect(suggestionRow).not.toBeVisible()
     })
 })

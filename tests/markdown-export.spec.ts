@@ -5,15 +5,12 @@ import {
     FEATURE_DOC_HEADING,
     openFreshTextDocument,
     openMenubarMenu,
-    TEXT_TEST_TIMEOUT,
 } from './_menubar-helpers'
 
 // Each scenario opens its own fresh document — the download path reads
 // live Tiptap state, so isolating per-spec keeps the asserted file
 // contents predictable across parallel runners.
 test.describe('Text — Markdown export', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('Download (.md) entry is visible in the File menu', async ({ page }) => {
         await openFreshTextDocument(page, 'md-export-visible')
         await openMenubarMenu(page, 'File')

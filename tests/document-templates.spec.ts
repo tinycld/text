@@ -1,56 +1,93 @@
-// document-templates.spec.ts exercises the "New from template" picker
-// end-to-end. Opening the text index → clicking the picker trigger →
-// verifying every shipping template card is visible → picking the
-// Letter template → verifying the editor mounts with the expected
-// salutation text in place. Mirrors text-document.spec.ts's timeout +
-// login plumbing.
+// document-templates.spec.ts exercises the drive-backed template flow
+// end-to-end, entirely through the UI (no raw PB writes to create the
+// template — that's the whole point of the rules):
 //
-// NOT WIRED INTO CI YET — written but not run as part of this change;
-// the task says "DO NOT RUN, just write it."
+//   1. Open a fresh document, edit it, then File → Export as template… →
+//      confirm the folder. This creates a `<name>.tmpl.docx` drive file
+//      from the live document (force-flushed first).
+//   2. Go to the text index, open the "From template…" picker, find the
+//      just-created template, and pick it.
+//   3. Verify a new document opens containing the text typed in step 1 —
+//      which proves the force-flush captured live edits, not just the
+//      last debounced save.
 
 import { expect, type Page, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import {
+    editorRoot,
+    openFreshTextDocument,
+    openMenubarMenu,
+    waitForEditor,
+} from './_menubar-helpers'
 
-test.describe('Text — Document templates picker', () => {
-    test('opens the picker, shows all four templates, creates from Letter', async ({ page }) => {
-        await login(page)
+// A distinctive phrase typed into the document right before export. If it
+// shows up in the doc created from the template, the flush worked.
+const FRESH_MARKER = 'FreshTemplateMarker'
+
+test.describe('Text — Document templates', () => {
+    test('export a document as a template, then create a new doc from it', async ({ page }) => {
+        await openFreshTextDocument(page, 'tmpl-export')
+
+        // Type a marker so we can later prove the exported template
+        // captured live edits (not the last-flushed blob).
+        await editorRoot(page).click()
+        await page.keyboard.type(` ${FRESH_MARKER}`)
+
+        const templateLabel = await exportAsTemplate(page)
+
+        // Navigate to the index and open the picker.
         await page.goto(`/a/${ORG_SLUG}/text`)
+        await page.getByRole('button', { name: 'From template…' }).click()
 
-        // The picker trigger lives next to the primary "New document"
-        // button on the index header.
-        const pickerTrigger = page.getByRole('button', { name: 'From template…' })
-        await expect(pickerTrigger).toBeVisible()
-        await pickerTrigger.click()
+        const dialog = page.getByTestId('template-picker-dialog')
+        await expect(dialog).toBeVisible()
 
-        // Verify every shipping template renders its card.
-        await expect(
-            page.getByRole('button', { name: /Create from template: Blank/ })
-        ).toBeVisible()
-        await expect(
-            page.getByRole('button', { name: /Create from template: Letter/ })
-        ).toBeVisible()
-        await expect(
-            page.getByRole('button', { name: /Create from template: Resume/ })
-        ).toBeVisible()
-        await expect(
-            page.getByRole('button', { name: /Create from template: Report/ })
-        ).toBeVisible()
+        // The just-exported template appears by its friendly (stripped)
+        // name. Pick it.
+        const row = dialog.getByLabel(`Create from template: ${templateLabel}`)
+        await expect(row).toBeVisible()
+        await row.click()
 
-        // Pick Letter — should kick off the upload + route to the new doc.
-        await page.getByRole('button', { name: /Create from template: Letter/ }).click()
+        // A new document opens; its content includes the marker we typed.
+        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/[^/]+`))
+        await waitForEditor(page)
+        await expect(editorRoot(page).getByText(FRESH_MARKER).first()).toBeVisible()
+    })
 
-        await expectRoutedToNewDoc(page)
-
-        // Once the editor is mounted, the Letter template's "Dear" line is
-        // visible inside the editor surface.
-        await expect(page.getByText(/Dear \[Recipient Name\]/).first()).toBeVisible()
-        // Closing salutation as a second anchor — guards against
-        // overfitting to one phrase that future generator edits might
-        // change while still keeping the salutation/sign-off pair.
-        await expect(page.getByText(/Sincerely,/).first()).toBeVisible()
+    test('New from template… in the File menu opens the picker', async ({ page }) => {
+        await openFreshTextDocument(page, 'tmpl-picker-open')
+        await openMenubarMenu(page, 'File')
+        await page.getByRole('menuitem', { name: 'New from template…' }).click()
+        await expect(page.getByTestId('template-picker-dialog')).toBeVisible()
     })
 })
 
-async function expectRoutedToNewDoc(page: Page) {
-    await page.waitForURL(url => /\/text\/[A-Za-z0-9]+$/.test(url.pathname))
+// Runs File → Export as template…, confirms the folder dialog, and
+// returns the label the picker will show for the new template — i.e. the
+// document's name with its `.docx` extension stripped (templateDisplayName
+// strips the full `.tmpl.docx` from `<name>.tmpl.docx`, which is `<name>`).
+async function exportAsTemplate(page: Page): Promise<string> {
+    // The title Pressable carries accessibilityLabel
+    // "Rename document, currently <name>.docx"; pull the name from it so we
+    // don't depend on the exact rendered title markup.
+    const titleLabel =
+        (await page
+            .getByRole('button', { name: /^Rename document, currently / })
+            .first()
+            .getAttribute('aria-label')) ?? ''
+    const docName = titleLabel.replace(/^Rename document, currently /, '').trim()
+    const label = docName.replace(/\.docx$/i, '')
+
+    await openMenubarMenu(page, 'File')
+    await page.getByRole('menuitem', { name: 'Export as template…' }).click()
+
+    // Export reuses drive's ChooseFolderDialog, titled `Save template
+    // "<name>" to`. The confirm control is a RN Pressable (renders as a
+    // generic, not a button role), so target its label text scoped to the
+    // dialog. Confirm at the default folder (My Files / root).
+    const dialog = page.getByTestId('choose-folder-dialog')
+    await expect(dialog.getByText(/Save template ".*" to/)).toBeVisible()
+    await dialog.getByText('Save template', { exact: true }).click()
+
+    return label
 }

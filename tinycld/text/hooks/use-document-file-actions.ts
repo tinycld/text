@@ -17,13 +17,18 @@ export function useDocumentFileActions(documentId: string): DocumentFileActions 
     const onTrashed = useCallback(() => {
         router.replace(orgHref('text'))
     }, [orgHref])
-    const actions = useDriveItemFileActions({ itemId: documentId, onTrashed })
+    const actions = useDriveItemFileActions({
+        itemId: documentId,
+        onTrashed,
+        roomKind: 'text-doc',
+    })
     // Guests (no org membership) can't rename/trash/copy/open-in-drive.
     // Return inert handlers so any still-mounted control is a no-op.
     if (!capabilities.canUseFileActions) {
         return {
             rename: () => {},
             makeCopy: () => {},
+            exportAsTemplate: () => {},
             moveToTrash: () => {},
             openDriveDetails: () => {},
         }

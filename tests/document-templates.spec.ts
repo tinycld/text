@@ -35,9 +35,11 @@ test.describe('Text — Document templates', () => {
 
         const templateLabel = await exportAsTemplate(page)
 
-        // Navigate to the index and open the picker.
-        await page.goto(`/a/${ORG_SLUG}/text`)
-        await page.getByRole('button', { name: 'From template…' }).click()
+        // Open the picker from the File menu (in-app — a page.goto would
+        // tear down the SPA and cancel the on-demand drive_items fetch the
+        // picker depends on).
+        await openMenubarMenu(page, 'File')
+        await page.getByRole('menuitem', { name: 'New from template…' }).click()
 
         const dialog = page.getByTestId('template-picker-dialog')
         await expect(dialog).toBeVisible()
@@ -48,10 +50,12 @@ test.describe('Text — Document templates', () => {
         await expect(row).toBeVisible()
         await row.click()
 
-        // A new document opens; its content includes the marker we typed.
+        // A new document opens; its content includes the marker we typed
+        // before exporting — proving the force-flush captured the live edit
+        // into the template, not just the last debounced save.
         await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/[^/]+`))
         await waitForEditor(page)
-        await expect(editorRoot(page).getByText(FRESH_MARKER).first()).toBeVisible()
+        await expect(editorRoot(page)).toContainText(FRESH_MARKER)
     })
 
     test('New from template… in the File menu opens the picker', async ({ page }) => {

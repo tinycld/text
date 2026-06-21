@@ -98,7 +98,16 @@ test.describe('Text No-File panel', () => {
             timeout: 30_000,
         })
         await page.getByRole('button', { name: 'New document' }).click()
-        await page.waitForURL(/\/text\/[^/]+$/, { timeout: 75_000 })
+        // Wait for the editor to actually render, not just the URL to change.
+        // The rail's deep-link is recorded only once the document's drive item
+        // loads (screens/[id].tsx persists lastPackageHref when `id && item`),
+        // and the editor becoming visible is the user-perceptible proof that
+        // the doc opened — i.e. that the deep-link has been cached. Gating on
+        // the URL alone races that write: a real user sees the doc open before
+        // navigating away, so the test should too.
+        await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible({
+            timeout: 75_000,
+        })
         const editorUrl = page.url()
 
         // Detour through home, then click the Text rail icon — we should

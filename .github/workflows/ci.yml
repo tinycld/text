@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # TEMPORARY: also run on this validation branch so CI exercises the shared
+    # build action before tinycld#74 merges. Revert to `branches: [main]`.
+    branches: [main, ci/static-serve-on-bottomsheets]
   pull_request:
     branches: [main]
 

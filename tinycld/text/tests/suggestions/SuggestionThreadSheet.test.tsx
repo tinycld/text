@@ -18,23 +18,15 @@ vi.mock('react-native', async () => {
     }
 })
 
-// @tinycld/core/ui/actionsheet pulls in @gluestack-ui/core's
-// createActionsheet, which imports @expo/html-elements — that module
-// references global __DEV__ at eval time and our vitest setup doesn't
-// define it. Stub the actionsheet primitives down to plain Views that
-// honor isOpen so the sheet's open/closed contract is still observable
+// @tinycld/core/ui/bottom-drawer pulls in react-native-reanimated,
+// react-native-gesture-handler and react-native-safe-area-context, none of
+// which load in this happy-dom unit env. Stub it down to a plain View that
+// honors isOpen so the sheet's open/closed contract is still observable
 // through findThread() below.
-vi.mock('@tinycld/core/ui/actionsheet', () => {
-    const passthrough = ({ children }: { children?: ReactNode }) => <View>{children}</View>
-    return {
-        Actionsheet: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) =>
-            isOpen ? <View>{children}</View> : null,
-        ActionsheetBackdrop: passthrough,
-        ActionsheetContent: passthrough,
-        ActionsheetDragIndicator: passthrough,
-        ActionsheetDragIndicatorWrapper: passthrough,
-    }
-})
+vi.mock('@tinycld/core/ui/bottom-drawer', () => ({
+    BottomDrawer: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) =>
+        isOpen ? <View>{children}</View> : null,
+}))
 
 // The sheet renders <SuggestionThread />, which mounts <SuggestionThread
 // />'s composer + reply list. Those subcomponents pull from
@@ -100,11 +92,10 @@ function renderSheet(opts: {
     )
 }
 
-// The Actionsheet primitive in @tinycld/core/ui/actionsheet renders
-// its content via @gluestack-ui's createActionsheet, which only mounts
-// the content tree when isOpen is true. So "the sheet is open" is
-// observable by checking whether the SuggestionThread testid is in
-// the DOM; "the sheet is closed" is the absence of that testid.
+// The BottomDrawer (mocked above) mounts its content tree only when
+// isOpen is true. So "the sheet is open" is observable by checking
+// whether the SuggestionThread testid is in the DOM; "the sheet is
+// closed" is the absence of that testid.
 function findThread(container: HTMLElement): Element | null {
     return container.querySelector('[data-testid="suggestion-thread"]')
 }
@@ -119,7 +110,7 @@ describe('SuggestionThreadSheet', () => {
             store,
             anchored: [sampleSuggestion()],
         })
-        // The sheet's Actionsheet has isOpen=false → no thread mounted.
+        // The sheet's BottomDrawer has isOpen=false → no thread mounted.
         expect(findThread(container)).toBeNull()
     })
 

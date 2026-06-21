@@ -11,11 +11,7 @@
 import { expect, type Page, test } from '@playwright/test'
 import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
 
-const TEST_TIMEOUT = 120_000
-
 test.describe('Text — Document templates picker', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('opens the picker, shows all four templates, creates from Letter', async ({ page }) => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text`)
@@ -47,20 +43,14 @@ test.describe('Text — Document templates picker', () => {
 
         // Once the editor is mounted, the Letter template's "Dear" line is
         // visible inside the editor surface.
-        await expect(page.getByText(/Dear \[Recipient Name\]/).first()).toBeVisible({
-            timeout: TEST_TIMEOUT,
-        })
+        await expect(page.getByText(/Dear \[Recipient Name\]/).first()).toBeVisible()
         // Closing salutation as a second anchor — guards against
         // overfitting to one phrase that future generator edits might
         // change while still keeping the salutation/sign-off pair.
-        await expect(page.getByText(/Sincerely,/).first()).toBeVisible({
-            timeout: TEST_TIMEOUT,
-        })
+        await expect(page.getByText(/Sincerely,/).first()).toBeVisible()
     })
 })
 
 async function expectRoutedToNewDoc(page: Page) {
-    await page.waitForURL(url => /\/text\/[A-Za-z0-9]+$/.test(url.pathname), {
-        timeout: TEST_TIMEOUT,
-    })
+    await page.waitForURL(url => /\/text\/[A-Za-z0-9]+$/.test(url.pathname))
 }

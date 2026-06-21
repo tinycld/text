@@ -1,4 +1,4 @@
-// ImageAttrsBottomSheet is React Native (Actionsheet, View, Pressable)
+// ImageAttrsBottomSheet is React Native (BottomDrawer, View, Pressable)
 // styled with Uniwind - same constraint as every other RN-styled
 // component in this package, it can't render under vitest's default
 // node environment, and the per-file environment directive doesn't

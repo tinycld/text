@@ -6,17 +6,13 @@ import {
     TEST_USER_PASSWORD,
 } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_READY_TIMEOUT,
     editorRoot,
     FEATURE_DOC_HEADING,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
-
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
 
 interface SecondUser {
     id: string
@@ -118,12 +114,10 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }
 
 test.describe('Text — Document editor', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('create from drive: upload .docx then open in Text loads the editor', async ({ page }) => {
         // The plan's spec text is "upload via drive UI -> Open in Text".
         // We collapse that to "upload via REST + navigate" because the
@@ -140,9 +134,7 @@ test.describe('Text — Document editor', () => {
         await waitForEditor(page)
         // The fixture's H1 should land in the editor after the bootstrap
         // parses + seeds + the Tiptap binding catches up.
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
     })
 
     test('edit and persist: typed text survives reload', async ({ page }) => {
@@ -150,9 +142,7 @@ test.describe('Text — Document editor', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Type a unique marker the reload will look for. Use the suffix
         // to keep it unique across parallel runs / re-runs.
@@ -169,7 +159,7 @@ test.describe('Text — Document editor', () => {
 
         await page.reload()
         await waitForEditor(page)
-        await expect(page.getByText(marker)).toBeVisible({ timeout: EDITOR_READY_TIMEOUT })
+        await expect(page.getByText(marker)).toBeVisible()
     })
 
     test('round-trip integrity: bold + heading + bullet list survive reload', async ({ page }) => {
@@ -177,9 +167,7 @@ test.describe('Text — Document editor', () => {
         await login(page)
         await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
         await waitForEditor(page)
-        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-            timeout: EDITOR_READY_TIMEOUT,
-        })
+        await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
         // Move to a fresh paragraph at the end and apply each formatting
         // feature in sequence. Marker strings let us locate them after
@@ -217,7 +205,7 @@ test.describe('Text — Document editor', () => {
         // Each marker should be present in the rendered DOM. We don't
         // assert *which* tag wraps it — the broker round-trip is what's
         // under test here, not the exact DOM structure.
-        await expect(page.getByText(boldMarker)).toBeVisible({ timeout: EDITOR_READY_TIMEOUT })
+        await expect(page.getByText(boldMarker)).toBeVisible()
         await expect(page.getByText(h2Marker)).toBeVisible()
         await expect(page.getByText(listMarker)).toBeVisible()
     })
@@ -245,9 +233,7 @@ test.describe('Text — Document editor', () => {
             // accessibilityLabel={user.name}, which renders to
             // aria-label on web. The "+N" overflow badge has no aria
             // role/label so a getByLabel match is unambiguous.
-            await expect(pageA.getByLabel(/Text Tester/).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(pageA.getByLabel(/Text Tester/).first()).toBeVisible()
         } finally {
             await ctxA.close()
             await ctxB.close()
@@ -268,16 +254,12 @@ test.describe('Text — Document editor', () => {
             await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
             await pageA.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(pageA)
-            await expect(pageA.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(pageA.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(pageB, userB.email, userB.password)
             await pageB.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(pageB)
-            await expect(pageB.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(pageB.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             // A types a unique marker; B should observe it via the
             // Y.Doc → broker → SyncReply path. The plan's "within 1s"
@@ -290,7 +272,7 @@ test.describe('Text — Document editor', () => {
             await pageA.keyboard.press('Enter')
             await pageA.keyboard.type(marker)
 
-            await expect(pageB.getByText(marker)).toBeVisible({ timeout: 10_000 })
+            await expect(pageB.getByText(marker)).toBeVisible()
         } finally {
             await ctxA.close()
             await ctxB.close()

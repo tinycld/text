@@ -1,33 +1,25 @@
 import { expect, test } from '@playwright/test'
 import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    openMenubarMenu,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Each spec opens its own fresh document — destructive items
 // (Rename, Move to trash, Make a copy) would poison siblings if they
 // shared one. Per-doc upload adds ~3-5s of overhead; we eat that for
 // isolation.
 test.describe('Text — Menubar', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test.describe('File menu', () => {
         test('New document navigates to the text index', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-new')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'New document' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/?$`), { timeout: 15_000 })
+            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/?$`))
         })
 
         test('Open navigates to drive', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-open')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'Open' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive`), { timeout: 15_000 })
+            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive`))
         })
 
         test('Rename updates the document header', async ({ page }) => {
@@ -42,7 +34,7 @@ test.describe('Text — Menubar', () => {
             // input by name — `getByRole('textbox')` alone would match
             // the ProseMirror editor body, not the dialog field.
             const input = page.getByRole('textbox', { name: 'Rename' })
-            await expect(input).toBeVisible({ timeout: 15_000 })
+            await expect(input).toBeVisible()
             await input.fill('Renamed Document')
             await page.getByRole('button', { name: 'Rename', exact: true }).click()
 
@@ -50,9 +42,7 @@ test.describe('Text — Menubar', () => {
             // the document name; it's the first match for "Renamed
             // Document" on the page since the doc body contains the
             // fixture content, not this string.
-            await expect(page.getByText('Renamed Document').first()).toBeVisible({
-                timeout: 15_000,
-            })
+            await expect(page.getByText('Renamed Document').first()).toBeVisible()
         })
 
         test('Make a copy opens the Choose a folder dialog', async ({ page }) => {
@@ -65,7 +55,7 @@ test.describe('Text — Menubar', () => {
             // window.prompt). Scope to the dialog input by its
             // accessibilityLabel (title "Make a copy"), then confirm.
             const input = page.getByRole('textbox', { name: 'Make a copy' })
-            await expect(input).toBeVisible({ timeout: 15_000 })
+            await expect(input).toBeVisible()
             await input.fill('Copied Document')
             await page.getByRole('button', { name: 'Create copy' }).click()
 
@@ -74,9 +64,7 @@ test.describe('Text — Menubar', () => {
             // confirms the prompt → store → folder-picker wiring all the
             // way through. The copy itself fires when the user picks a
             // folder, which is drive's concern, not text's.
-            await expect(page.getByText(/Copy "Copied Document" to/).first()).toBeVisible({
-                timeout: 15_000,
-            })
+            await expect(page.getByText(/Copy "Copied Document" to/).first()).toBeVisible()
         })
     })
 
@@ -126,9 +114,7 @@ test.describe('Text — Menubar', () => {
             // LinkPopover renders an "https://" URL input plus an
             // Insert button. Either is unambiguous; the placeholder is
             // the cheaper match.
-            await expect(page.getByPlaceholder(/https?:\/\//)).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(page.getByPlaceholder(/https?:\/\//)).toBeVisible()
         })
 
         test('Table > 3 × 3 inserts a 9-cell table into the document', async ({ page }) => {
@@ -136,9 +122,7 @@ test.describe('Text — Menubar', () => {
             // The fixture renders multiple tables; wait for the
             // "Complex Tables" h3 so the pre-insert table set is fully
             // present before we snapshot the count.
-            await expect(page.getByText('Complex Tables').first()).toBeVisible({
-                timeout: 30_000,
-            })
+            await expect(page.getByText('Complex Tables').first()).toBeVisible()
 
             const before = await editorRoot(page).locator('table').count()
 
@@ -152,9 +136,7 @@ test.describe('Text — Menubar', () => {
             await page.getByRole('menuitem', { name: 'Table' }).hover()
             await page.getByRole('menuitem', { name: '3 × 3' }).click()
 
-            await expect(editorRoot(page).locator('table')).toHaveCount(before + 1, {
-                timeout: 10_000,
-            })
+            await expect(editorRoot(page).locator('table')).toHaveCount(before + 1)
 
             // The new table should have exactly 9 cells (3 rows × 3
             // cols). Identify it by cell count — the fixture's tables
@@ -183,7 +165,7 @@ test.describe('Text — Menubar', () => {
             // Tiptap renders Bold as <strong>. Find the marker inside
             // a <strong> element to confirm the mark applied.
             const strongMarker = editorRoot(page).locator('strong', { hasText: marker })
-            await expect(strongMarker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await expect(strongMarker).toBeVisible()
         })
 
         test('Paragraph styles > Heading 2 promotes the current line to h2', async ({ page }) => {
@@ -201,7 +183,7 @@ test.describe('Text — Menubar', () => {
 
             // Marker should now sit inside an <h2>.
             const h2Marker = editorRoot(page).locator('h2', { hasText: marker })
-            await expect(h2Marker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await expect(h2Marker).toBeVisible()
         })
 
         test('Bullets & numbering > Bulleted list wraps the line in <ul><li>', async ({ page }) => {
@@ -218,7 +200,7 @@ test.describe('Text — Menubar', () => {
             await page.getByRole('menuitem', { name: 'Bulleted list' }).click()
 
             const liMarker = editorRoot(page).locator('ul li', { hasText: marker })
-            await expect(liMarker).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await expect(liMarker).toBeVisible()
         })
 
         test('Bullets & numbering > Drop cap sets data-drop-cap on the paragraph', async ({
@@ -241,7 +223,7 @@ test.describe('Text — Menubar', () => {
             const dropCapPara = editorRoot(page).locator('p[data-drop-cap="true"]', {
                 hasText: marker,
             })
-            await expect(dropCapPara).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+            await expect(dropCapPara).toBeVisible()
         })
 
         test('Table > row ops are disabled outside a table, enabled inside', async ({ page }) => {

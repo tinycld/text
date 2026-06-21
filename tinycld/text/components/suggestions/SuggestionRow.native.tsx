@@ -12,8 +12,8 @@ export interface SuggestionRowProps {
     // driveItemId + authorUserOrgId are kept in the prop shape for
     // symmetry with the web variant. The native row doesn't render
     // <SuggestionThread /> inline — the screen-scoped
-    // <SuggestionThreadSheet /> renders the thread body in an
-    // Actionsheet — so neither identifier is read here, but
+    // <SuggestionThreadSheet /> renders the thread body in a
+    // bottom sheet — so neither identifier is read here, but
     // round-tripping them through the contract lets ReviewDrawer's
     // call site stay identical across platforms.
     driveItemId: string
@@ -79,7 +79,7 @@ function kindLabelFor(kind: AnchoredSuggestion['kind']): string {
 
 // SuggestionRow (native) renders ONLY the row header. The focused-
 // state thread body (replies, composer, Accept / Reject) lives in
-// a screen-scoped <SuggestionThreadSheet /> Actionsheet that rises
+// a screen-scoped <SuggestionThreadSheet /> bottom sheet that rises
 // when this row's id matches reviewDrawerStore.focusedSuggestionId.
 //
 // Visual style mirrors the web header verbatim: avatar (kind icon in

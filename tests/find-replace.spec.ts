@@ -1,11 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // E2E for the Cmd+F find/replace bar. Each scenario opens its own
 // document so the replace-all spec doesn't poison the others.
 test.describe('Text — Find/Replace', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('Cmd+F opens the find bar focused on the find input', async ({ page }) => {
         await openFreshTextDocument(page, 'findreplace-open')
         await editorRoot(page).click()
@@ -65,6 +63,6 @@ test.describe('Text — Find/Replace', () => {
         await page.getByRole('textbox', { name: 'Replace' }).fill('Replaced')
         await page.getByRole('button', { name: 'Replace all' }).click()
 
-        await expect(page.getByText('Replaced Document').first()).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText('Replaced Document').first()).toBeVisible()
     })
 })

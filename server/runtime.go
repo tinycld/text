@@ -426,13 +426,32 @@ func installYXmlElementPatcher(doc *ycrdt.Doc) {
 			return
 		}
 		for t := range trans.Changed {
-			patchAbstractType(t)
+			patchTypeAndAncestors(t)
 		}
 		for t := range trans.ChangedParentTypes {
-			patchAbstractType(t)
+			patchTypeAndAncestors(t)
 		}
 	})
 	doc.On("beforeObserverCalls", handler)
+}
+
+// patchTypeAndAncestors patches t and walks up its Parent() chain,
+// patching every ancestor. The deep-observe phase of CleanupTransactions
+// fires DEH listeners on a changed type's PARENTS (transaction.go:238 →
+// CallEventHandlerListeners(parent.GetDEH(), …)). A parent minted by
+// y-crdt during inbound decode can have a nil DEH that never appeared as a
+// key in trans.Changed / trans.ChangedParentTypes — e.g. an attribute set
+// on a deeply-nested YXmlElement (table-cell `data-shading`) deep-observes
+// up to an ancestor the direct-key walk missed, and GetDEH() returns nil →
+// panic. Walking ancestors guarantees every type the deep-observe loop can
+// reach has a valid EventHandler. The depth cap is a cycle/runaway guard;
+// real Yjs trees are shallow.
+func patchTypeAndAncestors(t interface{}) {
+	at, ok := t.(ycrdt.IAbstractType)
+	for depth := 0; ok && at != nil && depth < 256; depth++ {
+		patchAbstractType(at)
+		at = at.Parent()
+	}
 }
 
 // patchAbstractType walks an IAbstractType-shaped value and initializes

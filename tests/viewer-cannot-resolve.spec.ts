@@ -1,11 +1,9 @@
 import { expect, type Page, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_READY_TIMEOUT,
     editorRoot,
     FEATURE_DOC_HEADING,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
@@ -33,13 +31,10 @@ import {
 //     unmounted entirely
 
 test.describe('Text — Viewer cannot resolve', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('alice suggests → bob (viewer) sees row but cannot resolve', async ({ browser }) => {
         // Two contexts: Alice the owner/editor, Bob the freshly-minted
         // viewer. Bob's drive_shares role is 'viewer' (not 'editor'),
         // which is the difference from two-user-suggestion-flow.
-        test.setTimeout(180_000)
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('viewer-cannot-resolve'))
         const bob = await createSecondUser()
@@ -54,23 +49,17 @@ test.describe('Text — Viewer cannot resolve', () => {
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
             await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(alicePage)
-            await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
             await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
             await waitForEditor(bobPage)
-            await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible({
-                timeout: EDITOR_READY_TIMEOUT,
-            })
+            await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             // Alice switches to Suggesting mode and types a marker.
             await alicePage.getByRole('button', { name: 'Editor mode' }).click()
             await alicePage.getByRole('menuitem', { name: 'Suggesting' }).click()
-            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
             const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
             await editorRoot(alicePage).click()
@@ -80,18 +69,14 @@ test.describe('Text — Viewer cannot resolve', () => {
             await alicePage.keyboard.type(marker, { delay: 25 })
 
             // Alice's tab carries the suggestedInsert decoration.
-            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible({
-                timeout: 10_000,
-            })
+            await expect(alicePage.locator('[data-suggested-insert]').first()).toBeVisible()
 
             // Bob's tab still has the SCHEMA mark in the DOM so the
             // underlying text replicates via Yjs (data-suggested-insert
             // is the schema's renderHTML output; without it y-prosemirror
             // would drop the mark on parse). The marker text is visible.
-            await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible({
-                timeout: 15_000,
-            })
-            await expect(bobPage.getByText(marker)).toBeVisible({ timeout: 10_000 })
+            await expect(bobPage.locator('[data-suggested-insert]').first()).toBeVisible()
+            await expect(bobPage.getByText(marker)).toBeVisible()
 
             // The DECORATION span — the colored tint + underline that
             // the SuggestionDecorations plugin emits — is absent. Read-
@@ -250,5 +235,5 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }

@@ -8,13 +8,16 @@
 // RN's FormData polyfill turns into the multipart file part.
 
 import type { UploadBody } from '@tinycld/drive/lib/upload-to-drive'
-import * as FileSystem from 'expo-file-system'
+// SDK 55 moved the URI-string file API (writeAsStringAsync, cacheDirectory,
+// EncodingType) to the `/legacy` entry; the bare import's new File/Directory
+// API has no cacheDirectory string, so it would throw "no writable directory
+// available". The legacy surface is what writing the template bytes needs.
+import * as FileSystem from 'expo-file-system/legacy'
 import { DOCX_MIME_TYPE } from '../mime'
 import { getTemplate, getTemplateBase64, type TemplateId } from './index'
 
-// Cast through unknown — the legacy/modern split in expo-file-system
-// surfaces slightly different field shapes per release (mirrors the
-// pattern in calc/lib/csv/download.native.ts).
+// Cast through unknown — expo-file-system's release-to-release field shapes
+// differ; the legacy entry still exposes the surface used below.
 const fileSystem = FileSystem as unknown as {
     cacheDirectory?: string | null
     documentDirectory?: string | null

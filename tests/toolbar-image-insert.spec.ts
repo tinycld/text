@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // The toolbar's "Insert image" button used to embed picked images as
 // base64 data: URIs into the Y.Doc, causing every collaborator's
@@ -18,8 +18,6 @@ function makePngBuffer(): Buffer {
 }
 
 test.describe('Text — Toolbar image insert', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('toolbar Insert image uploads to drive and inserts a /api/files URL', async ({ page }) => {
         await openFreshTextDocument(page, 'toolbar-image-insert')
 
@@ -48,7 +46,7 @@ test.describe('Text — Toolbar image insert', () => {
         // deduplicated final name (the drive uploader may suffix the
         // name if a sibling already owns it).
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]')
-        await expect(inserted.first()).toBeVisible({ timeout: 30_000 })
+        await expect(inserted.first()).toBeVisible()
 
         // Explicit assertion that we did NOT regress to base64.
         const src = await inserted.first().getAttribute('src')

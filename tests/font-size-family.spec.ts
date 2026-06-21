@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Font size + family v1: the toolbar exposes two dropdowns at the
 // left edge — a family picker and a size picker. Selecting an option
@@ -12,8 +12,6 @@ import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar
 // realtime / Playwright harness covers font controls.
 
 test.describe('Text — Font size & family', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('picking 24 from the font-size dropdown applies font-size:24px inline', async ({
         page,
     }) => {

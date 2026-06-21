@@ -197,11 +197,11 @@ interface DocumentScreenProps {
 }
 
 function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScreenProps) {
-    // Dev-only window hook exposing the live Y.Doc for e2e specs to
-    // page.evaluate against (e.g. the Phase 3a authorship-stamping spec
-    // reads doc.getMap('clientAuthors')). Gated on __DEV__ so production
-    // bundles ship without the hook. Web-only — native runs the editor
-    // inside a WebView and doesn't expose a host-side `window`.
+    // Window hook exposing the live Y.Doc for e2e specs to page.evaluate
+    // against (e.g. the Phase 3a authorship-stamping spec reads
+    // doc.getMap('clientAuthors')). Web-only — native runs the editor inside
+    // a WebView and doesn't expose a host-side `window`. See the hook for why
+    // it's not __DEV__-gated (the e2e bundle is a production export).
     useDevYDocWindowHook(room.doc)
     // The slash menu's "Image" entry routes through the same picker +
     // drive-upload pipeline the toolbar's image button uses. The picker
@@ -828,21 +828,17 @@ function FindReplaceShell() {
     return <FindReplaceBar isVisible={isOpen} />
 }
 
-// __DEV__ is Metro/Expo's globally-injected dev gate (`true` for the
-// dev server, `false` for production bundles). Declare it locally so
-// TypeScript accepts the reference without a global ambient.
-declare const __DEV__: boolean
-
-// Exposes the room's Y.Doc on window as a dev-tool hook for Playwright
-// specs that need to inspect Y.Doc state via page.evaluate (e.g. the
-// authorship-stamping spec asserts on doc.getMap('clientAuthors')).
-// Gated on __DEV__ + window so the hook stays out of production bundles
-// and out of the native runtime (RN has no DOM window). The yDoc
-// identity is stable across renders within a mounted room, so the
-// effect runs once on mount.
+// Exposes the room's Y.Doc on window so Playwright specs can inspect
+// Y.Doc state via page.evaluate (e.g. the authorship-stamping spec asserts
+// on doc.getMap('clientAuthors')). Attached on web only (RN has no DOM
+// window) and NOT gated on __DEV__: the e2e suite runs against the
+// production web bundle (expo export, __DEV__=false) served statically, so
+// gating on __DEV__ would strip the hook and the CRDT-inspecting specs
+// could never read it. It's a read-mostly handle to already-client-side
+// document state, not a secret. The yDoc identity is stable across renders
+// within a mounted room, so the effect runs once on mount.
 function useDevYDocWindowHook(yDoc: unknown): void {
     useEffect(() => {
-        if (!__DEV__) return
         if (typeof window === 'undefined') return
         ;(window as unknown as { __tinyTextDoc?: unknown }).__tinyTextDoc = yDoc
         return () => {
@@ -852,17 +848,15 @@ function useDevYDocWindowHook(yDoc: unknown): void {
     }, [yDoc])
 }
 
-// Dev-only window hook exposing the live Tiptap editor instance to
-// e2e specs. Mirrors useDevYDocWindowHook's gating: only attaches in
-// dev builds (__DEV__), only on web (no `window` on native), and
-// cleans up on unmount or editor swap. e2e specs that need to drive
-// the editor deterministically (focus end, select a known text range,
-// run a command) reach through `window.__tinyTextEditor` rather than
-// fighting keyboard shortcuts whose OS-level bindings may preempt
-// Tiptap's keymap (notably ⌘+End on macOS).
+// Exposes the live Tiptap editor instance on window for e2e specs. Same
+// rationale as useDevYDocWindowHook: web only, not __DEV__-gated (the e2e
+// bundle is a production export). Specs that need to drive the editor
+// deterministically (focus end, select a known text range, run a command)
+// reach through `window.__tinyTextEditor` rather than fighting keyboard
+// shortcuts whose OS-level bindings may preempt Tiptap's keymap (notably
+// ⌘+End on macOS).
 function useDevTiptapEditorWindowHook(editor: unknown): void {
     useEffect(() => {
-        if (!__DEV__) return
         if (typeof window === 'undefined') return
         if (!editor) return
         ;(window as unknown as { __tinyTextEditor?: unknown }).__tinyTextEditor = editor

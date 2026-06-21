@@ -1,11 +1,9 @@
 import { expect, type Page, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
-    EDITOR_REACTION_TIMEOUT,
     editorRoot,
     openFreshTextDocument,
     PB_URL,
-    TEXT_TEST_TIMEOUT,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
@@ -24,8 +22,6 @@ import {
 // indirectly when we assert a notifications row lands.
 
 test.describe('Text — Comments', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('add → reply → resolve → reopen', async ({ page }) => {
         await openFreshTextDocument(page, 'comments-lifecycle')
         await editorRoot(page).click()
@@ -149,14 +145,8 @@ test.describe('Text — Comments', () => {
 
         // Poll the notifications collection for a comment_mention row
         // pointing at the target user. The hook runs async (a goroutine
-        // off the request thread) so we give it ~5s.
-        const notif = await waitForNotification(
-            request,
-            targetUserId,
-            'comment_mention',
-            itemId,
-            5_000
-        )
+        // off the request thread); waitForNotification polls until it lands.
+        const notif = await waitForNotification(request, targetUserId, 'comment_mention', itemId)
         expect(notif).toBeTruthy()
         expect(notif?.type).toBe('comment_mention')
         expect(notif?.url).toContain(`/${itemId}?thread=`)
@@ -176,7 +166,6 @@ test.describe('Text — Comments', () => {
         // wait on realtime replication between them — materially more work
         // than a single-context test. Give it headroom beyond the default
         // so a busy CI runner's slower-but-correct run isn't failed.
-        test.setTimeout(180_000)
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('comments-concurrent'))
         const userB = await createSecondUser()
@@ -220,22 +209,19 @@ test.describe('Text — Comments', () => {
             // nothing and the click hangs to the test budget. The prefix
             // matches both forms.
             await pageB.getByRole('button', { name: /^Comments/ }).click()
-            await expect(pageB.getByText('shared thread from A').last()).toBeVisible({
-                timeout: 15_000,
-            })
+            await expect(pageB.getByText('shared thread from A').last()).toBeVisible()
 
             // A resolves the thread. The Open chip's count drops on
             // *both* tabs. The strongest cross-tab signal: B's Open
             // chip should show "(0)" after the resolve replicates.
             await pageA.getByRole('button', { name: 'Resolve comment' }).first().click()
             await expect(pageB.getByRole('button', { name: 'Show open comments' })).toContainText(
-                '(0)',
-                { timeout: 15_000 }
+                '(0)'
             )
             // And the resolved chip carries the thread on B.
             await expect(
                 pageB.getByRole('button', { name: 'Show resolved comments' })
-            ).toContainText('(1)', { timeout: EDITOR_REACTION_TIMEOUT })
+            ).toContainText('(1)')
         } finally {
             await ctxA.close()
             await ctxB.close()
@@ -386,28 +372,27 @@ async function waitForNotification(
     request: import('@playwright/test').APIRequestContext,
     userId: string,
     type: string,
-    driveItemId: string,
-    timeoutMs: number
+    driveItemId: string
 ): Promise<{ type: string; url: string } | null> {
     const token = await adminToken(request)
     if (!token) return null
 
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-        const res = await request.get(
-            `${PB_URL}/api/collections/notifications/records?filter=user='${userId}'%26%26type='${type}'&perPage=5&sort=-created`,
-            { headers: { Authorization: token } }
-        )
-        if (res.ok()) {
+    let match: { type: string; url: string } | undefined
+    await expect
+        .poll(async () => {
+            const res = await request.get(
+                `${PB_URL}/api/collections/notifications/records?filter=user='${userId}'%26%26type='${type}'&perPage=5&sort=-created`,
+                { headers: { Authorization: token } }
+            )
+            if (!res.ok()) return undefined
             const body = (await res.json()) as {
                 items: Array<{ type: string; url: string }>
             }
-            const match = body.items.find(n => n.url.includes(driveItemId))
-            if (match) return match
-        }
-        await new Promise(r => setTimeout(r, 200))
-    }
-    return null
+            match = body.items.find(n => n.url.includes(driveItemId))
+            return match
+        })
+        .toBeTruthy()
+    return match ?? null
 }
 
 // Returns the most recent text_comments row anchored to driveItemId,
@@ -552,5 +537,5 @@ async function loginAs(page: Page, identifier: string, password: string): Promis
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//, { timeout: 15_000 })
+    await page.waitForURL(/\/a\//)
 }

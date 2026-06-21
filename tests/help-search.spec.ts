@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Help search palette: Cmd+/ opens a global topic-search overlay.
 // Typing filters by title + summary across every linked package's
@@ -10,8 +10,6 @@ import { editorRoot, openFreshTextDocument, TEXT_TEST_TIMEOUT } from './_menubar
 // merging into the text package's main branch.
 
 test.describe('Text — Help search palette', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('Cmd+/ opens the palette and Esc dismisses it', async ({ page }) => {
         await openFreshTextDocument(page, 'help-search-open')
         await editorRoot(page).click()

@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // Auto-cleanup of orphaned suggestion entries. A Y.Map row in the
 // `suggestions` map that has no doc anchor (Accept / Reject stripped
@@ -27,8 +22,6 @@ import {
 //      the empty-state copy, NOT an Orphaned section.
 
 test.describe('Text — Orphan auto-delete', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('resolved suggestions self-clean from the suggestions Y.Map', async ({ page }) => {
         await openFreshTextDocument(page, 'orphan-auto-delete')
         await editorRoot(page).click()
@@ -40,9 +33,7 @@ test.describe('Text — Orphan auto-delete', () => {
         // command layer has accepted the mode + identity is set.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         // Re-focus the editor (menu click shifts focus) and drop the
         // caret at the very end of the doc so the new content doesn't
@@ -55,22 +46,18 @@ test.describe('Text — Orphan auto-delete', () => {
         // suggestedInsert mark.
         const marker = `orphan-test-${Date.now()}`
         await page.keyboard.type(marker, { delay: 15 })
-        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible({
-            timeout: 5_000,
-        })
+        await expect(page.locator('[data-suggested-insert]').first()).toBeVisible()
 
         // The suggestions Y.Map now has exactly one entry (the session
         // is fresh, no prior suggestions). Read via the dev hook.
         await expect
-            .poll(
-                async () =>
-                    page.evaluate(() => {
-                        const w = window as unknown as {
-                            __tinyTextDoc?: { getMap: (n: string) => { size: number } }
-                        }
-                        return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
-                    }),
-                { timeout: 5_000 }
+            .poll(async () =>
+                page.evaluate(() => {
+                    const w = window as unknown as {
+                        __tinyTextDoc?: { getMap: (n: string) => { size: number } }
+                    }
+                    return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
+                })
             )
             .toBe(1)
 
@@ -79,7 +66,7 @@ test.describe('Text — Orphan auto-delete', () => {
         // block-change e2e specs document the same discipline).
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible()
 
         // Open the drawer, focus the suggestion row so the focused-
         // state thread mounts (Phase 5+ moved per-row Accept into the
@@ -89,24 +76,20 @@ test.describe('Text — Orphan auto-delete', () => {
             .getByRole('button', { name: /^Suggestion by /i })
             .first()
             .click()
-        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible({
-            timeout: 5_000,
-        })
+        await expect(page.locator('[data-testid="suggestion-thread"]')).toBeVisible()
         await page.getByRole('button', { name: 'Accept suggestion' }).first().click()
 
         // The mark is gone AND the Y.Map row has been cleaned up.
         // Polling absorbs the gap between the Accept's mark-strip and
         // the auto-delete's follow-up transaction.
         await expect
-            .poll(
-                async () =>
-                    page.evaluate(() => {
-                        const w = window as unknown as {
-                            __tinyTextDoc?: { getMap: (n: string) => { size: number } }
-                        }
-                        return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
-                    }),
-                { timeout: 10_000 }
+            .poll(async () =>
+                page.evaluate(() => {
+                    const w = window as unknown as {
+                        __tinyTextDoc?: { getMap: (n: string) => { size: number } }
+                    }
+                    return w.__tinyTextDoc?.getMap('suggestions').size ?? -1
+                })
             )
             .toBe(0)
 

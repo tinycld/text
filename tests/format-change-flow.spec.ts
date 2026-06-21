@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, waitForEditor } from './_menubar-helpers'
 
 // End-to-end flow for a format-change suggestion (Phase 5 kind):
 // in Suggesting mode, toggling bold on a selection produces a
@@ -22,8 +17,6 @@ import {
 // row a real user sees.
 
 test.describe('Text — Format-change flow', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('toggle bold in Suggesting → drawer summary → accept applies bold', async ({ page }) => {
         await openFreshTextDocument(page, 'format-change-flow')
         await editorRoot(page).click()
@@ -60,14 +53,12 @@ test.describe('Text — Format-change flow', () => {
             if (!e) return
             e.chain().focus('end').insertContent(`\n${text}`).run()
         }, phrase)
-        await expect(page.getByText(phrase)).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByText(phrase)).toBeVisible()
 
         // Switch into Suggesting mode via the toolbar dropdown.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Suggesting' }).click()
-        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-current-mode="suggesting"]')).toBeVisible()
 
         // Select the just-typed phrase via the editor's command chain
         // again. We use the dev hook because driving selection via the
@@ -133,9 +124,7 @@ test.describe('Text — Format-change flow', () => {
         // a suggestedFormatChange mark over the range with
         // before=[]/after=[bold] snapshots.
         await page.keyboard.press(`${meta}+b`)
-        await expect(page.locator('[data-suggested-format-change]').first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.locator('[data-suggested-format-change]').first()).toBeVisible()
 
         // The bold mark itself was REVERTED — the text does NOT
         // render as <strong>. Visual signal is the decoration's
@@ -146,15 +135,13 @@ test.describe('Text — Format-change flow', () => {
 
         // Open the drawer.
         await page.getByRole('button', { name: 'Open suggestion review drawer' }).click()
-        await expect(page.getByText('Suggestions').first()).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText('Suggestions').first()).toBeVisible()
 
         // The row's "Proposed:" line is composed by
         // summarizeSuggestionEntry → summarizeFormatChange. With only
         // a bold-add toggle in the diff, the summary is
         // "Proposed: add bold". Match flexibly: case-insensitive.
-        await expect(page.getByText(/Proposed:.*add bold/i).first()).toBeVisible({
-            timeout: 10_000,
-        })
+        await expect(page.getByText(/Proposed:.*add bold/i).first()).toBeVisible()
 
         // Switch back to Editing mode BEFORE clicking Accept. The
         // command layer's appendTransaction is gated on Suggesting
@@ -167,7 +154,7 @@ test.describe('Text — Format-change flow', () => {
         // same discipline — see tests/suggestions/format-change-resolve.test.ts:115.
         await page.getByRole('button', { name: 'Editor mode' }).click()
         await page.getByRole('menuitem', { name: 'Editing' }).click()
-        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible({ timeout: 5_000 })
+        await expect(page.locator('[data-current-mode="editing"]')).toBeVisible()
 
         // Click Accept all to resolve the format-change row. The
         // resolver strips the suggestedFormatChange wrapper and

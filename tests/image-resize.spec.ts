@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-    EDITOR_REACTION_TIMEOUT,
-    editorRoot,
-    openFreshTextDocument,
-    TEXT_TEST_TIMEOUT,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument } from './_menubar-helpers'
 
 // Image resize v1: clicking a selected image surfaces three drag
 // handles; dragging the corner handle preserves the aspect ratio and
@@ -44,8 +39,6 @@ function make100x50PngBuffer(): Buffer {
 }
 
 test.describe('Text — Image resize', () => {
-    test.setTimeout(TEXT_TEST_TIMEOUT)
-
     test('dragging the corner handle resizes the image in place', async ({ page }) => {
         await openFreshTextDocument(page, 'image-resize')
 
@@ -66,19 +59,17 @@ test.describe('Text — Image resize', () => {
         })
 
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
-        await expect(inserted).toBeVisible({ timeout: 30_000 })
+        await expect(inserted).toBeVisible()
         // Wait for the React NodeView wrapper (mounts a beat after the raw
         // <img>) so selecting the image actually surfaces the handles.
-        await expect(editorRoot(page).locator('[data-node-view-wrapper]').first()).toBeVisible({
-            timeout: 30_000,
-        })
+        await expect(editorRoot(page).locator('[data-node-view-wrapper]').first()).toBeVisible()
 
         // ProseMirror needs us to click the image to drop a NodeSelection
         // onto it — that's what flips ReactNodeViewRenderer's `selected`
         // prop and mounts the handles.
         await inserted.click()
         const cornerHandle = editorRoot(page).locator('[data-image-handle="corner"]').first()
-        await expect(cornerHandle).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(cornerHandle).toBeVisible()
 
         // Drag the corner handle right + down by 200px. The pointermove
         // updates liveSize; pointerup commits via updateAttributes,
@@ -119,7 +110,7 @@ test.describe('Text — Image resize', () => {
         // toolbar; this is exactly what a user does to keep editing it.
         await inserted.click()
         const toolbar = editorRoot(page).locator('[data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(toolbar).toBeVisible()
         await toolbar.locator('[data-image-wrap-mode="left"]').click()
 
         const widthAfter = Number.parseInt((await inserted.getAttribute('width')) ?? '0', 10)
@@ -132,7 +123,6 @@ test.describe('Text — Image resize', () => {
         // Upload + wait-for-natural-load + drag + reset is a long chain;
         // give it headroom beyond the default so a busy runner's slow but
         // correct run isn't failed by the per-test budget.
-        test.setTimeout(180_000)
 
         // Drag the right-edge handle to grow the width without touching
         // the height — that's how a user accidentally produces a skewed
@@ -154,24 +144,21 @@ test.describe('Text — Image resize', () => {
         })
 
         const inserted = editorRoot(page).locator('img[src*="/api/files/drive_items/"]').first()
-        await expect(inserted).toBeVisible({ timeout: 30_000 })
+        await expect(inserted).toBeVisible()
 
         // Wait until the image has actually loaded so naturalWidth /
         // naturalHeight are non-zero. Without this the toolbar's
         // canReset gate would still be false even after the drag.
-        await page.waitForFunction(
-            () => {
-                const img = document.querySelector<HTMLImageElement>(
-                    '.ProseMirror img[src*="/api/files/drive_items/"]'
-                )
-                return img?.complete === true && img.naturalWidth > 0
-            },
-            { timeout: 30_000 }
-        )
+        await page.waitForFunction(() => {
+            const img = document.querySelector<HTMLImageElement>(
+                '.ProseMirror img[src*="/api/files/drive_items/"]'
+            )
+            return img?.complete === true && img.naturalWidth > 0
+        })
 
         await inserted.click()
         const rightHandle = editorRoot(page).locator('[data-image-handle="right"]').first()
-        await expect(rightHandle).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(rightHandle).toBeVisible()
 
         // Horizontal-only drag: width grows, height stays — that's the
         // skew we want the reset button to undo.
@@ -203,7 +190,7 @@ test.describe('Text — Image resize', () => {
         // to keep adjusting the image (mirrors the corner-drag test).
         await inserted.click()
         const resetButton = editorRoot(page).locator('[data-image-wrap-reset]').first()
-        await expect(resetButton).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(resetButton).toBeVisible()
         await expect(resetButton).toBeEnabled()
         await resetButton.click()
 
@@ -220,7 +207,7 @@ test.describe('Text — Image resize', () => {
         // still commit (a no-op but a wasted Yjs transaction).
         await inserted.click()
         const resetButtonAfter = editorRoot(page).locator('[data-image-wrap-reset]').first()
-        await expect(resetButtonAfter).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(resetButtonAfter).toBeVisible()
         await expect(resetButtonAfter).toBeDisabled()
     })
 })

@@ -1,7 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { EDITOR_REACTION_TIMEOUT, openTextDocument, TEXT_TEST_TIMEOUT } from './_menubar-helpers'
-
-const TEST_TIMEOUT = TEXT_TEST_TIMEOUT
+import { openTextDocument } from './_menubar-helpers'
 
 // Hex color the Heading 1 run carries in feature-test.docx. The translator
 // reads <w:color w:val="C00000"> into a textStyle mark; TextStyle+Color
@@ -113,8 +111,6 @@ async function domSnapshot(page: Page): Promise<DomSnapshot> {
 }
 
 test.describe('Text — .docx fidelity', () => {
-    test.setTimeout(TEST_TIMEOUT)
-
     test('heading levels render with the correct tag', async ({ page }) => {
         // Regression: prior to the yjs-bridge normalizeAttrValue fix,
         // every heading rendered as <h1> because the float64 `level`
@@ -388,17 +384,15 @@ test.describe('Text — .docx fidelity', () => {
             .locator('.ProseMirror [data-node-view-wrapper]')
             .filter({ has: page.locator('img') })
             .first()
-        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toBeVisible()
         await expect(wrapper).toHaveAttribute('data-wrap', 'left')
 
         // Click the image inside the wrapper to surface the toolbar.
         await wrapper.locator('img').click()
         const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(toolbar).toBeVisible()
         await toolbar.locator('[data-image-wrap-mode="right"]').click()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'right', {
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'right')
 
         const layout = await page.evaluate(() => {
             const w = document.querySelector<HTMLElement>(
@@ -465,15 +459,13 @@ test.describe('Text — .docx fidelity', () => {
             .locator('.ProseMirror [data-node-view-wrapper]')
             .filter({ has: page.locator('img') })
             .first()
-        await expect(wrapper).toBeVisible({ timeout: 30_000 })
+        await expect(wrapper).toBeVisible()
         await expect(wrapper).toHaveAttribute('data-wrap', 'left')
         await wrapper.locator('img').click()
         const toolbar = page.locator('.ProseMirror [data-image-wrap-toolbar]').first()
-        await expect(toolbar).toBeVisible({ timeout: EDITOR_REACTION_TIMEOUT })
+        await expect(toolbar).toBeVisible()
         await toolbar.locator('[data-image-wrap-mode="break"]').click()
-        await expect(wrapper).toHaveAttribute('data-wrap', 'break', {
-            timeout: EDITOR_REACTION_TIMEOUT,
-        })
+        await expect(wrapper).toHaveAttribute('data-wrap', 'break')
 
         const layout = await page.evaluate(() => {
             const w = document.querySelector<HTMLElement>(

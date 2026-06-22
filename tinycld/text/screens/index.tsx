@@ -4,17 +4,16 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
+import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
+import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
+import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
+import { fromTemplateName, TEMPLATE_EXTENSIONS } from '@tinycld/drive/lib/template-naming'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { router } from 'expo-router'
 import { LayoutTemplate } from 'lucide-react-native'
 import { useCallback, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
-import { TemplatePicker } from '../components/TemplatePicker'
-import {
-    useCreateBlankTextDocument,
-    useCreateTextDocumentFromTemplate,
-} from '../hooks/use-text-documents'
-import type { TemplateId } from '../lib/templates/index'
+import { useCreateBlankTextDocument } from '../hooks/use-text-documents'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const MD_MIME = 'text/markdown'
@@ -23,9 +22,10 @@ const TXT_MIME = 'text/plain'
 export default function TextIndex() {
     const orgHref = useOrgHref()
     const blank = useCreateBlankTextDocument()
-    const template = useCreateTextDocumentFromTemplate()
+    const copyTemplate = useCopyDriveItem()
     const create = useCreateDriveItem()
     const addToast = useToastStore(s => s.addToast)
+    const hasTemplates = useHasTemplates(TEMPLATE_EXTENSIONS.docx)
     const [isPickerOpen, setPickerOpen] = useState(false)
 
     const goToDoc = useCallback(
@@ -42,19 +42,26 @@ export default function TextIndex() {
     const handleOpenPicker = useCallback(() => setPickerOpen(true), [])
     const handleClosePicker = useCallback(() => setPickerOpen(false), [])
 
+    // A template is just a drive docx; "new from template" copies its
+    // bytes into a fresh doc named after the template minus its `.tmpl`
+    // marker, then opens it. The server bootstraps the room from the
+    // copied source on first open, same as any uploaded docx.
     const handlePickTemplate = useCallback(
-        (id: TemplateId) => {
-            setPickerOpen(false)
-            // Blank goes through the empty-docx bootstrap so the resulting
-            // doc matches what the "New document" CTA produces; only the
-            // non-blank ids run the template upload path.
-            if (id === 'blank') {
-                blank.create(goToDoc)
-                return
-            }
-            template.create(id, goToDoc)
+        (item: { id: string; name: string }) => {
+            copyTemplate.mutate(
+                {
+                    sourceItemId: item.id,
+                    newName: fromTemplateName(item.name, TEMPLATE_EXTENSIONS.docx),
+                },
+                {
+                    onSuccess: result => {
+                        setPickerOpen(false)
+                        goToDoc(result.itemId)
+                    },
+                }
+            )
         },
-        [blank, template, goToDoc]
+        [copyTemplate, goToDoc]
     )
 
     const handleUpload = useCallback(
@@ -69,7 +76,7 @@ export default function TextIndex() {
         [create, orgHref, addToast]
     )
 
-    const isBusy = blank.isPending || template.isPending || create.isPending
+    const isBusy = blank.isPending || copyTemplate.isPending || create.isPending
 
     return (
         <View className="flex-1">
@@ -85,29 +92,38 @@ export default function TextIndex() {
                 isPending={isBusy}
             />
             <View className="absolute right-6 top-6">
-                <TemplatePickerTrigger onPress={handleOpenPicker} disabled={isBusy} />
+                <TemplatePickerTrigger
+                    isVisible={hasTemplates}
+                    onPress={handleOpenPicker}
+                    disabled={isBusy}
+                />
             </View>
-            <TemplatePicker
-                isOpen={isPickerOpen}
+            <TemplatePickerDialog
+                open={isPickerOpen}
+                extension={TEMPLATE_EXTENSIONS.docx}
                 onClose={handleClosePicker}
                 onPick={handlePickTemplate}
-                isPending={isBusy}
+                isPending={copyTemplate.isPending}
             />
         </View>
     )
 }
 
 interface TemplatePickerTriggerProps {
+    isVisible: boolean
     onPress: () => void
     disabled?: boolean
 }
 
-// Opens the four-template picker. Lives outside NoFilePanel because the
-// drive component is shared with calc (which has no templates), so the
-// entry point is text-owned. Positioned top-right of the screen so it
-// stays out of the way of the panel's centered headline + CTA row.
-function TemplatePickerTrigger({ onPress, disabled }: TemplatePickerTriggerProps) {
+// Opens the drive-backed template picker (lists `.tmpl.docx` files).
+// Lives outside NoFilePanel and is positioned top-right of the screen so
+// it stays out of the way of the panel's centered headline + CTA row.
+// Renders nothing until the org has at least one template — no point
+// offering "From template…" when the picker would only show an empty
+// state.
+function TemplatePickerTrigger({ isVisible, onPress, disabled }: TemplatePickerTriggerProps) {
     const foreground = useThemeColor('foreground')
+    if (!isVisible) return null
     return (
         <Pressable
             accessibilityRole="button"

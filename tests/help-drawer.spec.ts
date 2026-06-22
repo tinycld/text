@@ -30,7 +30,7 @@ test.describe('Text — Help drawer package-index mode', () => {
         // contention, so wait the reaction budget rather than the implicit
         // 5s default.
         await expect(page.getByText(/slash menu/i).first()).toBeVisible()
-        await expect(page.getByText(/from a template/i).first()).toBeVisible()
+        await expect(page.getByText(/Document templates/i).first()).toBeVisible()
     })
 
     test('clicking a row switches to topic mode and shows a back arrow', async ({ page }) => {
@@ -46,7 +46,7 @@ test.describe('Text — Help drawer package-index mode', () => {
         // directly drives the same navigateToTopic handler that records
         // cameFrom, which the back arrow depends on.
         const templatesRow = page.getByRole('button', {
-            name: /Open help topic:.*from a template/i,
+            name: /Open help topic:.*Document templates/i,
         })
         await expect(templatesRow).toBeVisible()
         await templatesRow.click()
@@ -66,7 +66,7 @@ test.describe('Text — Help drawer package-index mode', () => {
         await openMenubarMenu(page, 'Help')
         await page.getByRole('menuitem', { name: 'Browse text help' }).click()
         const templatesRow = page.getByRole('button', {
-            name: /Open help topic:.*from a template/i,
+            name: /Open help topic:.*Document templates/i,
         })
         await expect(templatesRow).toBeVisible()
         await templatesRow.click()

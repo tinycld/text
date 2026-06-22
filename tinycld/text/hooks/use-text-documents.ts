@@ -5,9 +5,7 @@ import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { useCallback } from 'react'
 import { createBlankTextDocument } from '../lib/create-blank-text-document'
-import { createTextDocumentFromTemplate } from '../lib/create-text-document-from-template'
 import { DOCX_MIME_TYPE } from '../lib/mime'
-import type { TemplateId } from '../lib/templates/index'
 
 // Shared list query: the docx-mime-typed, non-folder drive_items for
 // the current org, newest-updated first. Same shape both the
@@ -40,31 +38,6 @@ export function useCreateBlankTextDocument() {
     const create = useCallback(
         (onCreated: (itemId: string) => void) => {
             createBlankTextDocument({ mutate: mutation.mutate, onCreated, captureException })
-        },
-        [mutation.mutate]
-    )
-    return { create, isPending: mutation.isPending }
-}
-
-// Same shape as useCreateBlankTextDocument but takes a templateId at
-// call time so one mutation instance backs all template choices. The
-// underlying helper materializes the embedded bytes (async on native,
-// where it writes a temp file), so switching templates between clicks
-// doesn't require resetting the mutation. Returning the same
-// `{ create, isPending }` tuple keeps the caller code at parity with the
-// blank flow. The helper swallows its own failures via captureException;
-// the .catch is a belt-and-suspenders guard against an unhandled
-// rejection escaping the fire-and-forget call.
-export function useCreateTextDocumentFromTemplate() {
-    const mutation = useCreateDriveItem()
-    const create = useCallback(
-        (templateId: TemplateId, onCreated: (itemId: string) => void) => {
-            createTextDocumentFromTemplate({
-                templateId,
-                mutate: mutation.mutate,
-                onCreated,
-                captureException,
-            }).catch(err => captureException('text.createDocFromTemplate', err))
         },
         [mutation.mutate]
     )

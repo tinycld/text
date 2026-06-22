@@ -135,6 +135,7 @@ func Register(app *pocketbase.PocketBase) {
 		),
 		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
 		OnEmpty:            saveCoordinator.OnRoomEmpty,
+		ForceFlush:         saveCoordinator.FlushNow,
 		OnConnect:          makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads

@@ -4,6 +4,15 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
+import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
+import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
+import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
+import {
+    fromTemplateName,
+    isTemplateName,
+    TEMPLATE_EXTENSIONS,
+    toTemplateName,
+} from '@tinycld/drive/lib/template-naming'
 import { router } from 'expo-router'
 import { lazy, Suspense, useState } from 'react'
 import type { PMNode } from '../../lib/markdown/types'
@@ -23,15 +32,47 @@ const ShareDialogConnected = lazy(() => import('@tinycld/drive/components/ShareD
 export function FileMenu(props: MenuBarProps) {
     const orgHref = useOrgHref()
     const { capabilities } = useEditorMount()
+    const copyTemplate = useCopyDriveItem()
+    const hasTemplates = useHasTemplates(TEMPLATE_EXTENSIONS.docx)
     const [isSaveVersionOpen, setSaveVersionOpen] = useState(false)
     const [isCopyOpen, setCopyOpen] = useState(false)
     const [isRenameOpen, setRenameOpen] = useState(false)
     const [isTrashOpen, setTrashOpen] = useState(false)
     const [isShareOpen, setShareOpen] = useState(false)
+    const [isTemplatePickerOpen, setTemplatePickerOpen] = useState(false)
 
     const handleCopy = (name: string) => {
         props.fileActions.makeCopy(name)
         setCopyOpen(false)
+    }
+
+    // "New from template" copies a `.tmpl.docx` file into a fresh doc and
+    // opens it — same flow as the index-screen picker, available from the
+    // menu so a user editing one doc can start another from a template.
+    const handlePickTemplate = (item: { id: string; name: string }) => {
+        copyTemplate.mutate(
+            {
+                sourceItemId: item.id,
+                newName: fromTemplateName(item.name, TEMPLATE_EXTENSIONS.docx),
+            },
+            {
+                onSuccess: result => {
+                    setTemplatePickerOpen(false)
+                    router.push(orgHref('text/[id]', { id: result.itemId }))
+                },
+            }
+        )
+    }
+
+    // "Export as template" reuses the folder-picker copy flow (which
+    // force-flushes the live room first), saving the current doc as a
+    // `.tmpl.docx`. Hidden when the doc is already a template so we never
+    // double-suffix.
+    const isAlreadyTemplate = isTemplateName(props.documentName, TEMPLATE_EXTENSIONS.docx)
+    const handleExportTemplate = () => {
+        props.fileActions.exportAsTemplate(
+            toTemplateName(props.documentName, TEMPLATE_EXTENSIONS.docx)
+        )
     }
 
     const handleRename = (name: string) => {
@@ -105,12 +146,22 @@ export function FileMenu(props: MenuBarProps) {
                 <Menu.Item onPress={() => router.push(orgHref('text'))}>
                     <Menu.ItemTitle>New document</Menu.ItemTitle>
                 </Menu.Item>
+                {hasTemplates && (
+                    <Menu.Item onPress={() => setTemplatePickerOpen(true)}>
+                        <Menu.ItemTitle>New from template…</Menu.ItemTitle>
+                    </Menu.Item>
+                )}
                 <Menu.Item onPress={() => router.push(orgHref('drive'))}>
                     <Menu.ItemTitle>Open</Menu.ItemTitle>
                 </Menu.Item>
                 <Menu.Item onPress={() => setCopyOpen(true)}>
                     <Menu.ItemTitle>Make a copy</Menu.ItemTitle>
                 </Menu.Item>
+                {!isAlreadyTemplate && (
+                    <Menu.Item onPress={handleExportTemplate}>
+                        <Menu.ItemTitle>Export as template…</Menu.ItemTitle>
+                    </Menu.Item>
+                )}
                 {capabilities.canUseFileActions && (
                     <Menu.Item onPress={() => setShareOpen(true)}>
                         <Menu.ItemTitle>Share</Menu.ItemTitle>
@@ -142,6 +193,13 @@ export function FileMenu(props: MenuBarProps) {
                     <MenuShortcut keys="⌘P" />
                 </Menu.Item>
             </MenuBarMenu>
+            <TemplatePickerDialog
+                open={isTemplatePickerOpen}
+                extension={TEMPLATE_EXTENSIONS.docx}
+                onClose={() => setTemplatePickerOpen(false)}
+                onPick={handlePickTemplate}
+                isPending={copyTemplate.isPending}
+            />
             <SaveVersionDialog
                 isOpen={isSaveVersionOpen}
                 onClose={() => setSaveVersionOpen(false)}

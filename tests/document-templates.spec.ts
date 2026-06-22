@@ -13,12 +13,7 @@
 
 import { expect, type Page, test } from '@playwright/test'
 import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
-import {
-    editorRoot,
-    openFreshTextDocument,
-    openMenubarMenu,
-    waitForEditor,
-} from './_menubar-helpers'
+import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // A distinctive phrase typed into the document right before export. If it
 // shows up in the doc created from the template, the flush worked.
@@ -53,9 +48,16 @@ test.describe('Text — Document templates', () => {
         // A new document opens; its content includes the marker we typed
         // before exporting — proving the force-flush captured the live edit
         // into the template, not just the last debounced save.
+        //
+        // Scope to `.last()`: the app shell keeps the prior doc's screen
+        // mounted (freezeOnBlur), so two .ProseMirror editors briefly
+        // coexist after the in-app navigation — the new doc's editor is the
+        // DOM-later one. A bare editorRoot() would trip Playwright strict
+        // mode on the two matches.
         await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/[^/]+`))
-        await waitForEditor(page)
-        await expect(editorRoot(page)).toContainText(FRESH_MARKER)
+        const newEditor = editorRoot(page).last()
+        await expect(newEditor).toBeVisible()
+        await expect(newEditor).toContainText(FRESH_MARKER)
     })
 })
 

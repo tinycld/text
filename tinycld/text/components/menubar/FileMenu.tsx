@@ -5,6 +5,7 @@ import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
+import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
 import {
     fromTemplateName,
@@ -32,6 +33,7 @@ export function FileMenu(props: MenuBarProps) {
     const orgHref = useOrgHref()
     const { capabilities } = useEditorMount()
     const copyTemplate = useCopyDriveItem()
+    const hasTemplates = useHasTemplates(TEMPLATE_EXTENSIONS.docx)
     const [isSaveVersionOpen, setSaveVersionOpen] = useState(false)
     const [isCopyOpen, setCopyOpen] = useState(false)
     const [isRenameOpen, setRenameOpen] = useState(false)
@@ -144,9 +146,11 @@ export function FileMenu(props: MenuBarProps) {
                 <Menu.Item onPress={() => router.push(orgHref('text'))}>
                     <Menu.ItemTitle>New document</Menu.ItemTitle>
                 </Menu.Item>
-                <Menu.Item onPress={() => setTemplatePickerOpen(true)}>
-                    <Menu.ItemTitle>New from template…</Menu.ItemTitle>
-                </Menu.Item>
+                {hasTemplates && (
+                    <Menu.Item onPress={() => setTemplatePickerOpen(true)}>
+                        <Menu.ItemTitle>New from template…</Menu.ItemTitle>
+                    </Menu.Item>
+                )}
                 <Menu.Item onPress={() => router.push(orgHref('drive'))}>
                     <Menu.ItemTitle>Open</Menu.ItemTitle>
                 </Menu.Item>

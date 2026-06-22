@@ -5,6 +5,7 @@ import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
+import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
 import { fromTemplateName, TEMPLATE_EXTENSIONS } from '@tinycld/drive/lib/template-naming'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
@@ -24,6 +25,7 @@ export default function TextIndex() {
     const copyTemplate = useCopyDriveItem()
     const create = useCreateDriveItem()
     const addToast = useToastStore(s => s.addToast)
+    const hasTemplates = useHasTemplates(TEMPLATE_EXTENSIONS.docx)
     const [isPickerOpen, setPickerOpen] = useState(false)
 
     const goToDoc = useCallback(
@@ -90,7 +92,11 @@ export default function TextIndex() {
                 isPending={isBusy}
             />
             <View className="absolute right-6 top-6">
-                <TemplatePickerTrigger onPress={handleOpenPicker} disabled={isBusy} />
+                <TemplatePickerTrigger
+                    isVisible={hasTemplates}
+                    onPress={handleOpenPicker}
+                    disabled={isBusy}
+                />
             </View>
             <TemplatePickerDialog
                 open={isPickerOpen}
@@ -104,6 +110,7 @@ export default function TextIndex() {
 }
 
 interface TemplatePickerTriggerProps {
+    isVisible: boolean
     onPress: () => void
     disabled?: boolean
 }
@@ -111,8 +118,12 @@ interface TemplatePickerTriggerProps {
 // Opens the drive-backed template picker (lists `.tmpl.docx` files).
 // Lives outside NoFilePanel and is positioned top-right of the screen so
 // it stays out of the way of the panel's centered headline + CTA row.
-function TemplatePickerTrigger({ onPress, disabled }: TemplatePickerTriggerProps) {
+// Renders nothing until the org has at least one template — no point
+// offering "From template…" when the picker would only show an empty
+// state.
+function TemplatePickerTrigger({ isVisible, onPress, disabled }: TemplatePickerTriggerProps) {
     const foreground = useThemeColor('foreground')
+    if (!isVisible) return null
     return (
         <Pressable
             accessibilityRole="button"

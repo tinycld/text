@@ -57,14 +57,15 @@ test.describe('Text — Document templates', () => {
         await waitForEditor(page)
         await expect(editorRoot(page)).toContainText(FRESH_MARKER)
     })
-
-    test('New from template… in the File menu opens the picker', async ({ page }) => {
-        await openFreshTextDocument(page, 'tmpl-picker-open')
-        await openMenubarMenu(page, 'File')
-        await page.getByRole('menuitem', { name: 'New from template…' }).click()
-        await expect(page.getByTestId('template-picker-dialog')).toBeVisible()
-    })
 })
+
+// Note: the "New from template…" entry points (File menu + index trigger)
+// are hidden until the org has at least one `.tmpl.docx`, so the
+// round-trip test above is what exercises the visible path — after it
+// exports a template, the menu item appears and opens the picker. The
+// hidden-when-empty behavior is covered deterministically by the
+// useHasTemplates unit test (the shared e2e DB can't guarantee a
+// template-free org once another test has exported one).
 
 // Runs File → Export as template…, confirms the folder dialog, and
 // returns the label the picker will show for the new template — i.e. the

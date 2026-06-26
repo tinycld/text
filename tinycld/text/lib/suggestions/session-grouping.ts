@@ -6,9 +6,20 @@ import { ulid } from 'ulid'
 // EXPO_PUBLIC_TEXT_SUGGESTION_IDLE_MS=1000 (set in scripts/export-web.ts) so
 // the bulk-resolve spec can mint three distinct suggestions in a few seconds
 // instead of sleeping out a 30s window twice. Mirrors the server-side
-// TINYCLD_EDIT_EVENT_WINDOW_MS override. EXPO_PUBLIC_* vars are inlined at
-// bundle time, so this is a compile-time constant in any given build.
-const IDLE_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_TEXT_SUGGESTION_IDLE_MS) || 30_000
+// TINYCLD_EDIT_EVENT_WINDOW_MS override.
+//
+// Metro/Expo statically inlines `process.env.EXPO_PUBLIC_*` member reads at
+// bundle time, so the override still applies in the app bundle. But this
+// module is also pulled into the WebView editor's separate esbuild bundle,
+// which runs in a WebView with no `process` global and doesn't inline
+// EXPO_PUBLIC_* — there, a bare `process.env.X` read throws "process is not
+// defined" at module load, aborting the editor mount. The `typeof process`
+// guard reads as undefined in that context (falling back to 30s) while
+// leaving Metro's static inlining of the guarded branch intact.
+const IDLE_TIMEOUT_MS =
+    Number(
+        typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_TEXT_SUGGESTION_IDLE_MS : undefined
+    ) || 30_000
 
 export interface SuggestionSession {
     // touch records a user-driven edit and returns the suggestionId

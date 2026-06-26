@@ -21,13 +21,14 @@ Editing features:
   for structural ops
 - Inline images (paste / drag-drop / file picker), with resize and
   text-wrap modes (inline, left, right, breakText)
-- Threaded comments anchored to selections (`CommentPopover`,
-  `useDocumentComments`)
+- Threaded comments anchored to selections (`NewCommentModal`,
+  `TextCommentDrawer`, `useDocumentComments`)
 - @-mentions of org members (`useMentionSuggestions`)
 - Slash menu (`SlashMenu`) for block-level insertions; link popover
   (`LinkPopover`) for inline link editing
-- Document templates — Blank, Letter, Resume, Report
-  (`TemplatePicker` + `lib/templates/`)
+- New from template — picks a Drive docx template and copies its bytes
+  into a fresh doc (`@tinycld/drive`'s `TemplatePickerDialog` +
+  `useHasTemplates`; a template is just a Drive `.docx`)
 - Markdown import and export — **Edit → Paste as Markdown** parses the
   clipboard as Markdown and inserts structured content; **File →
   Download (.md)** saves the document as Markdown alongside the
@@ -119,7 +120,7 @@ bytes back onto the drive_item's `file` field.
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Client (React Native / web)                                         │
 │                                                                      │
-│   DocumentToolbar / MenuBar / FindReplaceBar / CommentPopover        │
+│   DocumentToolbar / MenuBar / FindReplaceBar / TextCommentDrawer     │
 │                       │                                              │
 │                       ▼                                              │
 │   ProseMirror editor  ──  y-prosemirror bridge                       │
@@ -363,15 +364,14 @@ text/
         wal_e2e_test.go     end-to-end WAL replay / truncate / cleanup
     tinycld/text/           TypeScript source
         provider.tsx        registers DocumentPreview + drive actions
-        sidebar.tsx
         screens/            index + [id]
         components/         toolbar, menubar, popovers, dialogs
             menubar/        File/Edit/Format/Insert/Help menus
             suggestions/    ReviewDrawer (Suggestions/Activity/Authorship),
                             SuggestionThread, SuggestionRow,
                             OpenReviewDrawerButton, AuthorshipPopover
-            comments/       NewCommentModal, OpenCommentsDrawerButton,
-                            TextCommentDrawer
+            comments/       NewCommentModal, NewCommentButton,
+                            OpenCommentsDrawerButton, TextCommentDrawer
             EditorModeMenu  Editing / Suggesting / Viewing toggle
         hooks/              use-document-editor (.web / .native), useTextRoom,
                             use-document-suggestions, use-suggestion-bridge,
@@ -379,14 +379,13 @@ text/
                             use-activity-entries, use-client-authors, …
         stores/             editor-mode-store, review-drawer-store,
                             authorship-display-store
-        lib/                editor config, find/replace, image handling, templates
+        lib/                editor config, find/replace, image handling
             suggestions/    build-extensions, command-layer, decorations,
                             block/format/table change utils, bulk-resolve,
                             click-to-focus, discussions, resolve,
                             session-grouping, suggestions-map
             authorship/     aggregate-contributors, decoration plugin glue
             markdown/       md-to-pm, pm-to-md
-            templates/      Blank, Letter, Resume, Report
         webview-editor/     ProseMirror build hosted by the native editor
                             (includes suggested-* extensions + authorship
                              decoration plugin)

@@ -20,7 +20,7 @@ Editing features:
 - Tables with cell shading and per-edge borders, plus a `TableMenu`
   for structural ops
 - Inline images (paste / drag-drop / file picker), with resize and
-  text-wrap modes (inline, left, right, breakText)
+  text-wrap modes (inline, left, right, break)
 - Threaded comments anchored to selections (`NewCommentModal`,
   `TextCommentDrawer`, `useDocumentComments`)
 - @-mentions of org members (`useMentionSuggestions`)

@@ -656,6 +656,13 @@ func (p *docxParser) parseBodyChild(dec *xml.Decoder, start xml.StartElement) (*
 		// Section properties (page setup) — silently skip; not
 		// representable in PM and not user-content.
 		return nil, skipElement(dec, start)
+	case "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd":
+		// Anchor/marker elements Word emits at body scope for
+		// document-spanning bookmarks, proofing state, and edit
+		// permissions. They carry no user content and are already
+		// skipped silently at paragraph scope — do the same here so
+		// they don't surface a spurious unsupported-node warning.
+		return nil, skipElement(dec, start)
 	case "sdt":
 		// Structured document tag (content control). Replace with
 		// inner text and warn.
@@ -788,6 +795,14 @@ func (p *docxParser) assembleParagraph(pStyle, numID, ilvl string, textAlign str
 			Content: runs,
 			Attrs:   attrs,
 		}
+	}
+
+	// Word's document "Title"/"Subtitle" styles have no dedicated PM
+	// node, so map them onto the heading hierarchy (Title→h1,
+	// Subtitle→h2) rather than warning and flattening to a plain
+	// paragraph — this preserves their prominence on import.
+	if titleLevel := titleStyleLevel(pStyle); titleLevel != 0 {
+		pStyle = fmt.Sprintf("Heading%d", titleLevel)
 	}
 
 	switch {
@@ -955,6 +970,21 @@ func isDefaultParagraphStyle(pStyle string) bool {
 		return true
 	}
 	return false
+}
+
+// titleStyleLevel maps Word's document title styles to a heading level
+// (Title→1, Subtitle→2) and returns 0 for any other style. PM has no
+// dedicated title node, so these collapse onto the top of the heading
+// hierarchy on import. Matched case-insensitively with spaces stripped
+// so "Subtitle" / "Sub Title" / "subtitle" all resolve.
+func titleStyleLevel(pStyle string) int {
+	switch strings.ToLower(strings.ReplaceAll(pStyle, " ", "")) {
+	case "title":
+		return 1
+	case "subtitle":
+		return 2
+	}
+	return 0
 }
 
 // isCodeBlockStyle returns true for the paragraph style names we
@@ -1223,6 +1253,9 @@ func (p *docxParser) resolveBlockTypeFromPPr(pStyle, numID, ilvl, textAlign stri
 		}
 		applyAlignIndentAttrs(attrs, textAlign, indentLevel)
 		return fmtKind, attrs
+	}
+	if titleLevel := titleStyleLevel(pStyle); titleLevel != 0 {
+		pStyle = fmt.Sprintf("Heading%d", titleLevel)
 	}
 	if strings.HasPrefix(pStyle, "Heading") {
 		level := headingLevel(pStyle)

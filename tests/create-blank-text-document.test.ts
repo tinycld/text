@@ -30,7 +30,7 @@ function fakeMutate(impl: (input: unknown, opts: unknown) => void): Mutate {
 }
 
 describe('createBlankTextDocument', () => {
-    it('passes a docx-tagged blank blob to mutate', () => {
+    it('passes a docx-tagged no-file create payload to mutate', () => {
         const mutate = vi.fn()
         const deps = makeDeps(mutate as unknown as Mutate)
         createBlankTextDocument(deps)
@@ -38,14 +38,16 @@ describe('createBlankTextDocument', () => {
         const input = mutate.mock.calls[0][0] as {
             name: string
             mimeType: string
-            body: Blob
+            body?: unknown
         }
         expect(input.name).toBe('Untitled.docx')
         expect(input.mimeType).toBe(
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
-        expect(input.body).toBeInstanceOf(Blob)
-        expect(input.body.size).toBe(0)
+        // The blank create sends NO file — the server's blankfile hook attaches
+        // the skeleton. (Was a `new Blob([])` upload, which RN Android can't
+        // send as multipart form data.)
+        expect(input.body).toBeUndefined()
     })
 
     it('routes via onCreated with the freshly minted item id on success', () => {

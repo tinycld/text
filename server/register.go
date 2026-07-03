@@ -1,18 +1,31 @@
 package text
 
 import (
+	_ "embed"
 	"encoding/json"
 	"math"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/blankfile"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
 	"tinycld.org/core/userorg"
 	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
+
+// docxMimeType (the drive_items.mime_type for text documents, matching the
+// client's DOCX_MIME_TYPE) is already declared in render_endpoint.go.
+
+// blankDOCX is a minimal valid empty document, attached server-side to a
+// blank-document create that arrives with no file. Generated from an empty
+// ProseMirror doc via translate.PMJSONToDocx (the same writer the flush uses),
+// so it round-trips identically to a doc the app saves itself.
+//
+//go:embed blank.docx
+var blankDOCX []byte
 
 // authorizeAnonShare admits an anonymous share-link visitor to a text room.
 // Re-resolves the share link (rejecting revoked/expired/downgraded links at
@@ -73,6 +86,10 @@ func Register(app *pocketbase.PocketBase) {
 	configureWindowFromEnv()
 
 	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
+
+	// Attach a blank docx server-side when a new document is created with no
+	// file — the client just inserts the drive_items row (no Blob upload).
+	blankfile.Register(app, docxMimeType, "document.docx", blankDOCX)
 
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))

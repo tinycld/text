@@ -2,7 +2,7 @@ import { and, eq } from '@tanstack/db'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
-import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
+import { useCreateBlankDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { useCallback } from 'react'
 import { createBlankTextDocument } from '../lib/create-blank-text-document'
 import { DOCX_MIME_TYPE } from '../lib/mime'
@@ -34,7 +34,7 @@ export function useTextDocuments() {
 // callable so the call site doesn't have to thread captureException +
 // the blank blob construction itself.
 export function useCreateBlankTextDocument() {
-    const mutation = useCreateDriveItem()
+    const mutation = useCreateBlankDriveItem()
     const create = useCallback(
         (onCreated: (itemId: string) => void) => {
             createBlankTextDocument({ mutate: mutation.mutate, onCreated, captureException })

@@ -75,6 +75,30 @@ func TestParseDriveFileURL(t *testing.T) {
 			in:     "data:image/png;base64,abc",
 			wantOK: false,
 		},
+		// The filename is joined verbatim into the record's storage
+		// key, so anything other than a bare single segment must be
+		// rejected — a nested path or ".." would escape the record's
+		// file directory.
+		{
+			name:   "traversal in filename",
+			in:     "https://x/api/files/drive_items/abc123/../otherrec/secret.png",
+			wantOK: false,
+		},
+		{
+			name:   "nested filename segments",
+			in:     "https://x/api/files/drive_items/abc123/thumbs/t.png",
+			wantOK: false,
+		},
+		{
+			name:   "backslash in filename",
+			in:     `https://x/api/files/drive_items/abc123/..\secret.png`,
+			wantOK: false,
+		},
+		{
+			name:   "dot-dot sequence inside filename",
+			in:     "https://x/api/files/drive_items/abc123/a..b.png",
+			wantOK: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

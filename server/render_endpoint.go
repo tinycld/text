@@ -111,7 +111,18 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 		images = translate.ImageModeURL
 	}
 
-	clean, err := RenderItemHTML(app, item, images)
+	// The embed fetcher authorizes each embedded image against the
+	// CALLER, not the document — a doc's content is user-authored and
+	// can reference arbitrary records, so "may render the doc" must not
+	// imply "may read every file the doc points at". Nil-guarded because
+	// a share-link caller reaching this shared writer has no auth
+	// record; the fetcher fails closed on an empty user ID.
+	authUserID := ""
+	if re.Auth != nil {
+		authUserID = re.Auth.Id
+	}
+
+	clean, err := RenderItemHTML(app, item, images, authUserID)
 	if err != nil {
 		return re.InternalServerError("could not render document", err)
 	}
@@ -128,7 +139,13 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 // (registered in this package) can reuse it after validating a share
 // session — the members are separate modules, so cross-package reuse
 // goes through exported funcs here, not imports of drive.
-func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode) (string, error) {
+//
+// authUserID identifies the CALLER for per-image authorization in
+// embed mode: each embedded drive-file src is checked against that
+// user's share access before its bytes are inlined. Pass "" for
+// callers without an authenticated user (e.g. a share-link session) —
+// embed fetches then fail closed and the images are dropped.
+func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
 	docxBytes, err := readDriveItemBytes(app, item)
 	if err != nil {
 		return "", fmt.Errorf("could not read file: %w", err)
@@ -144,7 +161,7 @@ func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode)
 		// closure construction so docx-imported images (which carry
 		// data: URIs already) pass through without any callback work.
 		if images == translate.ImageModeEmbed {
-			opts.EmbedFetcher = makeEmbedFetcher(app)
+			opts.EmbedFetcher = makeEmbedFetcher(app, authUserID)
 		}
 		// DocxToHTML walks the parsed PMNode tree directly to HTML —
 		// no JSON marshal/unmarshal in the render path. Warnings are
@@ -179,20 +196,42 @@ func renderETag(driveItemID, updated string) string {
 // The fetcher accepts:
 //
 //   - Absolute http(s) URLs that look like PocketBase file URLs of
-//     the form .../api/files/<collection>/<recordId>/<filename>?…
+//     the form .../api/files/drive_items/<recordId>/<filename>?…
 //     The host portion is ignored — we use the path to look up the
 //     same file in this server's filesystem.
 //
-// Anything else (off-domain URLs, malformed inputs) returns an
-// error so the renderer drops the image rather than embedding an
-// untrusted URL we can't verify.
-func makeEmbedFetcher(app core.App) translate.EmbedFetcher {
+// Anything else (off-domain URLs, non-drive_items collections,
+// malformed inputs) returns an error so the renderer drops the image
+// rather than embedding bytes we can't verify.
+//
+// Authorization: the src comes straight from user-authored document
+// content, and app.FindRecordById bypasses PocketBase collection
+// rules — so this fetcher must re-impose the read authorization PB
+// would normally enforce. Only drive_items records are resolvable,
+// and only when authUserID holds a live share on that exact record
+// (resolveShareRole — the same org-constrained predicate that gates
+// the render target, realtime room admission, and write access).
+// Without this, any editor could embed another org's file URL and
+// exfiltrate its bytes through the rendered output.
+func makeEmbedFetcher(app core.App, authUserID string) translate.EmbedFetcher {
 	return func(src string) (string, []byte, error) {
 		coll, recID, fileName, ok := parseDriveFileURL(src)
 		if !ok {
 			return "", nil, fmt.Errorf("text render: unsupported embed source")
 		}
-		record, err := app.FindRecordById(coll, recID)
+		if coll != driveItemsCollection {
+			return "", nil, fmt.Errorf("text render: embed collection not allowed")
+		}
+		// Fail closed when the caller has no authenticated identity
+		// (e.g. a future share-link render) — dropping images is safe;
+		// serving them without a subject to authorize is not.
+		if authUserID == "" {
+			return "", nil, fmt.Errorf("text render: embed fetch requires an authenticated user")
+		}
+		if _, err := resolveShareRole(app, authUserID, recID); err != nil {
+			return "", nil, fmt.Errorf("text render: no access to embedded drive item: %w", err)
+		}
+		record, err := app.FindRecordById(driveItemsCollection, recID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -220,11 +259,12 @@ func makeEmbedFetcher(app core.App) translate.EmbedFetcher {
 //
 //	scheme://host[:port]/api/files/<collection>/<recordId>/<filename>[?token=…]
 //
-// Returns ok=false for anything else, including relative paths and
-// missing path segments. We deliberately don't require a specific
-// scheme/host because dev deploys vary; the file existence check
-// happens via app.FindRecordById which enforces that the record is
-// in this PocketBase instance.
+// Returns ok=false for anything else, including relative paths,
+// missing path segments, and filenames that aren't a single bare
+// segment. We deliberately don't require a specific scheme/host
+// because dev deploys vary; the file existence check happens via
+// app.FindRecordById which enforces that the record is in this
+// PocketBase instance.
 func parseDriveFileURL(src string) (collection, recordID, fileName string, ok bool) {
 	// Strip query string.
 	if idx := indexByte(src, '?'); idx >= 0 {
@@ -250,10 +290,28 @@ func parseDriveFileURL(src string) (collection, recordID, fileName string, ok bo
 	}
 	recordID = rest[:second]
 	fileName = rest[second+1:]
-	if fileName == "" {
+	if !isSafeFileSegment(fileName) {
 		return "", "", "", false
 	}
 	return collection, recordID, fileName, true
+}
+
+// isSafeFileSegment reports whether name is a bare single-segment
+// filename. The parsed fileName is joined verbatim into the record's
+// storage key (BaseFilesPath() + "/" + fileName), so a separator or a
+// ".." sequence could address bytes outside that record's file
+// directory. PocketBase-stored filenames never legitimately contain
+// any of these, so rejecting costs nothing.
+func isSafeFileSegment(name string) bool {
+	if name == "" || indexSubstr(name, "..") >= 0 {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if name[i] == '/' || name[i] == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // mimeFromFilename returns a conservative MIME type for an image

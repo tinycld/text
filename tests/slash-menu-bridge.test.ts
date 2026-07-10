@@ -231,7 +231,7 @@ describe('createSlashMenuBridgeRender — wire shape', () => {
         expect(command).toHaveBeenCalledTimes(1)
         // Selected index starts at 0 → first command from the props
         // (heading-1).
-        expect((command.mock.calls[0]?.[0] as SlashMenuCommand).id).toBe('heading-1')
+        expect((command.mock.calls[0]![0] as SlashMenuCommand).id).toBe('heading-1')
     })
 
     it('Escape calls exitSuggestion to dismiss the trigger', () => {

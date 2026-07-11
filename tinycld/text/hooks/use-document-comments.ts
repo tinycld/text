@@ -80,10 +80,6 @@ export function useDocumentComments(
     const [orphanedCommentIds, setOrphanedCommentIds] = useState<Set<string>>(() => new Set())
 
     useEffect(() => {
-        setOrphanedCommentIds(new Set())
-    }, [])
-
-    useEffect(() => {
         if (!commentBridge) return
         return commentBridge.onRemoved(removed => {
             if (removed.length === 0) return

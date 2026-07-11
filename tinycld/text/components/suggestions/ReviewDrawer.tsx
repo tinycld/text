@@ -108,6 +108,8 @@ export function ReviewDrawer({
     const bg = useThemeColor('background')
     const border = useThemeColor('border')
     const primary = useThemeColor('primary')
+    const success = useThemeColor('success')
+    const successForeground = useThemeColor('success-foreground')
 
     // ESC clears the focused-suggestion state so the user can collapse
     // the open thread without resorting to clicking another row. Web
@@ -235,12 +237,14 @@ export function ReviewDrawer({
                                     paddingHorizontal: 12,
                                     paddingVertical: 6,
                                     borderRadius: 4,
-                                    backgroundColor: '#0a7',
+                                    backgroundColor: success,
                                 }}
                                 accessibilityRole="button"
                                 accessibilityLabel="Accept all suggestions"
                             >
-                                <Text style={{ color: '#fff', fontSize: 13 }}>Accept all</Text>
+                                <Text style={{ color: successForeground, fontSize: 13 }}>
+                                    Accept all
+                                </Text>
                             </Pressable>
                             <Pressable
                                 onPress={() => onBulkReject(openIds)}

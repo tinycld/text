@@ -1,13 +1,18 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
-    PB_URL,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
+import {
+    createSecondUser,
+    loginAs,
+    readClientAuthors,
+    shareDriveItemWith,
+} from './helpers/seed-multi-user'
 
 // E2E coverage for Phase 3a server-side authorship stamping. Two
 // distinct browser contexts (alice + bob) each instantiate their own
@@ -29,7 +34,7 @@ test.describe('Text — Authorship stamping', () => {
         // mints a separate clientID, so the server should stamp two
         // distinct entries (one per writer) into the clientAuthors map.
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('authorship-stamping'))
-        const userB = await createSecondUser()
+        const userB = await createSecondUser('authorship-stamping')
         await shareDriveItemWith(itemId, userB)
 
         const aliceContext = await browser.newContext()
@@ -114,126 +119,3 @@ test.describe('Text — Authorship stamping', () => {
         }
     })
 })
-
-// readClientAuthors evaluates the live Y.Doc on `page` and returns the
-// flattened clientAuthors map entries. Callers wrap this in expect.poll to
-// wait for the stamping delta's re-publication via the broker to land.
-async function readClientAuthors(page: Page): Promise<[string, string][]> {
-    return page.evaluate(() => {
-        const w = window as unknown as {
-            __tinyTextDoc?: {
-                getMap: (n: string) => {
-                    forEach: (cb: (v: unknown, k: string) => void) => void
-                }
-            }
-        }
-        const doc = w.__tinyTextDoc
-        if (!doc) return [] as [string, string][]
-        const m = doc.getMap('clientAuthors')
-        const out: [string, string][] = []
-        m.forEach((v: unknown, k: string) => {
-            if (typeof v === 'string') out.push([k, v])
-        })
-        return out
-    })
-}
-
-interface SecondUser {
-    id: string
-    email: string
-    password: string
-    userOrgId: string
-}
-
-// Mint a fresh user via the superuser API and add them to test-org.
-// Mirrors the helper in text-document.spec.ts / comments.spec.ts
-// inline here so this spec stays self-contained (matching the existing
-// pattern in this directory until a shared helpers module is carved out).
-async function createSecondUser(): Promise<SecondUser> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    if (!adminAuth.ok) {
-        throw new Error(`Superuser auth failed: ${adminAuth.status} ${await adminAuth.text()}`)
-    }
-    const { token: adminToken } = (await adminAuth.json()) as { token: string }
-
-    const orgsRes = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: adminToken } }
-    )
-    const orgs = (await orgsRes.json()) as { items: { id: string }[] }
-    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgs.items[0].id
-
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const email = `authorship-test-${suffix}@tinycld.org`
-    const password = 'AuthorshipTest1234!'
-
-    const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({
-            email,
-            password,
-            passwordConfirm: password,
-            name: `Authorship Tester ${suffix}`,
-            username: `auth_${suffix.replace(/-/g, '_')}`,
-            verified: true,
-        }),
-    })
-    if (!userRes.ok) {
-        throw new Error(`Create user failed: ${userRes.status} ${await userRes.text()}`)
-    }
-    const user = (await userRes.json()) as { id: string }
-
-    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
-    })
-    if (!userOrgRes.ok) {
-        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
-    }
-    const userOrg = (await userOrgRes.json()) as { id: string }
-
-    return { id: user.id, email, password, userOrgId: userOrg.id }
-}
-
-async function shareDriveItemWith(itemId: string, user: SecondUser): Promise<void> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    const { token: adminToken } = (await adminAuth.json()) as { token: string }
-
-    const res = await fetch(`${PB_URL}/api/collections/drive_shares/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({
-            item: itemId,
-            user_org: user.userOrgId,
-            role: 'editor',
-            created_by: user.userOrgId,
-        }),
-    })
-    if (!res.ok) {
-        throw new Error(`Share drive_item failed: ${res.status} ${await res.text()}`)
-    }
-}
-
-async function loginAs(page: Page, identifier: string, password: string): Promise<void> {
-    await page.goto('/')
-    await page.getByTestId('identifier').fill(identifier)
-    await page.getByPlaceholder('Password').fill(password)
-    await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//)
-}

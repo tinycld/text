@@ -1,13 +1,13 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
-    PB_URL,
     uniqueDocName,
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
+import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-multi-user'
 
 // End-to-end contract for the viewer role on a doc with pending
 // suggestions. Alice (owner / editor) makes a suggestion; Bob
@@ -37,8 +37,8 @@ test.describe('Text — Viewer cannot resolve', () => {
         // which is the difference from two-user-suggestion-flow.
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('viewer-cannot-resolve'))
-        const bob = await createSecondUser()
-        await shareDriveItemWithRole(itemId, bob, 'viewer')
+        const bob = await createSecondUser('viewer-resolve')
+        await shareDriveItemWith(itemId, bob, 'viewer')
 
         const aliceContext = await browser.newContext()
         const bobContext = await browser.newContext()
@@ -130,110 +130,3 @@ test.describe('Text — Viewer cannot resolve', () => {
         }
     })
 })
-
-interface SecondUser {
-    id: string
-    email: string
-    password: string
-    userOrgId: string
-}
-
-// Mint a fresh user via the superuser API and add them to test-org.
-// Mirrors the inline helper in authorship-stamping.spec.ts and
-// two-user-suggestion-flow.spec.ts.
-async function createSecondUser(): Promise<SecondUser> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    if (!adminAuth.ok) {
-        throw new Error(`Superuser auth failed: ${adminAuth.status} ${await adminAuth.text()}`)
-    }
-    const { token: adminToken } = (await adminAuth.json()) as { token: string }
-
-    const orgsRes = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: adminToken } }
-    )
-    const orgs = (await orgsRes.json()) as { items: { id: string }[] }
-    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgs.items[0].id
-
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const email = `viewer-resolve-${suffix}@tinycld.org`
-    const password = 'ViewerResolve1234!'
-
-    const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({
-            email,
-            password,
-            passwordConfirm: password,
-            name: `Viewer Resolve Tester ${suffix}`,
-            username: `vr_${suffix.replace(/-/g, '_')}`,
-            verified: true,
-        }),
-    })
-    if (!userRes.ok) {
-        throw new Error(`Create user failed: ${userRes.status} ${await userRes.text()}`)
-    }
-    const user = (await userRes.json()) as { id: string }
-
-    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
-    })
-    if (!userOrgRes.ok) {
-        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
-    }
-    const userOrg = (await userOrgRes.json()) as { id: string }
-
-    return { id: user.id, email, password, userOrgId: userOrg.id }
-}
-
-// shareDriveItemWithRole parameterizes the share role so this spec
-// can mint a viewer-share specifically. The base helper in other
-// specs hardcodes 'editor'; this variant is local to specs that need
-// a non-editor share.
-async function shareDriveItemWithRole(
-    itemId: string,
-    user: SecondUser,
-    role: 'viewer' | 'editor' | 'commentor'
-): Promise<void> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    const { token: adminToken } = (await adminAuth.json()) as { token: string }
-
-    const res = await fetch(`${PB_URL}/api/collections/drive_shares/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminToken },
-        body: JSON.stringify({
-            item: itemId,
-            user_org: user.userOrgId,
-            role,
-            created_by: user.userOrgId,
-        }),
-    })
-    if (!res.ok) {
-        throw new Error(`Share drive_item failed: ${res.status} ${await res.text()}`)
-    }
-}
-
-async function loginAs(page: Page, identifier: string, password: string): Promise<void> {
-    await page.goto('/')
-    await page.getByTestId('identifier').fill(identifier)
-    await page.getByPlaceholder('Password').fill(password)
-    await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//)
-}

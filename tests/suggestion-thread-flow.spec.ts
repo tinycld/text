@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
@@ -8,6 +8,7 @@ import {
     uploadDocxAsDriveItem,
     waitForEditor,
 } from './_menubar-helpers'
+import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-multi-user'
 
 // End-to-end coverage for the suggestion-thread feature (Phase 5 +
 // Tasks 1–6). The thread lets a reviewer reply to a suggestion in the
@@ -132,7 +133,7 @@ test.describe('Text — Suggestion thread flow', () => {
         // clicking it deep-links into the focused thread on the doc.
 
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('sug-thread-mention'))
-        const bob = await createSecondUser()
+        const bob = await createSecondUser('sug-thread')
         await shareDriveItemWith(itemId, bob)
 
         const ctx = await browser.newContext()
@@ -431,100 +432,4 @@ async function waitForNotification(
         })
         .toBeTruthy()
     return match ?? null
-}
-
-// ---- Second-user helpers (inlined per the established directory convention) ----
-
-interface SecondUser {
-    id: string
-    email: string
-    password: string
-    userOrgId: string
-}
-
-async function createSecondUser(): Promise<SecondUser> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    if (!adminAuth.ok) {
-        throw new Error(`Superuser auth failed: ${adminAuth.status} ${await adminAuth.text()}`)
-    }
-    const { token: adminTok } = (await adminAuth.json()) as { token: string }
-
-    const orgsRes = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: adminTok } }
-    )
-    const orgs = (await orgsRes.json()) as { items: { id: string }[] }
-    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgs.items[0].id
-
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const email = `sug-thread-${suffix}@tinycld.org`
-    const password = 'SugThread1234!'
-
-    const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
-        body: JSON.stringify({
-            email,
-            password,
-            passwordConfirm: password,
-            name: `Sug Thread Tester ${suffix}`,
-            username: `sug_${suffix.replace(/-/g, '_')}`,
-            verified: true,
-        }),
-    })
-    if (!userRes.ok) {
-        throw new Error(`Create user failed: ${userRes.status} ${await userRes.text()}`)
-    }
-    const user = (await userRes.json()) as { id: string }
-
-    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
-        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
-    })
-    if (!userOrgRes.ok) {
-        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
-    }
-    const userOrg = (await userOrgRes.json()) as { id: string }
-
-    return { id: user.id, email, password, userOrgId: userOrg.id }
-}
-
-async function shareDriveItemWith(itemId: string, user: SecondUser): Promise<void> {
-    const adminEmail = process.env.ADMIN_USER_LOGIN ?? 'admin@tinycld.org'
-    const adminPassword = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
-    const adminAuth = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
-    })
-    const { token: adminTok } = (await adminAuth.json()) as { token: string }
-    const res = await fetch(`${PB_URL}/api/collections/drive_shares/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: adminTok },
-        body: JSON.stringify({
-            item: itemId,
-            user_org: user.userOrgId,
-            role: 'editor',
-            created_by: user.userOrgId,
-        }),
-    })
-    if (!res.ok) {
-        throw new Error(`Share drive_item failed: ${res.status} ${await res.text()}`)
-    }
-}
-
-async function loginAs(page: Page, identifier: string, password: string): Promise<void> {
-    await page.goto('/')
-    await page.getByTestId('identifier').fill(identifier)
-    await page.getByPlaceholder('Password').fill(password)
-    await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//)
 }

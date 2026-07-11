@@ -88,11 +88,9 @@ export function SuggestionThread({
 
     return (
         <View
-            // The @ts-expect-error is for React Native types that don't
-            // recognize data-* attributes on View. On web they pass
-            // through to the DOM and Playwright can target them.
-            // biome-ignore lint/suspicious/noExplicitAny: data-testid passthrough for e2e
-            {...({ 'data-testid': 'suggestion-thread' } as any)}
+            // React Native's View types don't recognize data-* attributes.
+            // On web they pass through to the DOM so Playwright can target them.
+            {...({ 'data-testid': 'suggestion-thread' } as Record<string, string>)}
             style={{
                 gap: 8,
                 padding: 8,

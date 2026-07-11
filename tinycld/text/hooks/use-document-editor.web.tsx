@@ -480,8 +480,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // ProseMirror would trigger a destructive Yjs replace, blowing
                 // away every peer's state. Seed the Y.Doc on the server side
                 // (e.g. via translate.SeedFromPMJSON) instead.
-                if (typeof console !== 'undefined') {
-                    // biome-ignore lint/suspicious/noConsole: developer-error guard for a footgun API on collaborative editors
+                if (__DEV__) {
+                    // biome-ignore lint/suspicious/noConsole: dev-only guard surfacing misuse of a footgun API on collaborative editors
                     console.warn(
                         'useDocumentEditor.setContent is a no-op for collaborative editors; seed the Y.Doc instead'
                     )

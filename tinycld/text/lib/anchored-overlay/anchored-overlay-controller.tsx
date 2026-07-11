@@ -156,7 +156,7 @@ export function AnchoredOverlayController({
     // doesn't change across renders. Including it would invite a
     // re-measure on a hypothetical ref swap that the surrounding code
     // doesn't actually perform.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+    // biome-ignore lint/correctness/useExhaustiveDependencies: intentional narrow dep — remeasure only on a fresh requestId (not on popover-update); webViewRef is a stable RefObject (see comment above)
     useEffect(() => {
         if (!state.open) {
             setScreenPos(null)

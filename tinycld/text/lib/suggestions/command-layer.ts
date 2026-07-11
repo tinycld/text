@@ -793,12 +793,11 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
     let sessionAuthorId: string | null = null
 
     const getSession = (authorId: string): SuggestionSession => {
-        if (sessionAuthorId !== authorId) {
+        if (session === null || sessionAuthorId !== authorId) {
             session = createSuggestionSession(authorId)
             sessionAuthorId = authorId
         }
-        // biome-ignore lint/style/noNonNullAssertion: session is set when authorId differs
-        return session!
+        return session
     }
 
     return new Plugin({

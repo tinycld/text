@@ -208,8 +208,9 @@ describe('SuggestionRow (Task 4 — focus + header behavior)', () => {
             | keyof HTMLElement
             | undefined
         expect(propsKey).toBeTruthy()
-        // biome-ignore lint/suspicious/noExplicitAny: react internal fiber
-        const reactProps = propsKey ? ((header as any)[propsKey] as { onPress?: () => void }) : null
+        const reactProps = propsKey
+            ? ((header as unknown as Record<string, { onPress?: () => void }>)[propsKey] ?? null)
+            : null
         expect(reactProps?.onPress).toBe(onFocus)
     })
 

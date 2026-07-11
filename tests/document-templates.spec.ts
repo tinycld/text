@@ -13,7 +13,12 @@
 
 import { expect, type Page, test } from '@playwright/test'
 import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
-import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
+import {
+    editorRoot,
+    openFreshTextDocument,
+    openMenubarMenu,
+    waitForTemplateItem,
+} from './_menubar-helpers'
 
 // A distinctive phrase typed into the document right before export. If it
 // shows up in the doc created from the template, the flush worked.
@@ -30,10 +35,28 @@ test.describe('Text — Document templates', () => {
 
         const templateLabel = await exportAsTemplate(page)
 
+        // The template must actually exist server-side before the menu can
+        // offer it. exportAsTemplate confirms the folder dialog, but the
+        // ChooseFolderDialog closes on click *before* the copy mutation's
+        // raw multipart create resolves — so at that point the `.tmpl.docx`
+        // row may not exist yet. Confirm it landed with a read-only query
+        // (writes still go through the UI; this is a read-only assertion) so
+        // we're never waiting on a menu item for a row that isn't there.
+        await waitForTemplateItem(page, `${templateLabel}.tmpl.docx`)
+
         // Open the picker from the File menu (in-app — a page.goto would
         // tear down the SPA and cancel the on-demand drive_items fetch the
         // picker depends on).
-        await openMenubarMenu(page, 'File')
+        //
+        // "New from template…" is gated on useHasTemplates — a live query
+        // over drive_items. Even after the row exists server-side it reaches
+        // the already-mounted query only on the next realtime redelivery, so
+        // the item can render a beat after the menu first opens. Re-open the
+        // menu until the reactive query has observed the template and the
+        // item renders (instead of spending the whole 30s budget on a single
+        // open that fired one tick too early — the pre-existing flake), then
+        // click it.
+        await openFileMenuWithTemplates(page)
         await page.getByRole('menuitem', { name: 'New from template…' }).click()
 
         const dialog = page.getByTestId('template-picker-dialog')
@@ -68,6 +91,25 @@ test.describe('Text — Document templates', () => {
 // hidden-when-empty behavior is covered deterministically by the
 // useHasTemplates unit test (the shared e2e DB can't guarantee a
 // template-free org once another test has exported one).
+
+// Opens the File menu and waits for its "New from template…" item, which
+// useHasTemplates renders only once its mounted drive_items live query has
+// observed the just-exported `.tmpl.docx`. The row exists by now (the caller
+// waited on it), but it reaches that persistently-mounted query only on the
+// next realtime redelivery — which can land a beat after the menu first
+// opens. Re-opening the menu each poll re-renders the popover against the
+// freshest query result, so the item shows the moment the query catches up
+// instead of the first open winning or losing the whole wait. Escape closes
+// the menu between attempts so each openMenubarMenu is a clean open, not a
+// toggle-shut of an already-open menu.
+async function openFileMenuWithTemplates(page: Page): Promise<void> {
+    const item = page.getByRole('menuitem', { name: 'New from template…' })
+    await expect(async () => {
+        await page.keyboard.press('Escape')
+        await openMenubarMenu(page, 'File')
+        await expect(item).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 20_000 })
+}
 
 // Runs File → Export as template…, confirms the folder dialog, and
 // returns the label the picker will show for the new template — i.e. the

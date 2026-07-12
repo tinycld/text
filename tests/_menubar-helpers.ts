@@ -108,6 +108,28 @@ export async function uploadDocxAsDriveItem(name: string): Promise<string> {
     return body.id
 }
 
+// Polls drive_items until a non-folder row with `name` exists in the test
+// org. Read-only assertion (permitted — the template itself is created
+// through the UI): the export's copy mutation resolves asynchronously after
+// the ChooseFolderDialog closes, so a spec that immediately looks for the
+// template in the UI can race the create. Awaiting server-visibility here
+// removes that leg of the race deterministically. Uses the shared test-user
+// token + resolved org context so it doesn't depend on any UI state.
+export async function waitForTemplateItem(page: Page, name: string): Promise<void> {
+    const token = await authAsTestUser()
+    const ctx = await resolveOrgContext(token)
+    const filter = encodeURIComponent(`org='${ctx.orgId}' && is_folder=false && name='${name}'`)
+    await expect(async () => {
+        const res = await page.request.get(
+            `${PB_URL}/api/collections/drive_items/records?perPage=1&skipTotal=1&filter=${filter}`,
+            { headers: { Authorization: token } }
+        )
+        expect(res.ok()).toBeTruthy()
+        const body = (await res.json()) as { items: unknown[] }
+        expect(body.items.length).toBeGreaterThan(0)
+    }).toPass({ timeout: 15_000 })
+}
+
 export function editorRoot(page: Page): Locator {
     return page.locator('.tinycld-document-editor .ProseMirror')
 }

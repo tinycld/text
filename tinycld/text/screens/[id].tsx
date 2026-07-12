@@ -15,7 +15,7 @@ import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
-import { router, useLocalSearchParams, usePathname } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import * as Y from 'yjs'
@@ -102,8 +102,6 @@ export default function TextDetail() {
     const [driveItemsCollection] = useStore('drive_items')
     const { user } = useAuth()
     const { userOrgId } = useCurrentRole()
-    const pathname = usePathname()
-    const setLastPackageHref = useWorkspaceStore(s => s.setLastPackageHref)
     const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
     const orgHref = useOrgHref()
 
@@ -118,12 +116,10 @@ export default function TextDetail() {
 
     const item = items[0]
 
-    // Persist the rail deep-link only after the file has actually
-    // loaded. Writing on mount would keep a stale href alive even when
-    // the file is gone — the rail would keep dead-linking to it.
-    useEffect(() => {
-        if (id && item) setLastPackageHref('text', pathname)
-    }, [id, item, pathname, setLastPackageHref])
+    // The rail deep-link (lastPackageHref) is recorded centrally by
+    // ActivePkgSync on every navigation. This screen only needs the
+    // clear-on-missing recovery below: when the query settles with no item, the
+    // recorded href points at a gone/never-existing file, so clear it and bounce.
 
     // When the query has settled with no item, the file is gone (deleted,
     // access revoked, or the cached rail href referenced a never-existing

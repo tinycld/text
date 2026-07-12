@@ -155,7 +155,7 @@ bytes back onto the drive_item's `file` field.
 │   SaveCoordinator  (debounce 3s, ceiling 15s, teardown 30s)          │
 │        │                                                             │
 │        ▼                                                             │
-│   flush: Y.Doc → ProseMirror JSON → WordZero → .docx bytes →         │
+│   flush: Y.Doc → ProseMirror JSON → doctaculous → .docx bytes →      │
 │          drive_items.file → Journal.Truncate(throughSeq)             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -170,7 +170,7 @@ in a single `Y.XmlFragment` shaped to ProseMirror's schema by
 presence) rides on a separate `y-protocols/awareness` channel through
 the same WebSocket.
 
-The client package has no docx parser at all — `WordZero` (the
+The client package has no docx parser at all — `doctaculous` (the
 docx ↔ ProseMirror translator under `server/translate/`) is a Go-only
 dependency. Bootstrapping is always server-side so the wire shape every
 joiner sees is canonical regardless of join order: there is no "first
@@ -278,12 +278,12 @@ replayed again", which Yjs handles as a no-op via CRDT idempotence.
 ### docx serialization
 
 Flush translates the Y.Doc to ProseMirror JSON
-(`translate.PMJSONFromYDoc`), then runs it through WordZero
+(`translate.PMJSONFromYDoc`), then runs it through doctaculous
 (`translate.PMJSONToDocx`) to produce docx bytes, then writes those
-bytes onto `drive_items.file`. WordZero's `NumberingManager` is a
+bytes onto `drive_items.file`. doctaculous's `NumberingManager` is a
 process-global singleton, so concurrent flushes across rooms are
 serialized inside the `translate` package via `numberingMu`; the
-flush wrapper also installs a deferred `recover` because WordZero
+flush wrapper also installs a deferred `recover` because doctaculous
 has historically panicked on malformed inputs, and the
 SaveCoordinator's retry path handles errors much better than a dead
 broker goroutine.
@@ -356,11 +356,10 @@ text/
                                         authorship roots
         suggestion_discussion_cleanup.go  drop reply threads when their
                                           suggestion resolves
-        translate/          WordZero docx ↔ ProseMirror JSON, plus
-                            suggestion_marks, suggestion_rewriter,
-                            suggestions_part, suggestions_zip — full
-                            round-trip of <w:ins>/<w:del>/tracked block
-                            changes
+        translate/          doctaculous docx ↔ ProseMirror JSON, plus
+                            suggestion_marks, format_change_marks,
+                            suggestions_part — full round-trip of
+                            <w:ins>/<w:del>/tracked block changes
         wal_e2e_test.go     end-to-end WAL replay / truncate / cleanup
     tinycld/text/           TypeScript source
         provider.tsx        registers DocumentPreview + drive actions

@@ -1,9 +1,9 @@
 module tinycld.org/packages/text
 
-go 1.25.0
+go 1.26.3
 
 require (
-	github.com/ZeroHawkeye/wordZero v1.6.0
+	github.com/nathanstitt/doctaculous v0.0.4
 	github.com/pocketbase/pocketbase v0.38.1
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
 	tinycld.org/core v0.0.0

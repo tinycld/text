@@ -3,6 +3,8 @@ package translate
 import (
 	"strings"
 	"testing"
+
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
 // TestQueueCellChangeAttrsProducesOneSpanPerNode confirms the emitter
@@ -10,7 +12,7 @@ import (
 // suggestedBlockChange attribute and synthesizes a fresh
 // DocxRevisionID + marker token for each one.
 func TestQueueCellChangeAttrsProducesOneSpanPerNode(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	attrs := map[string]any{
 		NodeAttrSuggestedBlockChange: map[string]any{
 			"suggestionId": "s_cc_attr",
@@ -26,7 +28,7 @@ func TestQueueCellChangeAttrsProducesOneSpanPerNode(t *testing.T) {
 			},
 		},
 	}
-	span := em.queueCellChangeAttrs(attrs)
+	span := b.queueCellChangeAttrs(attrs)
 	if span == nil {
 		t.Fatalf("expected span, got nil")
 	}
@@ -45,18 +47,15 @@ func TestQueueCellChangeAttrsProducesOneSpanPerNode(t *testing.T) {
 	if span.BeforeShading != "#FF0000" {
 		t.Errorf("BeforeShading: got %q want %q", span.BeforeShading, "#FF0000")
 	}
-	if !strings.HasPrefix(span.Marker, "{{__pmtcpr:") {
-		t.Errorf("Marker token: got %q want prefix {{__pmtcpr:", span.Marker)
-	}
-	if len(em.cellChangeSpans) != 1 {
-		t.Errorf("emitter span queue: got %d want 1", len(em.cellChangeSpans))
+	if len(b.cellChangeSpans) != 1 {
+		t.Errorf("builder span queue: got %d want 1", len(b.cellChangeSpans))
 	}
 }
 
 // TestQueueCellChangeAttrsDetectsAddedSubcase confirms before.added=true
 // flips Kind to cellChangeKindIns.
 func TestQueueCellChangeAttrsDetectsAddedSubcase(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	attrs := map[string]any{
 		NodeAttrSuggestedBlockChange: map[string]any{
 			"suggestionId": "s_cc_added",
@@ -73,7 +72,7 @@ func TestQueueCellChangeAttrsDetectsAddedSubcase(t *testing.T) {
 			},
 		},
 	}
-	span := em.queueCellChangeAttrs(attrs)
+	span := b.queueCellChangeAttrs(attrs)
 	if span == nil {
 		t.Fatalf("expected span, got nil")
 	}
@@ -85,7 +84,7 @@ func TestQueueCellChangeAttrsDetectsAddedSubcase(t *testing.T) {
 // TestQueueCellChangeAttrsDetectsDeletedSubcase confirms after.deleted=true
 // flips Kind to cellChangeKindDel.
 func TestQueueCellChangeAttrsDetectsDeletedSubcase(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	attrs := map[string]any{
 		NodeAttrSuggestedBlockChange: map[string]any{
 			"suggestionId": "s_cc_deleted",
@@ -102,7 +101,7 @@ func TestQueueCellChangeAttrsDetectsDeletedSubcase(t *testing.T) {
 			},
 		},
 	}
-	span := em.queueCellChangeAttrs(attrs)
+	span := b.queueCellChangeAttrs(attrs)
 	if span == nil {
 		t.Fatalf("expected span, got nil")
 	}
@@ -114,19 +113,19 @@ func TestQueueCellChangeAttrsDetectsDeletedSubcase(t *testing.T) {
 // TestQueueCellChangeAttrsIgnoresMissingAttr confirms the emitter is a
 // no-op when the cell attrs don't carry the suggestedBlockChange key.
 func TestQueueCellChangeAttrsIgnoresMissingAttr(t *testing.T) {
-	em := newEmitter()
-	span := em.queueCellChangeAttrs(map[string]any{"shading": "#FFFFFF"})
+	b := newBuilder()
+	span := b.queueCellChangeAttrs(map[string]any{"shading": "#FFFFFF"})
 	if span != nil {
 		t.Errorf("expected nil span on missing attr, got %+v", span)
 	}
-	if len(em.cellChangeSpans) != 0 {
-		t.Errorf("emitter span queue should be empty, got %d", len(em.cellChangeSpans))
+	if len(b.cellChangeSpans) != 0 {
+		t.Errorf("emitter span queue should be empty, got %d", len(b.cellChangeSpans))
 	}
 }
 
-// TestBuildCellChangeElementXMLAttr confirms the attr variant emits a
-// <w:tcPrChange> wrapper with the BEFORE state nested inside.
-func TestBuildCellChangeElementXMLAttr(t *testing.T) {
+// TestApplyCellChangeAttr confirms the attr variant stamps a TcPrChange onto
+// the cell with the BEFORE shading in the Previous props.
+func TestApplyCellChangeAttr(t *testing.T) {
 	span := cellChangeSpan{
 		DocxRevisionID: 1,
 		SuggestionID:   "s_cc_attr",
@@ -135,87 +134,77 @@ func TestBuildCellChangeElementXMLAttr(t *testing.T) {
 		Kind:           cellChangeKindAttr,
 		BeforeShading:  "#FFFF00",
 	}
-	got := buildCellChangeElementXML(span)
-	for _, w := range []string{
-		`<w:tcPrChange `,
-		`w:id="1"`,
-		`w:author="uo_alice"`,
-		`w:date=`,
-		`<w:tcPr>`,
-		`<w:shd `,
-		`w:fill="FFFF00"`,
-		`</w:tcPr>`,
-		`</w:tcPrChange>`,
-	} {
-		if !strings.Contains(got, w) {
-			t.Errorf("missing %q in %q", w, got)
-		}
+	var cell docx.TableCell
+	span.applyCellChange(&cell)
+	if cell.Props.TcPrChange == nil {
+		t.Fatalf("expected TcPrChange, got nil")
+	}
+	if cell.Props.TcPrChange.Mark.ID != 1 || cell.Props.TcPrChange.Mark.Author != "uo_alice" {
+		t.Errorf("mark: got %+v", cell.Props.TcPrChange.Mark)
+	}
+	if cell.Props.TcPrChange.Mark.Date == "" {
+		t.Errorf("expected a w:date for non-zero ts")
+	}
+	prev := cell.Props.TcPrChange.Previous
+	if !prev.Shading.HasFill || prev.Shading.Fill.R != 0xFF || prev.Shading.Fill.G != 0xFF || prev.Shading.Fill.B != 0 {
+		t.Errorf("Previous shading: got %+v want #FFFF00", prev.Shading)
+	}
+	if cell.Ins != nil || cell.Del != nil {
+		t.Errorf("attr change should not set Ins/Del")
 	}
 }
 
-// TestBuildCellChangeElementXMLIns confirms the ins variant emits a
-// self-closing <w:cellIns/> element.
-func TestBuildCellChangeElementXMLIns(t *testing.T) {
+// TestApplyCellChangeIns confirms the ins variant sets cell.Ins (not a
+// TcPrChange).
+func TestApplyCellChangeIns(t *testing.T) {
 	span := cellChangeSpan{
 		DocxRevisionID: 2,
-		SuggestionID:   "s_cc_ins",
 		AuthorID:       "uo_alice",
 		Ts:             1700000000000,
 		Kind:           cellChangeKindIns,
 	}
-	got := buildCellChangeElementXML(span)
-	for _, w := range []string{
-		`<w:cellIns `,
-		`w:id="2"`,
-		`w:author="uo_alice"`,
-		`w:date=`,
-		`/>`,
-	} {
-		if !strings.Contains(got, w) {
-			t.Errorf("missing %q in %q", w, got)
-		}
+	var cell docx.TableCell
+	span.applyCellChange(&cell)
+	if cell.Ins == nil {
+		t.Fatalf("expected cell.Ins, got nil")
 	}
-	if strings.Contains(got, "<w:tcPr>") {
-		t.Errorf("cellIns should not contain nested tcPr; got %q", got)
+	if cell.Ins.ID != 2 || cell.Ins.Author != "uo_alice" {
+		t.Errorf("Ins mark: got %+v", *cell.Ins)
+	}
+	if cell.Props.TcPrChange != nil {
+		t.Errorf("cellIns should not set a TcPrChange")
 	}
 }
 
-// TestBuildCellChangeElementXMLDel confirms the del variant emits a
-// self-closing <w:cellDel/> element.
-func TestBuildCellChangeElementXMLDel(t *testing.T) {
+// TestApplyCellChangeDel confirms the del variant sets cell.Del.
+func TestApplyCellChangeDel(t *testing.T) {
 	span := cellChangeSpan{
 		DocxRevisionID: 3,
-		SuggestionID:   "s_cc_del",
 		AuthorID:       "uo_alice",
 		Ts:             1700000000000,
 		Kind:           cellChangeKindDel,
 	}
-	got := buildCellChangeElementXML(span)
-	for _, w := range []string{
-		`<w:cellDel `,
-		`w:id="3"`,
-		`w:author="uo_alice"`,
-		`/>`,
-	} {
-		if !strings.Contains(got, w) {
-			t.Errorf("missing %q in %q", w, got)
-		}
+	var cell docx.TableCell
+	span.applyCellChange(&cell)
+	if cell.Del == nil {
+		t.Fatalf("expected cell.Del, got nil")
+	}
+	if cell.Del.ID != 3 || cell.Del.Author != "uo_alice" {
+		t.Errorf("Del mark: got %+v", *cell.Del)
 	}
 }
 
-// TestBuildCellChangeElementXMLOmitsDateWhenTsZero confirms a span with
-// no ts produces an element without a w:date attribute.
-func TestBuildCellChangeElementXMLOmitsDateWhenTsZero(t *testing.T) {
-	span := cellChangeSpan{
-		DocxRevisionID: 4,
-		SuggestionID:   "s_cc_nodate",
-		AuthorID:       "uo_alice",
-		Ts:             0,
-		Kind:           cellChangeKindIns,
+// TestApplyCellChangeOmitsDateWhenTsZero confirms a zero ts yields an empty
+// Mark.Date (no w:date on emit).
+func TestApplyCellChangeOmitsDateWhenTsZero(t *testing.T) {
+	span := cellChangeSpan{DocxRevisionID: 4, AuthorID: "uo_alice", Ts: 0, Kind: cellChangeKindIns}
+	var cell docx.TableCell
+	span.applyCellChange(&cell)
+	if cell.Ins == nil {
+		t.Fatalf("expected cell.Ins, got nil")
 	}
-	got := buildCellChangeElementXML(span)
-	if strings.Contains(got, "w:date=") {
-		t.Errorf("expected no w:date attr, got %q", got)
+	if cell.Ins.Date != "" {
+		t.Errorf("expected empty Date for ts=0, got %q", cell.Ins.Date)
 	}
 }
 
@@ -294,10 +283,6 @@ func TestPMToDocxEmitsTcPrChangeForAttrOnlyChange(t *testing.T) {
 	}
 	if !strings.Contains(docXML, `w:id="1"`) {
 		t.Errorf("expected w:id=\"1\" in tcPrChange; got:\n%s", docXML)
-	}
-	// The marker text must be stripped.
-	if strings.Contains(docXML, "{{__pmtcpr:") {
-		t.Errorf("marker text leaked into document.xml: %s", docXML)
 	}
 }
 

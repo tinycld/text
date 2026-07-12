@@ -9,7 +9,7 @@ import (
 // suggestion-marks equivalent: one PM mark produces one span, with the
 // id/author/ts populated and the marker token uniquified.
 func TestQueueFormatChangeMarksProducesOneSpanPerMark(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	marks := []PMMark{
 		{
 			Type: MarkTypeSuggestedFormatChange,
@@ -23,7 +23,7 @@ func TestQueueFormatChangeMarksProducesOneSpanPerMark(t *testing.T) {
 		},
 		{Type: MarkTypeItalic},
 	}
-	spans := em.queueFormatChangeMarks(marks)
+	spans := b.queueFormatChangeMarks(marks)
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
@@ -44,7 +44,10 @@ func TestQueueFormatChangeMarksProducesOneSpanPerMark(t *testing.T) {
 	}
 }
 
-func TestSerializedMarksToRPrChildrenCoversCommonShapes(t *testing.T) {
+// TestSerializedMarksToRunPropsCoversCommonShapes verifies the before-state
+// RunProps builder maps each mark onto the right model field (the model-based
+// replacement for the old rPr-children XML builder).
+func TestSerializedMarksToRunPropsCoversCommonShapes(t *testing.T) {
 	marks := []serializedMark{
 		{Type: "bold"},
 		{Type: "italic"},
@@ -60,20 +63,30 @@ func TestSerializedMarksToRPrChildrenCoversCommonShapes(t *testing.T) {
 			},
 		},
 	}
-	got := serializedMarksToRPrChildren(marks)
-	for _, want := range []string{
-		`<w:b/>`,
-		`<w:i/>`,
-		`<w:u w:val="single"/>`,
-		`<w:strike/>`,
-		`<w:color w:val="FF0000"/>`,
-		`<w:sz w:val="21"/>`, // 14px == 21 half-points
-		`<w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>`,
-		`<w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/>`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("expected %q in rPr children, got:\n%s", want, got)
-		}
+	got := serializedMarksToRunProps(marks)
+	if !(got.HasBold && got.Bold) {
+		t.Errorf("expected bold set, got %+v", got)
+	}
+	if !(got.HasItalic && got.Italic) {
+		t.Errorf("expected italic set, got %+v", got)
+	}
+	if !(got.HasUnderline && got.Underline) {
+		t.Errorf("expected underline set, got %+v", got)
+	}
+	if !(got.HasStrike && got.Strike) {
+		t.Errorf("expected strike set, got %+v", got)
+	}
+	if got.Family != "Arial" {
+		t.Errorf("fontFamily: got %q want Arial", got.Family)
+	}
+	if !got.HasColor || got.Color.R != 0xFF || got.Color.G != 0 || got.Color.B != 0 {
+		t.Errorf("color: got %+v want #FF0000", got.Color)
+	}
+	if !got.HasSize || got.SizeHalfPts != 21 { // 14px == 21 half-points
+		t.Errorf("size: got %d want 21 half-points", got.SizeHalfPts)
+	}
+	if !got.Shd.HasFill || got.Shd.Fill.R != 0xFF || got.Shd.Fill.G != 0xFF || got.Shd.Fill.B != 0 {
+		t.Errorf("backgroundColor: got %+v want #FFFF00", got.Shd)
 	}
 }
 
@@ -120,12 +133,7 @@ func TestPMToDocxEmitsWRPrChange(t *testing.T) {
 	if !strings.Contains(docXML, `w:id="1"`) {
 		t.Errorf("expected w:id=\"1\" in rPrChange; got:\n%s", docXML)
 	}
-	// The marker text itself must be stripped.
-	if strings.Contains(docXML, "{{__pmrpr:") {
-		t.Errorf("marker text leaked into document.xml: %s", docXML)
-	}
 	// AFTER state (the outer rPr) should carry the bold toggle.
-	// WordZero may emit either <w:b/> or <w:b></w:b>; accept either form.
 	if !strings.Contains(docXML, `<w:b/>`) && !strings.Contains(docXML, `<w:b></w:b>`) {
 		t.Errorf("expected <w:b/> for AFTER state bold; got:\n%s", docXML)
 	}

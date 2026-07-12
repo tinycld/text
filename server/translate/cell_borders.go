@@ -1,8 +1,6 @@
 package translate
 
 import (
-	"encoding/xml"
-	"math"
 	"strconv"
 
 	"github.com/ZeroHawkeye/wordZero/pkg/document"
@@ -27,85 +25,6 @@ type cellEdge struct {
 	Style   string `json:"style"`
 	WidthPx int    `json:"widthPx"`
 	Color   string `json:"color,omitempty"`
-}
-
-// parseTcBorders reads <w:tcBorders> off the current decoder cursor and
-// returns a map ready to assign as the `borders` PM attr. The OOXML
-// w:tcBorders contains top/start/bottom/end (and optionally
-// insideH/insideV at the table level; we ignore those at the cell
-// level — cells get only the edge borders). Returns nil when none of
-// the four edges have a usable value.
-//
-// OOXML uses w:start / w:end for left/right in newer Word versions
-// (locale-aware); older versions write w:left / w:right. Accept both.
-func parseTcBorders(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
-	borders := &cellBorderAttr{}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			edge := decodeBorderEdge(t)
-			if edge != nil {
-				switch t.Name.Local {
-				case "top":
-					borders.Top = edge
-				case "bottom":
-					borders.Bottom = edge
-				case "left", "start":
-					borders.Left = edge
-				case "right", "end":
-					borders.Right = edge
-				}
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				if borders.Top == nil && borders.Right == nil &&
-					borders.Bottom == nil && borders.Left == nil {
-					return nil, nil
-				}
-				return bordersToAttr(borders), nil
-			}
-		}
-	}
-}
-
-// decodeBorderEdge reads one w:top / w:start / w:bottom / w:end element
-// into a cellEdge. Returns nil when the edge is `val="nil"` or `none` —
-// Word's way of saying "explicitly no border here". A nil cellEdge in
-// our shape will still serialize as `border-X: none` once it reaches
-// the editor (see cell-borders.ts bordersToInlineStyleString).
-//
-// w:sz is in 1/8 of a point. We convert to whole CSS pixels assuming
-// 96dpi: sz / 8 (= points) * (96 / 72) ≈ sz * 0.1667. Round up so a
-// hair-thin Word border (sz=2 = 0.25pt) renders as at least 1px.
-func decodeBorderEdge(start xml.StartElement) *cellEdge {
-	val := attrValue(start, "val")
-	if val == "" || val == "nil" || val == "none" {
-		return &cellEdge{Style: "none"}
-	}
-	style := mapBorderStyle(val)
-	szStr := attrValue(start, "sz")
-	sz, _ := strconv.Atoi(szStr)
-	widthPx := 1
-	if sz > 0 {
-		// sz / 8 points → pixels at 96dpi.
-		widthPx = int(math.Ceil(float64(sz) / 8.0 * 96.0 / 72.0))
-		if widthPx < 1 {
-			widthPx = 1
-		}
-	}
-	color := attrValue(start, "color")
-	colorOut := ""
-	if color != "" && color != "auto" {
-		colorOut = "#" + color
-	}
-	return &cellEdge{Style: style, WidthPx: widthPx, Color: colorOut}
 }
 
 // mapBorderStyle maps OOXML's ST_Border enum to the much smaller CSS

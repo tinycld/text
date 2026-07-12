@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
 // readDocxPart reads one part out of a docx (zip) blob, returning the
@@ -449,10 +451,14 @@ func TestPMJSONToDocx_ConcurrentNumbering(t *testing.T) {
 			t.Fatalf("worker %d: docx has no word/numbering.xml — lists were dropped", i)
 		}
 
-		// Reuse the import-side parser: it returns numId -> first-level
+		// Reuse the import-side loader: it returns numId -> first-level
 		// numFmt, which is only populated when numbering.xml is well
 		// formed and every <w:num> resolves to a defined <w:abstractNum>.
-		numFmts := parseNumberingFormats(numXML)
+		parsedDoc, oerr := docx.OpenBytes(bs)
+		if oerr != nil {
+			t.Fatalf("worker %d: OpenBytes: %v", i, oerr)
+		}
+		numFmts := numberingFormatsFromModel(parsedDoc.Numbering)
 		if len(numFmts) == 0 {
 			t.Fatalf("worker %d: numbering.xml present but no <w:num> entries parsed; raw=%s", i, string(numXML))
 		}

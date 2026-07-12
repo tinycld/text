@@ -1,28 +1,10 @@
 package translate
 
 import (
-	"encoding/xml"
 	"strings"
 
 	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
-
-// parseTcShading reads <w:shd> off the current decoder cursor and
-// returns a CSS hex color ("#RRGGBB") or empty string when shading is
-// absent / unrepresentable. v1 ignores the foreground color
-// (w:color), pattern (w:val != "clear"), and theme fill (w:themeFill);
-// only the cell background fill round-trips.
-//
-// `w:fill="auto"` means "no explicit fill, fall through to theme/style
-// default" — we return empty so the PM attr stays nil and the cell
-// renders with the document's default background.
-func parseTcShading(start xml.StartElement) string {
-	fill := attrValue(start, "fill")
-	if fill == "" || strings.EqualFold(fill, "auto") {
-		return ""
-	}
-	return normalizeShadingHex(fill)
-}
 
 // normalizeShadingHex coerces whatever the .docx (or external caller)
 // gave us into the canonical "#RRGGBB" uppercase form we store on the

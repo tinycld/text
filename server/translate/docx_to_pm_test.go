@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
 // TestDocxToPMJSON_FeatureTestFixture parses the user-authored
@@ -106,20 +108,16 @@ func TestResolveWrap(t *testing.T) {
 	}
 }
 
-// TestParseComments unit-checks the comments.xml parser without going
-// through the docx zip path — runs the helper directly on a literal
-// XML body so we lock in the per-comment author/text/date extraction.
-func TestParseComments(t *testing.T) {
-	xmlIn := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
-		`<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-		`<w:comment w:id="0" w:author="Bob" w:date="2026-05-15T10:00:00Z">` +
-		`<w:p><w:r><w:t>hello </w:t></w:r><w:r><w:t>world</w:t></w:r></w:p>` +
-		`</w:comment>` +
-		`<w:comment w:id="1" w:author="Carol">` +
-		`<w:p><w:r><w:t>second</w:t></w:r></w:p>` +
-		`</w:comment>` +
-		`</w:comments>`)
-	got := parseComments(xmlIn)
+// TestCommentsFromModel checks the parsed-comment flattening: author/date pass
+// through and the block body flattens to plain text (keyed by stringified id).
+func TestCommentsFromModel(t *testing.T) {
+	in := map[int]*docx.Comment{
+		0: {ID: 0, Author: "Bob", Date: "2026-05-15T10:00:00Z", Body: []docx.Block{
+			paraOfRuns("hello ", "world"),
+		}},
+		1: {ID: 1, Author: "Carol", Body: []docx.Block{paraOfRuns("second")}},
+	}
+	got := commentsFromModel(in)
 	if got["0"].Author != "Bob" {
 		t.Errorf("id=0 author: %+v", got["0"])
 	}
@@ -134,16 +132,15 @@ func TestParseComments(t *testing.T) {
 	}
 }
 
-// TestParseFootnoteLikeBodies covers the shared footnote / endnote XML
-// shape — reserved separators are skipped, user notes round-trip text.
-func TestParseFootnoteLikeBodies(t *testing.T) {
-	xmlIn := []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
-		`<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-		`<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>` +
-		`<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>` +
-		`<w:footnote w:id="1"><w:p><w:r><w:t>note body</w:t></w:r></w:p></w:footnote>` +
-		`</w:footnotes>`)
-	got := parseFootnoteLikeBodies(xmlIn, "footnote")
+// TestNoteBodiesFromModel covers footnote/endnote flattening: reserved separator
+// ids (<= 0) are skipped, user notes flatten to text keyed by stringified id.
+func TestNoteBodiesFromModel(t *testing.T) {
+	notes := &docx.Notes{ByID: map[int][]docx.Block{
+		-1: {paraOfRuns("")},          // separator
+		0:  {paraOfRuns("")},          // continuation separator
+		1:  {paraOfRuns("note body")}, // user note
+	}}
+	got := noteBodiesFromModel(notes)
 	if len(got) != 1 {
 		t.Errorf("expected 1 user footnote, got %d: %v", len(got), got)
 	}
@@ -153,6 +150,17 @@ func TestParseFootnoteLikeBodies(t *testing.T) {
 	if _, hasSep := got["-1"]; hasSep {
 		t.Errorf("separator note leaked into output")
 	}
+}
+
+// paraOfRuns builds a docx.Block wrapping one paragraph whose content is the
+// given run texts. Test helper for the model-based loader tests.
+func paraOfRuns(texts ...string) docx.Block {
+	var content []docx.ParaChild
+	for _, tx := range texts {
+		r := docx.Run{Text: tx}
+		content = append(content, docx.ParaChild{Run: &r})
+	}
+	return docx.Block{Paragraph: &docx.Paragraph{Content: content}}
 }
 
 // prettifyJSON re-marshals JSON with 2-space indentation so the

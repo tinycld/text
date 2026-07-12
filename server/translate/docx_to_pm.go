@@ -1,17 +1,13 @@
 package translate
 
 import (
-	"archive/zip"
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
-	"io"
-	"path"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
 // DocxToPMJSON parses .docx bytes into a ProseMirror JSON tree plus a
@@ -68,35 +64,25 @@ func docxToPMJSONShared(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, e
 // DocxToPMJSONWithSuggestions (which marshal to JSON for the bootstrap
 // path's Y.Doc seeding) and DocxToHTML (which walks the tree directly
 // to HTML for the render path).
-func parseDocxToPMNode(docx []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
-	zr, err := zip.NewReader(bytes.NewReader(docx), int64(len(docx)))
+func parseDocxToPMNode(docxBytes []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
+	doc, err := docx.OpenBytes(docxBytes)
 	if err != nil {
-		return PMNode{}, nil, nil, fmt.Errorf("translate: open docx as zip: %w", err)
-	}
-
-	parts, err := readZipParts(zr)
-	if err != nil {
-		return PMNode{}, nil, nil, err
-	}
-
-	docXML, ok := parts["word/document.xml"]
-	if !ok {
-		return PMNode{}, nil, nil, fmt.Errorf("translate: docx missing word/document.xml")
+		return PMNode{}, nil, nil, fmt.Errorf("translate: open docx: %w", err)
 	}
 
 	parser := docxParser{
-		zip:       zr,
-		rels:      parseRelationships(parts["word/_rels/document.xml.rels"]),
-		numbering: parseNumberingFormats(parts["word/numbering.xml"]),
-		comments:  parseComments(parts["word/comments.xml"]),
-		footnotes: parseFootnoteLikeBodies(parts["word/footnotes.xml"], "footnote"),
-		endnotes:  parseFootnoteLikeBodies(parts["word/endnotes.xml"], "endnote"),
+		docRels:   doc.Rels,
+		media:     doc.Media,
+		numbering: numberingFormatsFromModel(doc.Numbering),
+		comments:  commentsFromModel(doc.Comments),
+		footnotes: noteBodiesFromModel(doc.Footnotes),
+		endnotes:  noteBodiesFromModel(doc.Endnotes),
 	}
 	// Load the tinycld-suggestions custom XML part if present. Failure is
 	// non-fatal — Word-authored docx files won't carry it, and we still
 	// need to recognize <w:ins>/<w:del> in that case by synthesizing
 	// stable suggestion ids from (w:id, w:author).
-	if part, ok := parts["customXml/tinycld-suggestions.xml"]; ok {
+	if part, ok := doc.ExtraParts["customXml/tinycld-suggestions.xml"]; ok {
 		entries, mapping, perr := parseSuggestionsCustomXML(part)
 		if perr == nil {
 			parser.suggestionMapping = mapping
@@ -104,43 +90,140 @@ func parseDocxToPMNode(docx []byte) (PMNode, []Warning, []SuggestionMapEntry, er
 		}
 	}
 
-	root, err := parser.parseDocument(docXML)
-	if err != nil {
-		return PMNode{}, nil, nil, fmt.Errorf("translate: parse document.xml: %w", err)
-	}
+	root := parser.walkDocument(doc)
 	return root, parser.warnings, parser.suggestionEntries, nil
 }
 
-// readZipParts collects the bytes of every file in the docx zip.
-func readZipParts(zr *zip.Reader) (map[string][]byte, error) {
-	parts := make(map[string][]byte, len(zr.File))
-	for _, f := range zr.File {
-		rc, err := f.Open()
-		if err != nil {
-			return nil, fmt.Errorf("translate: open %s: %w", f.Name, err)
-		}
-		buf, err := io.ReadAll(rc)
-		_ = rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("translate: read %s: %w", f.Name, err)
-		}
-		parts[f.Name] = buf
+// numberingFormatsFromModel builds the numId(string) -> level-0 numFmt(string)
+// map the assemble/resolve helpers read, from the parsed Numbering. Keys are
+// stringified to match the legacy string-keyed map; the format string uses the
+// OOXML numFmt names ("bullet"/"decimal"/…) both list-type resolvers expect.
+func numberingFormatsFromModel(n *docx.Numbering) map[string]string {
+	if n == nil {
+		return nil
 	}
-	return parts, nil
+	out := make(map[string]string, len(n.Instances))
+	for numID := range n.Instances {
+		if lvl, ok := n.Level(numID, 0); ok {
+			out[strconv.Itoa(numID)] = numFmtToString(lvl.Format)
+		}
+	}
+	return out
+}
+
+// numFmtToString maps doctaculous's NumFmt enum back to the OOXML w:numFmt val
+// string the (preserved) list-type resolvers compare against.
+func numFmtToString(f docx.NumFmt) string {
+	switch f {
+	case docx.NumFmtBullet:
+		return "bullet"
+	case docx.NumFmtDecimal:
+		return "decimal"
+	case docx.NumFmtLowerRoman:
+		return "lowerRoman"
+	case docx.NumFmtUpperRoman:
+		return "upperRoman"
+	case docx.NumFmtLowerLetter:
+		return "lowerLetter"
+	case docx.NumFmtUpperLetter:
+		return "upperLetter"
+	default:
+		return "none"
+	}
+}
+
+// commentsFromModel flattens the parsed comments (id -> author/date + block body)
+// into the string-keyed commentInfo map the active-comment-mark path reads. The
+// body blocks are flattened to plain text, matching the legacy reader.
+func commentsFromModel(comments map[int]*docx.Comment) map[string]commentInfo {
+	if len(comments) == 0 {
+		return nil
+	}
+	out := make(map[string]commentInfo, len(comments))
+	for id, c := range comments {
+		if c == nil {
+			continue
+		}
+		out[strconv.Itoa(id)] = commentInfo{
+			Author: c.Author,
+			Date:   c.Date,
+			Text:   flattenBlocksText(c.Body),
+		}
+	}
+	return out
+}
+
+// noteBodiesFromModel flattens parsed footnotes/endnotes into the string-keyed
+// id -> plain-text map the reference-run path reads. Reserved separator ids
+// (Word seeds -1 and 0) carry no user content and are dropped.
+func noteBodiesFromModel(notes *docx.Notes) map[string]string {
+	if notes == nil || len(notes.ByID) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(notes.ByID))
+	for id, blocks := range notes.ByID {
+		if id <= 0 {
+			continue // reserved separator / continuation-separator notes
+		}
+		out[strconv.Itoa(id)] = flattenBlocksText(blocks)
+	}
+	return out
+}
+
+// flattenBlocksText concatenates the run text of every paragraph in a block list
+// (nested tables' cell text included), matching the legacy readCommentBodyText /
+// parseFootnoteLikeBodies flattening.
+func flattenBlocksText(blocks []docx.Block) string {
+	var sb strings.Builder
+	for i := range blocks {
+		appendBlockText(&sb, blocks[i])
+	}
+	return sb.String()
+}
+
+func appendBlockText(sb *strings.Builder, blk docx.Block) {
+	switch {
+	case blk.Paragraph != nil:
+		appendParaChildText(sb, blk.Paragraph.Content)
+	case blk.Table != nil:
+		for ri := range blk.Table.Rows {
+			for ci := range blk.Table.Rows[ri].Cells {
+				for bi := range blk.Table.Rows[ri].Cells[ci].Blocks {
+					appendBlockText(sb, blk.Table.Rows[ri].Cells[ci].Blocks[bi])
+				}
+			}
+		}
+	}
+}
+
+func appendParaChildText(sb *strings.Builder, content []docx.ParaChild) {
+	for i := range content {
+		c := content[i]
+		switch {
+		case c.Run != nil:
+			sb.WriteString(c.Run.Text)
+		case c.Hyperlink != nil:
+			for ri := range c.Hyperlink.Runs {
+				sb.WriteString(c.Hyperlink.Runs[ri].Text)
+			}
+		case c.Revision != nil:
+			appendParaChildText(sb, c.Revision.Content)
+		}
+	}
 }
 
 // docxParser holds the state shared across paragraph/run/table parses
 // so we don't have to thread a half-dozen arguments through every call.
 type docxParser struct {
-	zip          *zip.Reader              // open docx zip for reading media bytes
-	rels         map[string]relationship  // rId -> relationship target
-	numbering    map[string]string        // numId -> "bullet" or "decimal"
-	comments     map[string]commentInfo   // commentId -> author/text/date
-	footnotes    map[string]string        // footnote id -> plain text body
-	endnotes     map[string]string        // endnote id -> plain text body
-	openComments []string                 // commentIds currently active across the cursor
-	warnings     []Warning                // accumulated soft-degradation signals
-	warningSet   map[WarningCode]struct{} // dedupe
+	docRels      map[string]docx.Relationship // rId -> relationship (hyperlink/image targets)
+	media        map[string][]byte            // part name -> media bytes (word/media/*)
+	numbering    map[string]string            // numId -> "bullet" or "decimal"
+	comments     map[string]commentInfo       // commentId -> author/text/date
+	footnotes    map[string]string            // footnote id -> plain text body
+	endnotes     map[string]string            // endnote id -> plain text body
+	openComments []string                     // commentIds currently active across the cursor
+	warnings     []Warning                    // accumulated soft-degradation signals
+	warningSet   map[WarningCode]struct{}     // dedupe
 	// suggestionMapping is the per-kind (w:id → suggestionId) map
 	// recovered from the tinycld customXml part. Each docx revision
 	// kind (insert/delete/formatChange) has its own w:id sequence in
@@ -182,18 +265,6 @@ func (p *docxParser) closeComment(id string) {
 	}
 }
 
-// pushSuggestion builds a suggestion mark (insert or delete) from the
-// <w:ins>/<w:del> opening tag's attributes and pushes it onto the
-// active stack. flushRun picks it up while emitting text nodes inside.
-//
-// markType is MarkTypeSuggestedInsert or MarkTypeSuggestedDelete.
-// elem is the <w:ins>/<w:del> StartElement, from which we read w:id,
-// w:author, and w:date.
-func (p *docxParser) pushSuggestion(markType string, elem xml.StartElement) {
-	mark := buildSuggestionMarkFromOOXML(p, markType, elem)
-	p.activeSuggestions = append(p.activeSuggestions, mark)
-}
-
 // popSuggestion drops the top entry of the active suggestion stack.
 // Called on </w:ins> / </w:del>. Tolerant of empty stack — a malformed
 // docx with an unbalanced close shouldn't panic the parser.
@@ -214,38 +285,6 @@ func (p *docxParser) activeSuggestionMarks() []PMMark {
 	out := make([]PMMark, len(p.activeSuggestions))
 	copy(out, p.activeSuggestions)
 	return out
-}
-
-// buildSuggestionMarkFromOOXML reads the w:id / w:author / w:date attrs
-// from a <w:ins>/<w:del> start element and builds the PM suggestion
-// mark. When the docx carries the tinycld customXml part, the parser's
-// suggestionMapping (w:id → suggestionId) is used to recover the
-// original tinycld suggestion id. When absent (Word-authored docx), a
-// stable synthesized id from (w:id, w:author) is used instead.
-func buildSuggestionMarkFromOOXML(p *docxParser, markType string, elem xml.StartElement) PMMark {
-	wID, _ := parseIntAttr(elem, "id")
-	wAuthor := attrValue(elem, "author")
-	wDate := attrValue(elem, "date")
-
-	var suggestionID string
-	switch markType {
-	case MarkTypeSuggestedInsert:
-		suggestionID = p.suggestionMapping.Insert[wID]
-	case MarkTypeSuggestedDelete:
-		suggestionID = p.suggestionMapping.Delete[wID]
-	}
-	if suggestionID == "" {
-		suggestionID = fmt.Sprintf("docx:%d:%s", wID, wAuthor)
-	}
-
-	return PMMark{
-		Type: markType,
-		Attrs: map[string]any{
-			"suggestionId": suggestionID,
-			"authorId":     wAuthor,
-			"ts":           float64(parseISO8601ToUnixMs(wDate)),
-		},
-	}
 }
 
 // parseISO8601ToUnixMs reverses unixMsToISO8601 — converts a w:date
@@ -303,262 +342,6 @@ func (p *docxParser) addWarning(code WarningCode, detail string) {
 	}
 	p.warningSet[code] = struct{}{}
 	p.warnings = append(p.warnings, Warning{Code: code, Detail: detail})
-}
-
-// relationship is one Relationship row out of word/_rels/document.xml.rels;
-// Type tells us hyperlink vs image vs other; Target is the URL or media path.
-type relationship struct {
-	Type       string
-	Target     string
-	TargetMode string
-}
-
-// parseRelationships reads document.xml.rels into a map keyed by rId.
-// Returns nil-tolerant: a missing or malformed relationships file
-// just produces an empty map (callers treat unknown rIds gracefully).
-func parseRelationships(b []byte) map[string]relationship {
-	if len(b) == 0 {
-		return nil
-	}
-	type relXML struct {
-		ID         string `xml:"Id,attr"`
-		Type       string `xml:"Type,attr"`
-		Target     string `xml:"Target,attr"`
-		TargetMode string `xml:"TargetMode,attr"`
-	}
-	var doc struct {
-		XMLName xml.Name `xml:"Relationships"`
-		Rels    []relXML `xml:"Relationship"`
-	}
-	if err := xml.Unmarshal(b, &doc); err != nil {
-		return nil
-	}
-	m := make(map[string]relationship, len(doc.Rels))
-	for _, r := range doc.Rels {
-		m[r.ID] = relationship{Type: r.Type, Target: r.Target, TargetMode: r.TargetMode}
-	}
-	return m
-}
-
-// parseNumberingFormats reads word/numbering.xml and returns a map
-// from numId to its first-level numFmt ("bullet", "decimal",
-// "lowerLetter", "lowerRoman", etc.). We use the first level's format
-// to decide whether the whole list is a bulletList or orderedList in
-// PM (PM has no per-level format distinction).
-func parseNumberingFormats(b []byte) map[string]string {
-	if len(b) == 0 {
-		return nil
-	}
-	type lvlXML struct {
-		ILvl   string `xml:"ilvl,attr"`
-		NumFmt struct {
-			Val string `xml:"val,attr"`
-		} `xml:"numFmt"`
-	}
-	type abstractXML struct {
-		ID   string   `xml:"abstractNumId,attr"`
-		Lvls []lvlXML `xml:"lvl"`
-	}
-	type numXML struct {
-		NumID         string `xml:"numId,attr"`
-		AbstractNumID struct {
-			Val string `xml:"val,attr"`
-		} `xml:"abstractNumId"`
-	}
-	var root struct {
-		XMLName      xml.Name      `xml:"numbering"`
-		AbstractNums []abstractXML `xml:"abstractNum"`
-		Nums         []numXML      `xml:"num"`
-	}
-	if err := xml.Unmarshal(b, &root); err != nil {
-		return nil
-	}
-	abstracts := make(map[string]string, len(root.AbstractNums))
-	for _, a := range root.AbstractNums {
-		for _, l := range a.Lvls {
-			if l.ILvl == "0" || l.ILvl == "" {
-				abstracts[a.ID] = l.NumFmt.Val
-				break
-			}
-		}
-	}
-	out := make(map[string]string, len(root.Nums))
-	for _, n := range root.Nums {
-		out[n.NumID] = abstracts[n.AbstractNumID.Val]
-	}
-	return out
-}
-
-// parseComments reads word/comments.xml into a map keyed by w:id. Each
-// entry collects the comment's author / date attributes and the flat
-// concatenation of every <w:t> child it contains. Returns nil on
-// missing or malformed input — the body-level pass treats absence as
-// "no comments" and skips emitting marks.
-func parseComments(b []byte) map[string]commentInfo {
-	if len(b) == 0 {
-		return nil
-	}
-	dec := xml.NewDecoder(bytes.NewReader(b))
-	out := map[string]commentInfo{}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			break
-		}
-		start, ok := tok.(xml.StartElement)
-		if !ok || start.Name.Local != "comment" {
-			continue
-		}
-		info := commentInfo{
-			Author: attrValue(start, "author"),
-			Date:   attrValue(start, "date"),
-		}
-		id := attrValue(start, "id")
-		text, err := readCommentBodyText(dec, start)
-		if err != nil {
-			return out
-		}
-		info.Text = text
-		if id != "" {
-			out[id] = info
-		}
-	}
-	return out
-}
-
-// readCommentBodyText concatenates every <w:t> CharData inside a
-// <w:comment> element. Walks until the matching </w:comment> closes.
-func readCommentBodyText(dec *xml.Decoder, start xml.StartElement) (string, error) {
-	var sb strings.Builder
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return "", err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "t" {
-				txt, err := readElementText(dec, t)
-				if err != nil {
-					return "", err
-				}
-				sb.WriteString(txt)
-				continue
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return sb.String(), nil
-			}
-		}
-	}
-}
-
-// parseFootnoteLikeBodies reads word/footnotes.xml or word/endnotes.xml
-// into a map of id -> plain-text body. The elementName arg is
-// "footnote" or "endnote"; both files share the same shape.
-//
-// Word seeds two reserved entries (id="-1" separator, id="0"
-// continuation separator) which carry no user content; we skip those
-// by checking the w:type attribute, which Word stamps as "separator"
-// or "continuationSeparator" on the reserved ones.
-func parseFootnoteLikeBodies(b []byte, elementName string) map[string]string {
-	if len(b) == 0 {
-		return nil
-	}
-	dec := xml.NewDecoder(bytes.NewReader(b))
-	out := map[string]string{}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			break
-		}
-		start, ok := tok.(xml.StartElement)
-		if !ok || start.Name.Local != elementName {
-			continue
-		}
-		id := attrValue(start, "id")
-		typ := attrValue(start, "type")
-		if typ == "separator" || typ == "continuationSeparator" {
-			_ = skipElement(dec, start)
-			continue
-		}
-		text, err := readCommentBodyText(dec, start)
-		if err != nil {
-			return out
-		}
-		if id != "" {
-			out[id] = text
-		}
-	}
-	return out
-}
-
-// parseDocument is the entry point for word/document.xml — it walks
-// the body and produces a doc-level PMNode. List paragraphs (which
-// are flat in OOXML) are post-processed into nested bulletList /
-// orderedList / listItem trees.
-func (p *docxParser) parseDocument(docXML []byte) (PMNode, error) {
-	root := PMNode{Type: NodeTypeDoc}
-
-	dec := xml.NewDecoder(bytes.NewReader(docXML))
-	body, err := findElement(dec, "body")
-	if err != nil {
-		return PMNode{}, err
-	}
-
-	// Walk body children.
-	flat, err := p.parseBodyChildren(dec, body)
-	if err != nil {
-		return PMNode{}, err
-	}
-	// mergeDropCaps runs first: it folds drop-cap paragraph pairs
-	// (framePr frame + body, or the legacy flattened cap + body) into one
-	// dropCap paragraph. Drop-cap paragraphs are never list items, so
-	// running it before groupListParagraphs is safe and keeps the list
-	// grouping operating on already-merged blocks.
-	root.Content = renestInterruptingBulletSubLists(groupListParagraphs(mergeDropCaps(flat)))
-	return root, nil
-}
-
-// findElement scans forward from the decoder until it hits a
-// StartElement with the given local name, then returns it.
-func findElement(dec *xml.Decoder, local string) (xml.StartElement, error) {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return xml.StartElement{}, fmt.Errorf("translate: looking for <%s>: %w", local, err)
-		}
-		if start, ok := tok.(xml.StartElement); ok && start.Name.Local == local {
-			return start, nil
-		}
-	}
-}
-
-// parseBodyChildren consumes tokens until the closing </body> tag,
-// emitting flat block-level PMNodes. The flat list is later post-
-// processed by groupListParagraphs into proper PM list trees.
-func (p *docxParser) parseBodyChildren(dec *xml.Decoder, body xml.StartElement) ([]PMNode, error) {
-	var out []PMNode
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			node, err := p.parseBodyChild(dec, t)
-			if err != nil {
-				return nil, err
-			}
-			if node != nil {
-				out = append(out, liftInlineImages(*node)...)
-			}
-		case xml.EndElement:
-			if t.Name.Local == body.Name.Local {
-				return out, nil
-			}
-		}
-	}
 }
 
 // liftInlineImages splits a paragraph that mixes text and image runs
@@ -643,127 +426,6 @@ func cloneAttrs(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-// parseBodyChild handles one direct child of <w:body>.
-func (p *docxParser) parseBodyChild(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	switch start.Name.Local {
-	case "p":
-		return p.parseParagraph(dec, start)
-	case "tbl":
-		return p.parseTable(dec, start)
-	case "sectPr":
-		// Section properties (page setup) — silently skip; not
-		// representable in PM and not user-content.
-		return nil, skipElement(dec, start)
-	case "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd":
-		// Anchor/marker elements Word emits at body scope for
-		// document-spanning bookmarks, proofing state, and edit
-		// permissions. They carry no user content and are already
-		// skipped silently at paragraph scope — do the same here so
-		// they don't surface a spurious unsupported-node warning.
-		return nil, skipElement(dec, start)
-	case "sdt":
-		// Structured document tag (content control). Replace with
-		// inner text and warn.
-		p.addWarning(WarningContentControls, "<w:sdt> elements were unwrapped to their inner text")
-		return p.parseSdt(dec, start)
-	default:
-		p.addWarning(WarningUnsupportedNode, fmt.Sprintf("unknown body child <%s> dropped", start.Name.Local))
-		return nil, skipElement(dec, start)
-	}
-}
-
-// parseParagraph reads one <w:p> and returns either a PM paragraph,
-// heading, blockquote, or — when wrapped by a parent context like a
-// table cell — a paragraph regardless of pStyle.
-func (p *docxParser) parseParagraph(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	var pStyle string
-	var numID, ilvl string
-	var textAlign string
-	var indentLevel int
-	var dropCapFrame bool
-	// blockChange is the parsed <w:pPrChange> payload extracted from
-	// inside <w:pPr>. Nil when no pPrChange is present. The AFTER
-	// state's type and attrs are determined from the OUTER pPr
-	// siblings (pStyle/jc/ind/numPr) — captured by assembleParagraph
-	// after the runs are collected so we know the resolved type.
-	var blockChange map[string]any
-	var runs []PMNode
-
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "pPr":
-				if err := p.parseParagraphProperties(dec, t, &pStyle, &numID, &ilvl, &textAlign, &indentLevel, &dropCapFrame, &blockChange); err != nil {
-					return nil, err
-				}
-			case "r":
-				if err := p.parseRun(dec, t, &runs, nil); err != nil {
-					return nil, err
-				}
-			case "hyperlink":
-				if err := p.parseHyperlink(dec, t, &runs); err != nil {
-					return nil, err
-				}
-			case "ins":
-				// Tracked insertion / suggestion. Push a suggestedInsert
-				// mark onto the active stack so contained runs pick it
-				// up via flushRun, then walk the children as if they
-				// were direct paragraph children.
-				p.pushSuggestion(MarkTypeSuggestedInsert, t)
-				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
-					return nil, err
-				}
-				p.popSuggestion()
-			case "del":
-				p.pushSuggestion(MarkTypeSuggestedDelete, t)
-				if err := p.parseInlineGroup(dec, t, &runs); err != nil {
-					return nil, err
-				}
-				p.popSuggestion()
-			case "commentRangeStart":
-				if id := attrValue(t, "id"); id != "" {
-					p.openComments = append(p.openComments, id)
-				}
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			case "commentRangeEnd":
-				if id := attrValue(t, "id"); id != "" {
-					p.closeComment(id)
-				}
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			case "commentReference":
-				// Reference runs carry no user content — they're the
-				// "[A1]" pill Word renders between the range markers.
-				// We round-trip via the marks on the range, so the
-				// reference itself is dropped on import.
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			case "bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd":
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return p.assembleParagraph(pStyle, numID, ilvl, textAlign, indentLevel, dropCapFrame, blockChange, runs), nil
-			}
-		}
-	}
 }
 
 // assembleParagraph turns the parsed pPr fields and runs into a PM
@@ -1020,212 +682,6 @@ func codeBlockChildren(runs []PMNode) []PMNode {
 	return []PMNode{{Type: NodeTypeText, Text: sb.String()}}
 }
 
-// parseInlineGroup is parseHyperlink/parseIns/parseDel without the
-// link-specific bookkeeping — used to flatten a tracked-insertion's
-// runs back into the surrounding paragraph.
-//
-// Nested <w:ins>/<w:del> children are handled inline: the suggestion
-// stack is pushed for the duration of the inner element and the runs
-// underneath layer both marks (Case 2c — a delete inside a delete,
-// or an insert+delete pair) onto the emitted text nodes.
-func (p *docxParser) parseInlineGroup(dec *xml.Decoder, start xml.StartElement, runs *[]PMNode) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "r":
-				if err := p.parseRun(dec, t, runs, nil); err != nil {
-					return err
-				}
-			case "ins":
-				p.pushSuggestion(MarkTypeSuggestedInsert, t)
-				if err := p.parseInlineGroup(dec, t, runs); err != nil {
-					return err
-				}
-				p.popSuggestion()
-			case "del":
-				p.pushSuggestion(MarkTypeSuggestedDelete, t)
-				if err := p.parseInlineGroup(dec, t, runs); err != nil {
-					return err
-				}
-				p.popSuggestion()
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil
-			}
-		}
-	}
-}
-
-// parseParagraphProperties extracts the paragraph style id, list ids,
-// alignment, and left-indent level out of <w:pPr>.
-//
-// Alignment maps <w:jc w:val="left|center|right|both"/> to "left",
-// "center", "right", or "justify" ("both" is Word's name for what PM
-// calls "justify"). Indent maps <w:ind w:left="…"/> twips through
-// twipsToIndentLevel (720 twips per level, half-inch each).
-//
-// blockChange is populated when a <w:pPrChange> child is encountered;
-// it carries the BEFORE state extracted from the nested <w:pPr> plus
-// the (suggestionId, authorId, ts) bundle. The AFTER state is filled
-// in by assembleParagraph once the outer pPr has been resolved into
-// a (type, attrs) shape.
-func (p *docxParser) parseParagraphProperties(dec *xml.Decoder, start xml.StartElement, pStyle, numID, ilvl *string, textAlign *string, indentLevel *int, dropCap *bool, blockChange *map[string]any) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "pStyle":
-				*pStyle = attrValue(t, "val")
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "framePr":
-				// <w:framePr w:dropCap="drop|margin" .../> marks this
-				// paragraph as a drop-cap frame. Both "drop" (cap sits
-				// inside the text block) and "margin" (cap hangs in the
-				// margin) are treated the same — we render a single
-				// in-block drop-cap style. Any other / absent dropCap
-				// value leaves the flag false (a framePr without a
-				// dropCap is an ordinary text frame we don't model).
-				if v := attrValue(t, "dropCap"); v == "drop" || v == "margin" {
-					*dropCap = true
-				}
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "numPr":
-				if err := p.parseNumPr(dec, t, numID, ilvl); err != nil {
-					return err
-				}
-			case "jc":
-				if v := attrValue(t, "val"); v != "" {
-					*textAlign = normalizeJustification(v)
-				}
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "ind":
-				// Only `w:left` is supported in v1 — first-line and
-				// right indent are dropped (and the parser does not
-				// emit a warning for those, since they're far less
-				// common than block left-indent and surface as quiet
-				// fidelity loss rather than visible damage).
-				if v := attrValue(t, "left"); v != "" {
-					*indentLevel = twipsToIndentLevel(v)
-				}
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "pPrChange":
-				// <w:pPrChange w:id="N" w:author="..." w:date="..."> ...
-				//   <w:pPr> ... before-state pPr children ... </w:pPr>
-				// </w:pPrChange>
-				// Captures the BEFORE pPr in nested form. The AFTER state
-				// (resolved type + textAlign + indent + level) comes from
-				// assembling the outer pPr siblings — assembleParagraph
-				// fills it in once the paragraph type is known.
-				bc, perr := p.parsePPrChange(dec, t)
-				if perr != nil {
-					return perr
-				}
-				if bc != nil {
-					*blockChange = bc
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil
-			}
-		}
-	}
-}
-
-// parsePPrChange consumes a <w:pPrChange> element, returning the
-// half-built suggestedBlockChange attribute (suggestionId, authorId,
-// ts, before — without after, which assembleParagraph fills in).
-//
-// w:id is recovered as the suggestionId via the parser's
-// suggestionMapping (when present, from the tinycld customXml part) or
-// synthesized as "docx:ppr:<id>:<author>" when absent (Word-authored
-// docx). Mirrors parseRPrChange's id-synthesis convention.
-//
-// Returns nil when the pPrChange element is malformed (e.g. no nested
-// pPr) — the parser falls back to "no block-change attr on this
-// paragraph", matching the silent-drop convention used by other
-// suggestion paths.
-func (p *docxParser) parsePPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
-	wID, _ := parseIntAttr(start, "id")
-	wAuthor := attrValue(start, "author")
-	wDate := attrValue(start, "date")
-
-	suggestionID := p.suggestionMapping.BlockChange[wID]
-	if suggestionID == "" {
-		suggestionID = fmt.Sprintf("docx:ppr:%d:%s", wID, wAuthor)
-	}
-
-	beforeType := NodeTypeParagraph
-	beforeAttrs := map[string]any{}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "pPr" {
-				// Nested <w:pPr> carries the BEFORE state. Parse it like a
-				// regular paragraph properties block — we reuse the same
-				// extractor, then resolve the resulting pStyle/numID/jc/ind
-				// into the (type, attrs) shape the resolver expects.
-				var bPStyle, bNumID, bIlvl, bTextAlign string
-				var bIndent int
-				var bDropCap bool
-				var nestedChange map[string]any
-				if perr := p.parseParagraphProperties(dec, t, &bPStyle, &bNumID, &bIlvl, &bTextAlign, &bIndent, &bDropCap, &nestedChange); perr != nil {
-					return nil, perr
-				}
-				beforeType, beforeAttrs = p.resolveBlockTypeFromPPr(bPStyle, bNumID, bIlvl, bTextAlign, bIndent)
-				_ = bDropCap
-				_ = nestedChange
-				continue
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return map[string]any{
-					"suggestionId": suggestionID,
-					"authorId":     wAuthor,
-					"ts":           float64(parseISO8601ToUnixMs(wDate)),
-					"before": map[string]any{
-						"type":  beforeType,
-						"attrs": beforeAttrs,
-					},
-				}, nil
-			}
-		}
-	}
-}
-
 // resolveBlockTypeFromPPr maps parsed <w:pPr> contents to a PM
 // block-type / attrs pair. Mirrors the dispatch in assembleParagraph
 // but without the run-content / dropCap / warning layers.
@@ -1318,139 +774,6 @@ func twipsToIndentLevel(twipsStr string) int {
 		return MaxIndentLevel
 	}
 	return level
-}
-
-// parseNumPr extracts numId and ilvl from <w:numPr>.
-func (p *docxParser) parseNumPr(dec *xml.Decoder, start xml.StartElement, numID, ilvl *string) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "numId":
-				*numID = attrValue(t, "val")
-			case "ilvl":
-				*ilvl = attrValue(t, "val")
-			}
-			if err := skipElement(dec, t); err != nil {
-				return err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil
-			}
-		}
-	}
-}
-
-// parseRun reads one <w:r>, splits it into PMNode text/image runs,
-// and applies the supplied extra marks (used by parseHyperlink to
-// add a link mark on every nested run).
-func (p *docxParser) parseRun(dec *xml.Decoder, start xml.StartElement, out *[]PMNode, extraMarks []PMMark) error {
-	var marks []PMMark
-	var collected []PMNode
-
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "rPr":
-				m, err := p.parseRunProperties(dec, t)
-				if err != nil {
-					return err
-				}
-				marks = m
-			case "t", "delText":
-				// <w:delText> carries text inside a <w:del> wrapper —
-				// it's read identically to <w:t>, the only difference
-				// is the element name. Recognizing both is what keeps
-				// deleted-but-preserved content surviving the docx → PM
-				// roundtrip when a suggestion-mark wrapper is present.
-				txt, err := readElementText(dec, t)
-				if err != nil {
-					return err
-				}
-				if txt != "" {
-					collected = append(collected, PMNode{Type: NodeTypeText, Text: txt})
-				}
-			case "tab":
-				collected = append(collected, PMNode{Type: NodeTypeText, Text: "\t"})
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "br":
-				// <w:br w:type="page"/> is a hard page break — preserved
-				// as its own PM node so the export side can re-emit it
-				// at the same location. Soft / textWrapping breaks stay
-				// as a newline inside the surrounding text run.
-				if attrValue(t, "type") == "page" {
-					collected = append(collected, PMNode{Type: NodeTypePageBreak})
-				} else {
-					collected = append(collected, PMNode{Type: NodeTypeText, Text: "\n"})
-				}
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "drawing":
-				img, err := p.parseDrawing(dec, t)
-				if err != nil {
-					return err
-				}
-				if img != nil {
-					collected = append(collected, *img)
-				}
-			case "footnoteReference":
-				ref := PMNode{Type: NodeTypeFootnoteReference}
-				id := attrValue(t, "id")
-				attrs := map[string]any{}
-				if id != "" {
-					attrs["id"] = id
-					if txt, ok := p.footnotes[id]; ok {
-						attrs["text"] = txt
-					}
-				}
-				if len(attrs) > 0 {
-					ref.Attrs = attrs
-				}
-				collected = append(collected, ref)
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "endnoteReference":
-				ref := PMNode{Type: NodeTypeEndnoteReference}
-				id := attrValue(t, "id")
-				attrs := map[string]any{}
-				if id != "" {
-					attrs["id"] = id
-					if txt, ok := p.endnotes[id]; ok {
-						attrs["text"] = txt
-					}
-				}
-				if len(attrs) > 0 {
-					ref.Attrs = attrs
-				}
-				collected = append(collected, ref)
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return p.flushRun(out, collected, marks, extraMarks)
-			}
-		}
-	}
 }
 
 // flushRun applies the run's marks (plus any inherited extras from a
@@ -1563,222 +886,6 @@ func mergeMarks(a, b []PMMark) []PMMark {
 	return out
 }
 
-// parseRunProperties extracts <w:rPr> bold/italic/underline marks plus
-// the attributes that ride on a single textStyle mark (color, fontSize,
-// fontFamily). Bold and italic are toggle elements (presence == on, but
-// a w:val of "false" / "0" / "off" inverts that); underline uses w:val
-// for the style ("single"/"double"/"none"). textStyle attrs are
-// accumulated into one map and emitted as a single mark at the end so
-// downstream mergeMarks (which dedupes by Type) doesn't drop them.
-func (p *docxParser) parseRunProperties(dec *xml.Decoder, start xml.StartElement) ([]PMMark, error) {
-	var marks []PMMark
-	textStyleAttrs := map[string]any{}
-	// formatChangeMark is built when we encounter a <w:rPrChange> child.
-	// It's appended to the returned marks slice at the end so the docx
-	// → PM round-trip surfaces the proposed run-property change to the
-	// resolver as a SuggestedFormatChange. Nil when no rPrChange child
-	// was present (the typical case).
-	var formatChangeMark *PMMark
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "rPrChange":
-				// <w:rPrChange w:id="N" w:author="..." w:date="..."> ...
-				//   <w:rPr> ... before-state marks ... </w:rPr>
-				// </w:rPrChange>
-				// The outer rPr's other children carry the AFTER state;
-				// we capture the BEFORE state by walking into the nested
-				// <w:rPr>. Built mark is held in formatChangeMark and
-				// appended at the end of the outer rPr so the AFTER
-				// marks are already collected (we'll snapshot them then).
-				mark, perr := p.parseRPrChange(dec, t)
-				if perr != nil {
-					return nil, perr
-				}
-				if mark != nil {
-					formatChangeMark = mark
-				}
-				continue
-			case "b":
-				if isOnToggle(t) {
-					marks = append(marks, PMMark{Type: MarkTypeBold})
-				}
-			case "i":
-				if isOnToggle(t) {
-					marks = append(marks, PMMark{Type: MarkTypeItalic})
-				}
-			case "u":
-				if v := attrValue(t, "val"); v != "" && v != "none" {
-					marks = append(marks, PMMark{Type: MarkTypeUnderline})
-				} else if v == "" {
-					marks = append(marks, PMMark{Type: MarkTypeUnderline})
-				}
-			case "color":
-				// w:val is a hex RRGGBB (no leading "#") or "auto".
-				// "auto" means "follow the theme default" — drop it.
-				if v := attrValue(t, "val"); v != "" && !strings.EqualFold(v, "auto") {
-					textStyleAttrs["color"] = "#" + strings.ToUpper(v)
-				}
-			case "shd":
-				// <w:shd w:val="clear" w:color="auto" w:fill="RRGGBB"/> —
-				// run shading. w:fill carries the hex background. "auto"
-				// means "follow theme" (drop). w:shd is the precise
-				// background color; w:highlight (below) is a coarser
-				// named-color form. If both appear, the later element
-				// wins — Word emits w:shd after w:highlight in practice.
-				if v := attrValue(t, "fill"); v != "" && !strings.EqualFold(v, "auto") {
-					textStyleAttrs["backgroundColor"] = "#" + strings.ToUpper(v)
-				}
-			case "highlight":
-				// <w:highlight w:val="yellow"/> — Word's legacy fixed-
-				// palette highlighter. Map the OOXML named colors to
-				// hex so the renderer + the editor's color UI can treat
-				// them uniformly with w:shd. "none" / unknown values
-				// drop silently. If w:shd already set backgroundColor,
-				// don't overwrite — w:shd is more precise.
-				if _, alreadySet := textStyleAttrs["backgroundColor"]; !alreadySet {
-					if v := attrValue(t, "val"); v != "" {
-						if hex := highlightNameToHex(v); hex != "" {
-							textStyleAttrs["backgroundColor"] = hex
-						}
-					}
-				}
-			case "sz":
-				// <w:sz w:val="N"/> — N is half-points. We render as a
-				// CSS pixel string ("Npx") because @tiptap/extension-
-				// text-style/font-size stores the attribute verbatim
-				// as the inline `style` value (it does no number
-				// parsing). Zero / unparseable values are dropped
-				// (treated as "no fontSize attr").
-				if v := attrValue(t, "val"); v != "" {
-					if n, err := strconv.Atoi(v); err == nil && n > 0 {
-						if px := HalfPointsToPx(n); px > 0 {
-							textStyleAttrs["fontSize"] = strconv.Itoa(px) + "px"
-						}
-					}
-				}
-			case "rFonts":
-				// <w:rFonts w:ascii="…" w:hAnsi="…" .../>. Word writes
-				// the same family across ascii/hAnsi for Western text;
-				// we prefer w:ascii (most common, what Word reads back
-				// first), then fall back to w:hAnsi when only that
-				// attribute is set (rare but happens with some
-				// Office-365-generated docs).
-				name := attrValue(t, "ascii")
-				if name == "" {
-					name = attrValue(t, "hAnsi")
-				}
-				if name != "" {
-					textStyleAttrs["fontFamily"] = name
-				}
-			case "rStyle":
-				// Character style names. "VerbatimChar" is the standard
-				// pandoc / HTML-export mark for inline code; we also
-				// accept "Code" as a common alias. Hyperlink character
-				// style is handled at the paragraph level via
-				// parseHyperlink. Other styles drop silently — too
-				// noisy to warn on.
-				if v := attrValue(t, "val"); v == "VerbatimChar" || v == "Code" {
-					marks = append(marks, PMMark{Type: MarkTypeCode})
-				}
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				if len(textStyleAttrs) > 0 {
-					marks = append(marks, PMMark{
-						Type:  MarkTypeTextStyle,
-						Attrs: textStyleAttrs,
-					})
-				}
-				if formatChangeMark != nil {
-					// Snapshot the AFTER state from the marks collected
-					// above. Order doesn't affect the resolver — it
-					// re-derives a Set from the array — so we record the
-					// marks as we serialized them.
-					formatChangeMark.Attrs["after"] = serializeMarksToAttr(marks)
-					marks = append(marks, *formatChangeMark)
-				}
-				return marks, nil
-			}
-		}
-	}
-}
-
-// parseRPrChange consumes a <w:rPrChange> element, returning a
-// suggestedFormatChange PMMark whose before/after attrs hold the BEFORE
-// state (extracted from the nested <w:rPr>) and a placeholder AFTER
-// state (the caller fills it in once the outer <w:rPr>'s siblings are
-// fully collected).
-//
-// w:id is recovered as the suggestionId via the parser's
-// suggestionMapping (when present, from the tinycld customXml part) or
-// synthesized as "docx:rpr:<id>:<author>" when absent (Word-authored docx).
-//
-// Returns nil when the rPrChange element is malformed (e.g. no nested
-// rPr) — the parser falls back to "no format change mark on this run",
-// matching the silent-drop convention used by other suggestion paths.
-func (p *docxParser) parseRPrChange(dec *xml.Decoder, start xml.StartElement) (*PMMark, error) {
-	wID, _ := parseIntAttr(start, "id")
-	wAuthor := attrValue(start, "author")
-	wDate := attrValue(start, "date")
-
-	suggestionID := p.suggestionMapping.FormatChange[wID]
-	if suggestionID == "" {
-		suggestionID = fmt.Sprintf("docx:rpr:%d:%s", wID, wAuthor)
-	}
-
-	var beforeMarks []PMMark
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "rPr" {
-				// Nested <w:rPr> carries the BEFORE state. Reuse
-				// parseRunProperties so highlight/shd/color/strike all
-				// round-trip identically to the outer rPr. Strip any
-				// stray suggestedFormatChange mark from the result —
-				// the recursive call would attach one if the nested rPr
-				// itself somehow carried an inner rPrChange (invalid
-				// OOXML but defensive). The BEFORE state must never
-				// include a format-change mark; it predates the proposal.
-				m, perr := p.parseRunProperties(dec, t)
-				if perr != nil {
-					return nil, perr
-				}
-				beforeMarks = stripMark(m, MarkTypeSuggestedFormatChange)
-				continue
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				attrs := map[string]any{
-					"suggestionId": suggestionID,
-					"authorId":     wAuthor,
-					"ts":           float64(parseISO8601ToUnixMs(wDate)),
-					"before":       serializeMarksToAttr(beforeMarks),
-				}
-				return &PMMark{
-					Type:  MarkTypeSuggestedFormatChange,
-					Attrs: attrs,
-				}, nil
-			}
-		}
-	}
-}
-
 // serializeMarksToAttr converts a Go-side PMMark slice to the
 // SerializedMarks shape ([]map[string]any with "type" + "attrs" keys)
 // the client carries on suggestedFormatChange's before/after attrs.
@@ -1797,218 +904,6 @@ func serializeMarksToAttr(marks []PMMark) []any {
 		out = append(out, entry)
 	}
 	return out
-}
-
-// isOnToggle returns true for <w:b/>, <w:b w:val="true"/>,
-// <w:b w:val="1"/>, etc., and false for explicit val="false"/"0"/"off".
-func isOnToggle(start xml.StartElement) bool {
-	v := attrValue(start, "val")
-	if v == "" {
-		return true
-	}
-	switch strings.ToLower(v) {
-	case "false", "0", "off":
-		return false
-	}
-	return true
-}
-
-// parseHyperlink wraps every contained run with a link mark whose
-// href resolves via the shared rels map (or via the w:anchor
-// attribute for in-document anchors).
-func (p *docxParser) parseHyperlink(dec *xml.Decoder, start xml.StartElement, runs *[]PMNode) error {
-	rid := attrValue(start, "id")
-	anchor := attrValue(start, "anchor")
-	href := ""
-	if rid != "" {
-		if rel, ok := p.rels[rid]; ok {
-			href = rel.Target
-		}
-	}
-	if href == "" && anchor != "" {
-		href = "#" + anchor
-	}
-
-	var extra []PMMark
-	if href != "" {
-		extra = []PMMark{{Type: MarkTypeLink, Attrs: map[string]any{"href": href}}}
-	}
-
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "r" {
-				if err := p.parseRun(dec, t, runs, extra); err != nil {
-					return err
-				}
-			} else {
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil
-			}
-		}
-	}
-}
-
-// parseDrawing handles <w:drawing> (inline or anchor) and produces a
-// PM image node. We extract the rId from the nested a:blip, look up
-// the media filename via rels, and inline the image bytes from the
-// docx zip as a self-contained data: URI. Embedding the bytes (rather
-// than copying the in-zip path verbatim into src) keeps the PM tree
-// round-trippable: PMJSONToDocx accepts only data: URIs because the
-// emitter has no way to re-resolve in-zip paths from a tree that's
-// been edited and re-serialized. Alt text comes from wp:docPr@descr.
-//
-// Anchor drawings (<wp:anchor>) carry text-wrapping info via
-// <wp:wrapSquare>/<wp:wrapTight>/<wp:wrapThrough>/<wp:wrapTopAndBottom>
-// plus a <wp:positionH><wp:align>{left|right|center}</...></...> sibling.
-// We collapse all "text flows around image" wrap modes to
-// wrap=left|right, map <wp:wrapTopAndBottom> to wrap=break (Word's
-// "Top and Bottom"), and inline + wrapNone to wrap=none. Used by the
-// emitter to round-trip and by the editor CSS to apply float / break.
-//
-// If the rels lookup or zip read fails, the image is dropped silently
-// (no PM node emitted) — losing an unresolvable image is preferable
-// to producing a tree that fails round-trip.
-//
-// Image dimensions are read from <wp:extent cx=".." cy=".."/>, which
-// appears inside both <wp:inline> and <wp:anchor>. OOXML stores them
-// as EMUs (English Metric Units: 1 inch = 914400 EMU, 1 px @ 96 DPI =
-// 9525 EMU). We convert with rounding (emusToPixels) and stash the
-// integer pixel values on the PM image node as `width` / `height`.
-// pm_to_docx.go::emitImageBlock multiplies back to EMUs (via
-// WordZero's `width * 9525`) on save, so a docx that round-trips
-// through the editor without an explicit user resize comes back with
-// the same wp:extent values (modulo ±1 px from integer rounding).
-func (p *docxParser) parseDrawing(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	var blipRid, alt, title string
-	hasAnchor := false
-	hasWrap := false
-	hasTopAndBottom := false
-	posHAlign := ""
-	var extentCx, extentCy int
-	// Track depth inside <wp:positionH> so we only read the <wp:align>
-	// that belongs to the horizontal positioner. Word writes both
-	// <wp:positionH> and <wp:positionV>, each with an <wp:align> child;
-	// vertical alignment is irrelevant to our left/right decision.
-	posHDepth := 0
-
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "anchor":
-				hasAnchor = true
-			case "docPr":
-				alt = attrValue(t, "descr")
-				title = attrValue(t, "title")
-			case "blip":
-				if v := attrValue(t, "embed"); v != "" {
-					blipRid = v
-				}
-			case "extent":
-				// <wp:extent cx="..." cy="..."/> — present on both
-				// <wp:inline> and <wp:anchor>. We accept the first one
-				// we see; effectExtent (which carries a similar shape)
-				// is a different local name so there's no collision.
-				if cx, ok := parseIntAttr(t, "cx"); ok && cx > 0 {
-					extentCx = cx
-				}
-				if cy, ok := parseIntAttr(t, "cy"); ok && cy > 0 {
-					extentCy = cy
-				}
-			case "wrapSquare", "wrapTight", "wrapThrough":
-				hasWrap = true
-			case "wrapTopAndBottom":
-				// Word's "Top and Bottom" wrap. Semantically distinct
-				// from text-flowing-around-image wrap modes: text never
-				// sits beside the image — only above and below. We map
-				// it to wrap="break" rather than reusing hasWrap.
-				hasTopAndBottom = true
-			case "positionH":
-				posHDepth++
-			case "align":
-				if posHDepth > 0 {
-					// CharData inside <wp:align> is "left"/"right"/"center".
-					txt, err := readElementText(dec, t)
-					if err != nil {
-						return nil, err
-					}
-					posHAlign = strings.TrimSpace(txt)
-				}
-			}
-			// Drawings nest very deep; we walk forward on every
-			// StartElement (no skip) so we see the inner blip
-			// regardless of where it appears.
-		case xml.EndElement:
-			if t.Name.Local == "positionH" && posHDepth > 0 {
-				posHDepth--
-			}
-			if t.Name.Local == start.Name.Local {
-				if blipRid == "" {
-					return nil, nil
-				}
-				rel, ok := p.rels[blipRid]
-				if !ok {
-					return nil, nil
-				}
-				src := p.resolveMediaSrc(rel.Target)
-				if src == "" {
-					return nil, nil
-				}
-				img := &PMNode{
-					Type:  NodeTypeImage,
-					Attrs: map[string]any{"src": src},
-				}
-				if alt != "" && alt != wordZeroDefaultImageLabel {
-					img.Attrs["alt"] = alt
-				}
-				if title != "" && title != wordZeroDefaultImageLabel {
-					img.Attrs["title"] = title
-				}
-				if wrap := resolveWrap(hasAnchor, hasWrap, hasTopAndBottom, posHAlign); wrap != "" {
-					img.Attrs["wrap"] = wrap
-				}
-				if extentCx > 0 {
-					img.Attrs["width"] = emusToPixels(extentCx)
-				}
-				if extentCy > 0 {
-					img.Attrs["height"] = emusToPixels(extentCy)
-				}
-				return img, nil
-			}
-		}
-	}
-}
-
-// parseIntAttr returns the named attribute parsed as a decimal integer,
-// plus an ok flag distinguishing "absent or unparsable" from a literal
-// zero. Used for <wp:extent cx/cy> where a missing attr means
-// "preserve the bytes' native dimensions" and zero means "render as
-// 0×0" — semantically the same here but we keep the distinction for
-// future callers.
-func parseIntAttr(start xml.StartElement, name string) (int, bool) {
-	raw := attrValue(start, name)
-	if raw == "" {
-		return 0, false
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, false
-	}
-	return v, true
 }
 
 // emusToPixels converts an EMU (English Metric Unit) measurement into
@@ -2066,41 +961,6 @@ func resolveWrap(hasAnchor, hasWrap, hasTopAndBottom bool, posHAlign string) str
 // PMNode attribute set stable across passes.
 const wordZeroDefaultImageLabel = "图片"
 
-// resolveMediaSrc converts an in-zip media reference (the Target field
-// from word/_rels/document.xml.rels — e.g. "media/image1.gif" or
-// "../media/image1.gif") into a self-contained data: URI suitable for
-// round-tripping back through PMJSONToDocx. Returns the data: URI on
-// success, or empty string on failure (caller drops the image rather
-// than emitting an unresolvable reference).
-//
-// rels Targets are relative to the location of the .rels file
-// (word/_rels/document.xml.rels), so they're rooted at "word/".
-// path.Clean(path.Join("word", target)) collapses any "../" prefixes
-// the way Word writes them when the media is already inside word/.
-func (p *docxParser) resolveMediaSrc(relTarget string) string {
-	if p.zip == nil || relTarget == "" {
-		return ""
-	}
-	cleaned := strings.TrimPrefix(path.Clean(path.Join("word", relTarget)), "/")
-	for _, f := range p.zip.File {
-		if f.Name != cleaned {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return ""
-		}
-		buf, err := io.ReadAll(rc)
-		_ = rc.Close()
-		if err != nil {
-			return ""
-		}
-		return "data:" + mimeFromExt(path.Ext(cleaned)) + ";base64," +
-			base64.StdEncoding.EncodeToString(buf)
-	}
-	return ""
-}
-
 // mimeFromExt maps a file extension (with leading dot, any case) to a
 // MIME type suitable for a data: URI. Unknown extensions fall through
 // to application/octet-stream — pm_to_docx.decodeImageSrc will reject
@@ -2122,52 +982,6 @@ func mimeFromExt(ext string) string {
 		return "image/svg+xml"
 	default:
 		return "application/octet-stream"
-	}
-}
-
-// parseTable reads <w:tbl> into a PM table node. We capture the
-// <w:tblGrid>'s per-column dxa widths up-front and pass them down to
-// each cell so cells that span columns get the exact per-column widths
-// from the source (rather than evenly splitting their <w:tcW>, which
-// would drift on round-trip when grid columns aren't equal).
-func (p *docxParser) parseTable(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	tbl := &PMNode{Type: NodeTypeTable}
-	var gridCols []int
-	col := 0
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "tblGrid":
-				gridCols, err = parseTableGrid(dec, t)
-				if err != nil {
-					return nil, err
-				}
-			case "tr":
-				row, err := p.parseTableRow(dec, t, gridCols, &col)
-				if err != nil {
-					return nil, err
-				}
-				if row != nil {
-					tbl.Content = append(tbl.Content, *row)
-				}
-				col = 0
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				consolidateVMerges(tbl)
-				padTableRowsToMaxWidth(tbl)
-				return tbl, nil
-			}
-		}
 	}
 }
 
@@ -2286,37 +1100,6 @@ func asIntForPad(v any) int {
 		return int(n)
 	}
 	return 0
-}
-
-// parseTableGrid reads <w:tblGrid> into an int slice of per-column dxa
-// widths. Word emits one <w:gridCol w:w="…"/> per physical column;
-// these are authoritative for the table's column layout and are what
-// we want to round-trip back out so widths don't drift cell-by-cell.
-func parseTableGrid(dec *xml.Decoder, start xml.StartElement) ([]int, error) {
-	var cols []int
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "gridCol" {
-				if v := attrValue(t, "w"); v != "" {
-					if n, err := strconv.Atoi(v); err == nil {
-						cols = append(cols, n)
-					}
-				}
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return cols, nil
-			}
-		}
-	}
 }
 
 // padTableRowsToMaxWidth normalizes a parsed table so every row spans
@@ -2466,393 +1249,6 @@ func cellRowspanForPad(cell PMNode) int {
 	return 1
 }
 
-func (p *docxParser) parseTableRow(dec *xml.Decoder, start xml.StartElement, gridCols []int, colCursor *int) (*PMNode, error) {
-	row := &PMNode{Type: NodeTypeTableRow}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "tc":
-				cell, err := p.parseTableCell(dec, t, gridCols, *colCursor)
-				if err != nil {
-					return nil, err
-				}
-				if cell != nil {
-					row.Content = append(row.Content, *cell)
-					*colCursor += cellColspanForPad(*cell)
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return row, nil
-			}
-		}
-	}
-}
-
-func (p *docxParser) parseTableCell(dec *xml.Decoder, start xml.StartElement, gridCols []int, colIdx int) (*PMNode, error) {
-	cell := &PMNode{Type: NodeTypeTableCell}
-	var tcWDxa int    // <w:tcW w:w="..."> in dxa (twentieths of a point); 0 if missing or non-dxa.
-	var gridSpan = 1  // <w:gridSpan w:val="..."> default 1.
-	var vMerge string // "" / "restart" / "continue" from <w:vMerge>.
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "tcPr":
-				var bordersAttr map[string]any
-				var shading string
-				var cellChange map[string]any
-				tcWDxa, gridSpan, vMerge, bordersAttr, shading, cellChange, err = p.parseTableCellProperties(dec, t)
-				if err != nil {
-					return nil, err
-				}
-				if bordersAttr != nil {
-					if cell.Attrs == nil {
-						cell.Attrs = map[string]any{}
-					}
-					cell.Attrs["borders"] = bordersAttr
-				}
-				if shading != "" {
-					if cell.Attrs == nil {
-						cell.Attrs = map[string]any{}
-					}
-					cell.Attrs["shading"] = shading
-				}
-				if vMerge != "" {
-					if cell.Attrs == nil {
-						cell.Attrs = map[string]any{}
-					}
-					// Sentinel attr consumed (and stripped) by
-					// consolidateVMerges. We carry it through to the
-					// post-row pass so we can collapse continue cells
-					// into their start cell's rowspan once the table
-					// is fully parsed.
-					cell.Attrs["_vmerge"] = vMerge
-				}
-				if cellChange != nil {
-					if cell.Attrs == nil {
-						cell.Attrs = map[string]any{}
-					}
-					attachCellChangeAttr(cell.Attrs, cellChange, shading, bordersAttr)
-				}
-			case "p":
-				para, err := p.parseParagraph(dec, t)
-				if err != nil {
-					return nil, err
-				}
-				if para != nil {
-					// Cell paragraphs never participate in list
-					// grouping, so strip any list metadata that
-					// snuck in (it would confuse the post-pass).
-					if para.Attrs != nil {
-						delete(para.Attrs, "_listNumId")
-						delete(para.Attrs, "_listLevel")
-						delete(para.Attrs, "_listFmt")
-						if len(para.Attrs) == 0 {
-							para.Attrs = nil
-						}
-					}
-					cell.Content = append(cell.Content, liftInlineImages(*para)...)
-				}
-			case "tbl":
-				nested, err := p.parseTable(dec, t)
-				if err != nil {
-					return nil, err
-				}
-				if nested != nil {
-					cell.Content = append(cell.Content, *nested)
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return nil, err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				cell.Content = collapseLeadingEmptyParagraphs(cell.Content)
-				applyTableCellWidth(cell, tcWDxa, gridSpan, gridCols, colIdx)
-				return cell, nil
-			}
-		}
-	}
-}
-
-// parseTableCellProperties pulls the cell width (in dxa), gridSpan,
-// vMerge state, and (optionally) the border map out of a <w:tcPr>
-// block. Cell widths drive TipTap's `colwidth` attribute; gridSpan
-// becomes the cell's colspan; vMerge is consumed by consolidateVMerges
-// to collapse continue-cells into the start cell's rowspan; borders
-// become the `borders` attr. Returns zero/nil/"" values for any field
-// that's missing.
-//
-// <w:vMerge> shape:
-//   - <w:vMerge w:val="restart"/> — this cell begins a vertical merge
-//   - <w:vMerge/>                 — this cell continues a merge that
-//     started above. (OOXML allows
-//     w:val="continue" but Word omits it.)
-func (p *docxParser) parseTableCellProperties(dec *xml.Decoder, start xml.StartElement) (int, int, string, map[string]any, string, map[string]any, error) {
-	tcWDxa := 0
-	gridSpan := 1
-	vMerge := ""
-	var borders map[string]any
-	shading := ""
-	var cellChange map[string]any
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return 0, 0, "", nil, "", nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "tcW":
-				// w:type="dxa" is the common case (twentieths of a point).
-				// w:type="auto" / "nil" / "pct" are intentionally ignored:
-				// for "auto" Word lays out by content so we want no fixed
-				// width; pct% would need the table's total width to be
-				// known, which we don't carry through.
-				wType := attrValue(t, "type")
-				if wType == "" || wType == "dxa" {
-					if v := attrValue(t, "w"); v != "" {
-						if n, err := strconv.Atoi(v); err == nil {
-							tcWDxa = n
-						}
-					}
-				}
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			case "gridSpan":
-				if v := attrValue(t, "val"); v != "" {
-					if n, err := strconv.Atoi(v); err == nil && n > 0 {
-						gridSpan = n
-					}
-				}
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			case "vMerge":
-				v := attrValue(t, "val")
-				if v == "restart" {
-					vMerge = "restart"
-				} else {
-					// Missing val and val="continue" both mean continue.
-					vMerge = "continue"
-				}
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			case "tcBorders":
-				b, err := parseTcBorders(dec, t)
-				if err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-				borders = b
-			case "shd":
-				shading = parseTcShading(t)
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			case "tcPrChange":
-				// <w:tcPrChange w:id="N" w:author="..." w:date="..."> ...
-				//   <w:tcPr> ... before-state cell properties ... </w:tcPr>
-				// </w:tcPrChange>
-				cc, perr := p.parseTcPrChange(dec, t)
-				if perr != nil {
-					return 0, 0, "", nil, "", nil, perr
-				}
-				if cc != nil {
-					cellChange = cc
-				}
-			case "cellIns":
-				// <w:cellIns w:id="N" w:author="..." w:date="..."/>
-				// Cell was proposed for addition. The cell content stays
-				// in the doc until the suggestion is resolved.
-				cc := p.parseCellInsDel(t, true)
-				if cc != nil {
-					cellChange = cc
-				}
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			case "cellDel":
-				// <w:cellDel w:id="N" w:author="..." w:date="..."/>
-				// Cell was proposed for removal. The cell content stays
-				// in the doc until the suggestion is resolved.
-				cc := p.parseCellInsDel(t, false)
-				if cc != nil {
-					cellChange = cc
-				}
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return 0, 0, "", nil, "", nil, err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return tcWDxa, gridSpan, vMerge, borders, shading, cellChange, nil
-			}
-		}
-	}
-}
-
-// parseTcPrChange consumes a <w:tcPrChange> element and returns a
-// half-built suggestedBlockChange attribute (suggestionId, authorId,
-// ts, before) for attachment to the enclosing tableCell node. The
-// AFTER state will be filled in by attachCellChangeAttr from the
-// outer tcPr's siblings.
-//
-// w:id is recovered as the suggestionId via the parser's
-// suggestionMapping.CellChange (when present) or synthesized as
-// "docx:tcpr:<id>:<author>" when absent (Word-authored docx).
-//
-// Returns nil when the tcPrChange is malformed (no nested tcPr) —
-// the parser falls back to "no cell-change attr on this cell".
-func (p *docxParser) parseTcPrChange(dec *xml.Decoder, start xml.StartElement) (map[string]any, error) {
-	wID, _ := parseIntAttr(start, "id")
-	wAuthor := attrValue(start, "author")
-	wDate := attrValue(start, "date")
-
-	suggestionID := p.suggestionMapping.CellChange[wID]
-	if suggestionID == "" {
-		suggestionID = fmt.Sprintf("docx:tcpr:%d:%s", wID, wAuthor)
-	}
-
-	beforeAttrs := map[string]any{}
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "tcPr" {
-				// Nested <w:tcPr> carries the BEFORE state. Walk it
-				// recursively for shading and borders — same shapes
-				// the outer cell uses.
-				if perr := p.parseTcPrChangeNested(dec, t, beforeAttrs); perr != nil {
-					return nil, perr
-				}
-				continue
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return map[string]any{
-					"suggestionId": suggestionID,
-					"authorId":     wAuthor,
-					"ts":           float64(parseISO8601ToUnixMs(wDate)),
-					"before": map[string]any{
-						"type":  NodeTypeTableCell,
-						"attrs": beforeAttrs,
-					},
-				}, nil
-			}
-		}
-	}
-}
-
-// parseTcPrChangeNested walks the nested <w:tcPr> inside <w:tcPrChange>
-// and pulls out shading + borders into the BEFORE attrs map. Skips
-// unknown children. Width / gridSpan / vMerge changes are not modeled
-// in v1 — they round-trip through the outer cell tcPr only.
-func (p *docxParser) parseTcPrChangeNested(dec *xml.Decoder, start xml.StartElement, beforeAttrs map[string]any) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch t.Name.Local {
-			case "shd":
-				if s := parseTcShading(t); s != "" {
-					beforeAttrs["shading"] = s
-				}
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			case "tcBorders":
-				b, err := parseTcBorders(dec, t)
-				if err != nil {
-					return err
-				}
-				if b != nil {
-					beforeAttrs["borders"] = b
-				}
-			default:
-				if err := skipElement(dec, t); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil
-			}
-		}
-	}
-}
-
-// parseCellInsDel returns a half-built suggestedBlockChange attribute
-// for <w:cellIns> (added=true) or <w:cellDel> (deleted=true). Same id
-// recovery convention as parseTcPrChange. The before/after shape
-// includes the added/deleted flag so the resolver can dispatch on the
-// sub-case (cell-added vs cell-deleted vs cell-attr).
-func (p *docxParser) parseCellInsDel(start xml.StartElement, isInsert bool) map[string]any {
-	wID, _ := parseIntAttr(start, "id")
-	wAuthor := attrValue(start, "author")
-	wDate := attrValue(start, "date")
-
-	suggestionID := p.suggestionMapping.CellChange[wID]
-	if suggestionID == "" {
-		prefix := "tcdel"
-		if isInsert {
-			prefix = "tcins"
-		}
-		suggestionID = fmt.Sprintf("docx:%s:%d:%s", prefix, wID, wAuthor)
-	}
-
-	before := map[string]any{
-		"type":  NodeTypeTableCell,
-		"attrs": map[string]any{},
-	}
-	if isInsert {
-		before["added"] = true
-	}
-	after := map[string]any{
-		"type":  NodeTypeTableCell,
-		"attrs": map[string]any{},
-	}
-	if !isInsert {
-		after["deleted"] = true
-	}
-	return map[string]any{
-		"suggestionId": suggestionID,
-		"authorId":     wAuthor,
-		"ts":           float64(parseISO8601ToUnixMs(wDate)),
-		"before":       before,
-		"after":        after,
-	}
-}
-
 // applyTableCellWidth converts a cell's dxa width into TipTap's
 // `colwidth` attribute (array of px widths, one per spanned column)
 // and stamps it on the cell along with `colspan` if it spans columns.
@@ -2949,126 +1345,6 @@ func isEmptyParagraph(n PMNode) bool {
 	return n.Type == NodeTypeParagraph && len(n.Content) == 0 && len(n.Attrs) == 0
 }
 
-// parseSdt unwraps <w:sdt> by recursively descending into its
-// contents and emitting the inner block-level nodes as if the sdt
-// wasn't there.
-func (p *docxParser) parseSdt(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "sdtContent" {
-				// Walk the sdtContent and return its first
-				// block-level child. SDTs commonly wrap a single
-				// paragraph; multi-paragraph SDTs lose all but the
-				// first (acceptable for v1, signaled by the warning).
-				return p.parseSdtContent(dec, t)
-			}
-			if err := skipElement(dec, t); err != nil {
-				return nil, err
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil, nil
-			}
-		}
-	}
-}
-
-func (p *docxParser) parseSdtContent(dec *xml.Decoder, start xml.StartElement) (*PMNode, error) {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			node, err := p.parseBodyChild(dec, t)
-			if err != nil {
-				return nil, err
-			}
-			if node != nil {
-				// Drain the rest of sdtContent without producing more
-				// nodes; first body-level child wins.
-				if err := skipUntilEnd(dec, start.Name.Local); err != nil {
-					return nil, err
-				}
-				return node, nil
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return nil, nil
-			}
-		}
-	}
-}
-
-// readElementText reads CharData inside a <w:t> (or similar) element
-// until its closing tag.
-func readElementText(dec *xml.Decoder, start xml.StartElement) (string, error) {
-	var sb strings.Builder
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return "", err
-		}
-		switch t := tok.(type) {
-		case xml.CharData:
-			sb.Write(t)
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				return sb.String(), nil
-			}
-		case xml.StartElement:
-			// shouldn't happen inside <w:t>, but just in case
-			if err := skipElement(dec, t); err != nil {
-				return "", err
-			}
-		}
-	}
-}
-
-// skipElement consumes tokens until the matching EndElement of the
-// supplied StartElement is seen. Handles arbitrary nesting depth.
-func skipElement(dec *xml.Decoder, start xml.StartElement) error {
-	depth := 1
-	for depth > 0 {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == start.Name.Local {
-				depth++
-			}
-		case xml.EndElement:
-			if t.Name.Local == start.Name.Local {
-				depth--
-			}
-		}
-	}
-	return nil
-}
-
-// skipUntilEnd consumes tokens until the named element closes —
-// useful when a function takes over after partially consuming a
-// container.
-func skipUntilEnd(dec *xml.Decoder, name string) error {
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		if t, ok := tok.(xml.EndElement); ok && t.Name.Local == name {
-			return nil
-		}
-	}
-}
-
 // highlightNameToHex maps OOXML's <w:highlight w:val="…"> fixed-palette
 // names to hex strings the renderer can consume uniformly with w:shd's
 // arbitrary hex fill. Word's highlighter only supports this fixed set
@@ -3109,17 +1385,6 @@ func highlightNameToHex(name string) string {
 		return "#FFFFFF"
 	case "yellow":
 		return "#FFFF00"
-	}
-	return ""
-}
-
-// attrValue looks up a single attribute by local name on the
-// start element. Returns "" if absent.
-func attrValue(start xml.StartElement, name string) string {
-	for _, a := range start.Attr {
-		if a.Name.Local == name {
-			return a.Value
-		}
 	}
 	return ""
 }

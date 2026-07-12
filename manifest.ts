@@ -26,6 +26,7 @@ const manifest = {
     // which the Dockerfile build also runs before `expo export`.
     build: { script: 'tinycld/text/webview-editor/build' },
     dependencies: ['drive'],
+    peerVersions: { '@tinycld/core': '>=0.0.4 <0.1.0' },
 }
 
 export default manifest

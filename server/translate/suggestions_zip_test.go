@@ -61,16 +61,23 @@ func TestPMToDocxIncludesSuggestionsCustomXMLPart(t *testing.T) {
 		t.Errorf("expected entry id=s1 in part body; got:\n%s", found)
 	}
 
-	// Also verify Content_Types.xml has the Override
+	// The customXml part is retained by a relationship in the main document's
+	// rels part (Word's mechanism for keeping custom parts); its .xml content
+	// type is covered by the package-wide Default, so no explicit Content_Types
+	// Override is emitted for it.
+	var sawRel bool
 	for _, f := range r.File {
-		if f.Name == "[Content_Types].xml" {
+		if f.Name == "word/_rels/document.xml.rels" {
 			rc, _ := f.Open()
-			ct, _ := io.ReadAll(rc)
+			rels, _ := io.ReadAll(rc)
 			rc.Close()
-			if !bytes.Contains(ct, []byte("tinycld-suggestions.xml")) {
-				t.Errorf("expected Content_Types.xml to reference suggestions part; got:\n%s", ct)
+			if bytes.Contains(rels, []byte("tinycld-suggestions.xml")) {
+				sawRel = true
 			}
 		}
+	}
+	if !sawRel {
+		t.Errorf("expected document rels to reference the customXml suggestions part")
 	}
 }
 

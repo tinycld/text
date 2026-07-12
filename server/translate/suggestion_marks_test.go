@@ -3,7 +3,7 @@ package translate
 import "testing"
 
 func TestQueueSuggestionMarksProducesOneSpanPerMark(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	marks := []PMMark{
 		{
 			Type: MarkTypeSuggestedInsert,
@@ -17,7 +17,7 @@ func TestQueueSuggestionMarksProducesOneSpanPerMark(t *testing.T) {
 			Type: MarkTypeBold,
 		},
 	}
-	spans := em.queueSuggestionMarks(marks)
+	spans := b.queueSuggestionMarks(marks)
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
@@ -36,7 +36,7 @@ func TestQueueSuggestionMarksProducesOneSpanPerMark(t *testing.T) {
 }
 
 func TestQueueSuggestionMarksProducesTwoSpansForLayeredMarks(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	// Case 2c: two users propose deletion of the same range.
 	marks := []PMMark{
 		{
@@ -56,7 +56,7 @@ func TestQueueSuggestionMarksProducesTwoSpansForLayeredMarks(t *testing.T) {
 			},
 		},
 	}
-	spans := em.queueSuggestionMarks(marks)
+	spans := b.queueSuggestionMarks(marks)
 	if len(spans) != 2 {
 		t.Fatalf("expected 2 spans, got %d", len(spans))
 	}
@@ -72,13 +72,13 @@ func TestQueueSuggestionMarksProducesTwoSpansForLayeredMarks(t *testing.T) {
 }
 
 func TestQueueSuggestionMarksIgnoresNonSuggestionMarks(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	marks := []PMMark{
 		{Type: MarkTypeBold},
 		{Type: MarkTypeItalic},
 		{Type: MarkTypeComment, Attrs: map[string]any{"commentId": "c1"}},
 	}
-	spans := em.queueSuggestionMarks(marks)
+	spans := b.queueSuggestionMarks(marks)
 	if len(spans) != 0 {
 		t.Errorf("expected 0 spans for non-suggestion marks, got %d", len(spans))
 	}

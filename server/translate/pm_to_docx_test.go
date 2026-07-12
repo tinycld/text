@@ -751,13 +751,13 @@ func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPMJSONToDocx_NestedTableInCellFlattened verifies that a table
-// cell containing block content the v1 exporter can't represent (here,
-// a nested table) no longer fails the whole conversion. Instead the
-// inner text is flattened into the cell and a WarningCellContentFlattened
-// is surfaced. Regression test for the production infinite-retry loop
-// caused by `tableCell content must be paragraph, got "table"`.
-func TestPMJSONToDocx_NestedTableInCellFlattened(t *testing.T) {
+// TestPMJSONToDocx_NestedTableInCell verifies that a table cell containing a
+// nested table now round-trips STRUCTURALLY — the doctaculous model supports
+// nested tables in cells, so nothing is flattened and no warning is raised.
+// (The old wordZero exporter could not represent this and flattened the inner
+// table's text with a WarningCellContentFlattened; this test replaces that
+// behavior with the structural round-trip the migration enables.)
+func TestPMJSONToDocx_NestedTableInCell(t *testing.T) {
 	innerTable := PMNode{
 		Type: NodeTypeTable,
 		Content: []PMNode{
@@ -800,26 +800,48 @@ func TestPMJSONToDocx_NestedTableInCellFlattened(t *testing.T) {
 
 	docxBytes, warnings, err := PMJSONToDocxWithWarnings(originalJSON)
 	if err != nil {
-		t.Fatalf("PMJSONToDocxWithWarnings should degrade, not error: %v", err)
+		t.Fatalf("PMJSONToDocxWithWarnings: %v", err)
 	}
 	if len(docxBytes) < 100 {
 		t.Fatalf("docx too small (%d bytes); probably empty", len(docxBytes))
 	}
 
-	var sawFlatten bool
+	// Nested tables are now representable — no flattening, no warning.
 	for _, w := range warnings {
 		if w.Code == WarningCellContentFlattened {
-			sawFlatten = true
+			t.Errorf("unexpected WarningCellContentFlattened; nested tables should round-trip: %+v", warnings)
 		}
-	}
-	if !sawFlatten {
-		t.Fatalf("expected WarningCellContentFlattened, got %+v", warnings)
 	}
 
+	// The nested table survives structurally in the emitted document.xml (a
+	// second <w:tbl> nested inside the outer cell) and all cell text is present.
 	body := string(readDocxPart(t, docxBytes, "word/document.xml"))
+	if n := strings.Count(body, "<w:tbl>"); n < 2 {
+		t.Errorf("expected a nested <w:tbl> (>=2 total), got %d; xml:\n%s", n, body)
+	}
 	for _, want := range []string{"outer", "inner-a", "inner-b"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("flattened cell text %q missing from document.xml", want)
+			t.Errorf("cell text %q missing from document.xml", want)
 		}
+	}
+
+	// Round-trip: the nested table reconstructs as a table inside the outer cell.
+	pmJSON, _, err := DocxToPMJSON(docxBytes)
+	if err != nil {
+		t.Fatalf("DocxToPMJSON: %v", err)
+	}
+	var parsed PMNode
+	if err := json.Unmarshal(pmJSON, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	outerCell := parsed.Content[0].Content[0].Content[0]
+	var sawNestedTable bool
+	for _, child := range outerCell.Content {
+		if child.Type == NodeTypeTable {
+			sawNestedTable = true
+		}
+	}
+	if !sawNestedTable {
+		t.Errorf("expected a nested table inside the outer cell after round-trip, got %+v", outerCell.Content)
 	}
 }

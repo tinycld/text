@@ -3,6 +3,8 @@ package translate
 import (
 	"strings"
 	"testing"
+
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
 // TestQueueBlockChangeAttrsProducesOneSpanPerNode confirms the
@@ -10,7 +12,7 @@ import (
 // suggestedBlockChange attribute and synthesizes a fresh
 // DocxRevisionID + marker token for each one.
 func TestQueueBlockChangeAttrsProducesOneSpanPerNode(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	attrs := map[string]any{
 		NodeAttrSuggestedBlockChange: map[string]any{
 			"suggestionId": "s_bc_1",
@@ -26,7 +28,7 @@ func TestQueueBlockChangeAttrsProducesOneSpanPerNode(t *testing.T) {
 			},
 		},
 	}
-	span := em.queueBlockChangeAttrs(attrs)
+	span := b.queueBlockChangeAttrs(attrs)
 	if span == nil {
 		t.Fatalf("expected span, got nil")
 	}
@@ -48,11 +50,8 @@ func TestQueueBlockChangeAttrsProducesOneSpanPerNode(t *testing.T) {
 	if span.AfterType != NodeTypeHeading {
 		t.Errorf("AfterType: got %q want %q", span.AfterType, NodeTypeHeading)
 	}
-	if !strings.HasPrefix(span.Marker, "{{__pmppr:") {
-		t.Errorf("Marker token: got %q want prefix {{__pmppr:", span.Marker)
-	}
-	if len(em.blockChangeSpans) != 1 {
-		t.Errorf("emitter span queue: got %d want 1", len(em.blockChangeSpans))
+	if len(b.blockChangeSpans) != 1 {
+		t.Errorf("builder span queue: got %d want 1", len(b.blockChangeSpans))
 	}
 }
 
@@ -60,20 +59,20 @@ func TestQueueBlockChangeAttrsProducesOneSpanPerNode(t *testing.T) {
 // a no-op when the node attrs don't carry the suggestedBlockChange
 // key.
 func TestQueueBlockChangeAttrsIgnoresMissingAttr(t *testing.T) {
-	em := newEmitter()
-	span := em.queueBlockChangeAttrs(map[string]any{"textAlign": "center"})
+	b := newBuilder()
+	span := b.queueBlockChangeAttrs(map[string]any{"textAlign": "center"})
 	if span != nil {
 		t.Errorf("expected nil span on missing attr, got %+v", span)
 	}
-	if len(em.blockChangeSpans) != 0 {
-		t.Errorf("emitter span queue should be empty, got %d", len(em.blockChangeSpans))
+	if len(b.blockChangeSpans) != 0 {
+		t.Errorf("builder span queue should be empty, got %d", len(b.blockChangeSpans))
 	}
 }
 
 // TestQueueBlockChangeAttrsDetectsDeleteSubcase confirms the IsDelete
 // flag flips when after.deleted === true.
 func TestQueueBlockChangeAttrsDetectsDeleteSubcase(t *testing.T) {
-	em := newEmitter()
+	b := newBuilder()
 	attrs := map[string]any{
 		NodeAttrSuggestedBlockChange: map[string]any{
 			"suggestionId": "s_bc_del",
@@ -90,7 +89,7 @@ func TestQueueBlockChangeAttrsDetectsDeleteSubcase(t *testing.T) {
 			},
 		},
 	}
-	span := em.queueBlockChangeAttrs(attrs)
+	span := b.queueBlockChangeAttrs(attrs)
 	if span == nil {
 		t.Fatalf("expected span, got nil")
 	}
@@ -99,155 +98,162 @@ func TestQueueBlockChangeAttrsDetectsDeleteSubcase(t *testing.T) {
 	}
 }
 
-// TestBlockStateToPPrChildrenCoversCommonShapes confirms each sub-case
-// (paragraph default, heading level, alignment, indent, blockquote
-// pStyle) renders to the expected docx pPr children.
-func TestBlockStateToPPrChildrenCoversCommonShapes(t *testing.T) {
+// TestBlockStateToParagraphPropsCoversCommonShapes confirms each sub-case
+// (paragraph default, heading level, alignment, indent, blockquote,
+// codeBlock, list numPr placeholder) maps to the expected ParagraphProps
+// fields — the model-based replacement for the old pPr-children XML builder.
+func TestBlockStateToParagraphPropsCoversCommonShapes(t *testing.T) {
 	cases := []struct {
 		name  string
 		typ   string
 		attrs map[string]any
-		want  []string
+		check func(t *testing.T, p docx.ParagraphProps)
 	}{
 		{
-			name:  "default paragraph emits no pStyle",
-			typ:   NodeTypeParagraph,
-			attrs: map[string]any{},
-			want:  []string{},
-		},
-		{
-			name:  "heading level 2",
-			typ:   NodeTypeHeading,
-			attrs: map[string]any{"level": float64(2)},
-			want:  []string{`<w:pStyle w:val="Heading2"/>`},
-		},
-		{
-			name:  "heading level 6",
-			typ:   NodeTypeHeading,
-			attrs: map[string]any{"level": float64(6)},
-			want:  []string{`<w:pStyle w:val="Heading6"/>`},
-		},
-		{
-			name:  "blockquote",
-			typ:   NodeTypeBlockquote,
-			attrs: map[string]any{},
-			want:  []string{`<w:pStyle w:val="Quote"/>`},
-		},
-		{
-			name:  "codeBlock",
-			typ:   NodeTypeCodeBlock,
-			attrs: map[string]any{},
-			want:  []string{`<w:pStyle w:val="CodeBlock"/>`},
-		},
-		{
-			name:  "paragraph with center alignment",
-			typ:   NodeTypeParagraph,
-			attrs: map[string]any{"textAlign": "center"},
-			want:  []string{`<w:jc w:val="center"/>`},
-		},
-		{
-			name:  "paragraph with indent",
-			typ:   NodeTypeParagraph,
-			attrs: map[string]any{"indent": float64(2)},
-			want:  []string{`<w:ind w:left="1440"/>`}, // 2 * 720
-		},
-		{
-			name:  "heading with align+indent",
-			typ:   NodeTypeHeading,
-			attrs: map[string]any{"level": float64(3), "textAlign": "right", "indent": float64(1)},
-			want: []string{
-				`<w:pStyle w:val="Heading3"/>`,
-				`<w:jc w:val="right"/>`,
-				`<w:ind w:left="720"/>`,
+			name: "default paragraph emits no style", typ: NodeTypeParagraph, attrs: map[string]any{},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if p.StyleID != "" || p.HasJustify || p.HasIndentLeft || p.HasNum {
+					t.Errorf("expected empty props, got %+v", p)
+				}
 			},
 		},
 		{
-			name:  "bulletList emits numPr placeholder",
-			typ:   NodeTypeBulletList,
-			attrs: map[string]any{},
-			want:  []string{`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>`},
+			name: "heading level 2", typ: NodeTypeHeading, attrs: map[string]any{"level": float64(2)},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if p.StyleID != "Heading2" {
+					t.Errorf("StyleID: got %q want Heading2", p.StyleID)
+				}
+			},
+		},
+		{
+			name: "heading level 6", typ: NodeTypeHeading, attrs: map[string]any{"level": float64(6)},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if p.StyleID != "Heading6" {
+					t.Errorf("StyleID: got %q want Heading6", p.StyleID)
+				}
+			},
+		},
+		{
+			name: "blockquote", typ: NodeTypeBlockquote, attrs: map[string]any{},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if p.StyleID != "Quote" {
+					t.Errorf("StyleID: got %q want Quote", p.StyleID)
+				}
+			},
+		},
+		{
+			name: "codeBlock", typ: NodeTypeCodeBlock, attrs: map[string]any{},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if p.StyleID != "CodeBlock" {
+					t.Errorf("StyleID: got %q want CodeBlock", p.StyleID)
+				}
+			},
+		},
+		{
+			name: "paragraph center alignment", typ: NodeTypeParagraph, attrs: map[string]any{"textAlign": "center"},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if !p.HasJustify || p.Justify != docx.JustifyCenter {
+					t.Errorf("expected center justify, got %+v", p)
+				}
+			},
+		},
+		{
+			name: "paragraph indent", typ: NodeTypeParagraph, attrs: map[string]any{"indent": float64(2)},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if !p.HasIndentLeft || p.IndentLeft != 1440 { // 2 * 720
+					t.Errorf("expected indentLeft 1440, got %+v", p)
+				}
+			},
+		},
+		{
+			name: "bulletList emits numPr placeholder", typ: NodeTypeBulletList, attrs: map[string]any{},
+			check: func(t *testing.T, p docx.ParagraphProps) {
+				if !p.HasNum || p.NumID != 0 || p.ILvl != 0 {
+					t.Errorf("expected numPr placeholder (numId 0), got %+v", p)
+				}
+			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := blockStateToPPrChildren(tc.typ, tc.attrs)
-			for _, w := range tc.want {
-				if !strings.Contains(got, w) {
-					t.Errorf("missing %q in pPr children %q", w, got)
-				}
-			}
-			if len(tc.want) == 0 && got != "" {
-				t.Errorf("expected empty pPr children, got %q", got)
-			}
+			tc.check(t, blockStateToParagraphProps(tc.typ, tc.attrs))
 		})
 	}
 }
 
-// TestBuildPPrChangeXMLContainsBeforeNestedPPr confirms the emitted
-// <w:pPrChange> wraps a nested <w:pPr> with the BEFORE state, and
-// carries the w:id/w:author/w:date attributes.
-func TestBuildPPrChangeXMLContainsBeforeNestedPPr(t *testing.T) {
-	span := blockChangeSpan{
-		DocxRevisionID: 7,
-		SuggestionID:   "s_bc_7",
-		AuthorID:       "uo_alice",
-		Ts:             1700000000000,
-		BeforeType:     NodeTypeParagraph,
-		BeforeAttrs:    map[string]any{},
-		AfterType:      NodeTypeHeading,
-		AfterAttrs:     map[string]any{"level": float64(2)},
+// TestBlockChangeFromAttrsBuildsParaPropsChange confirms blockChangeFromAttrs
+// produces a ParaPropsChange whose mark carries the id/author/date and whose
+// Previous state reflects the before-shape (empty for a paragraph before).
+func TestBlockChangeFromAttrsBuildsParaPropsChange(t *testing.T) {
+	b := newBuilder()
+	attrs := map[string]any{
+		NodeAttrSuggestedBlockChange: map[string]any{
+			"suggestionId": "s_bc_7",
+			"authorId":     "uo_alice",
+			"ts":           float64(1700000000000),
+			"before":       map[string]any{"type": NodeTypeParagraph, "attrs": map[string]any{}},
+			"after":        map[string]any{"type": NodeTypeHeading, "attrs": map[string]any{"level": float64(2)}},
+		},
 	}
-	got := buildPPrChangeXML(span)
-	for _, w := range []string{
-		`<w:pPrChange `,
-		`w:id="7"`,
-		`w:author="uo_alice"`,
-		`w:date=`,
-		`<w:pPr></w:pPr>`, // empty BEFORE state — default paragraph
-		`</w:pPrChange>`,
-	} {
-		if !strings.Contains(got, w) {
-			t.Errorf("missing %q in %q", w, got)
-		}
+	change := b.blockChangeFromAttrs(attrs)
+	if change == nil {
+		t.Fatalf("expected a ParaPropsChange, got nil")
 	}
-}
-
-// TestBuildPPrChangeXMLOmitsDateWhenTsZero confirms a span with no ts
-// produces a <w:pPrChange> without a w:date attribute (matching the
-// emit convention for <w:ins>/<w:del>/<w:rPrChange>).
-func TestBuildPPrChangeXMLOmitsDateWhenTsZero(t *testing.T) {
-	span := blockChangeSpan{
-		DocxRevisionID: 3,
-		SuggestionID:   "s_bc_3",
-		AuthorID:       "uo_alice",
-		Ts:             0,
-		BeforeType:     NodeTypeParagraph,
-		BeforeAttrs:    map[string]any{},
+	if change.Mark.ID != 1 {
+		t.Errorf("Mark.ID: got %d want 1", change.Mark.ID)
 	}
-	got := buildPPrChangeXML(span)
-	if strings.Contains(got, "w:date=") {
-		t.Errorf("expected no w:date attr, got %q", got)
+	if change.Mark.Author != "uo_alice" {
+		t.Errorf("Mark.Author: got %q want uo_alice", change.Mark.Author)
+	}
+	if change.Mark.Date == "" {
+		t.Errorf("expected a non-empty w:date for a non-zero ts")
+	}
+	// A paragraph before-state carries no style.
+	if change.Previous.StyleID != "" {
+		t.Errorf("Previous.StyleID: got %q want empty (default paragraph)", change.Previous.StyleID)
 	}
 }
 
-// TestBuildPPrChangeXMLBeforeStateHasHeadingPStyle covers the
-// realistic case where BEFORE is a heading and AFTER is a paragraph
-// (a "demote heading to paragraph" proposal). The nested pPr inside
-// pPrChange must carry the heading's pStyle.
-func TestBuildPPrChangeXMLBeforeStateHasHeadingPStyle(t *testing.T) {
-	span := blockChangeSpan{
-		DocxRevisionID: 11,
-		SuggestionID:   "s_bc_demote",
-		AuthorID:       "uo_alice",
-		Ts:             1700000000000,
-		BeforeType:     NodeTypeHeading,
-		BeforeAttrs:    map[string]any{"level": float64(2)},
-		AfterType:      NodeTypeParagraph,
-		AfterAttrs:     map[string]any{},
+// TestBlockChangeFromAttrsOmitsDateWhenTsZero confirms a zero ts yields no
+// w:date (an empty Mark.Date), matching the ins/del/rPrChange convention.
+func TestBlockChangeFromAttrsOmitsDateWhenTsZero(t *testing.T) {
+	b := newBuilder()
+	attrs := map[string]any{
+		NodeAttrSuggestedBlockChange: map[string]any{
+			"suggestionId": "s_bc_3",
+			"authorId":     "uo_alice",
+			"ts":           float64(0),
+			"before":       map[string]any{"type": NodeTypeParagraph, "attrs": map[string]any{}},
+		},
 	}
-	got := buildPPrChangeXML(span)
-	if !strings.Contains(got, `<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>`) {
-		t.Errorf("expected nested BEFORE pPr to carry Heading2 pStyle, got %q", got)
+	change := b.blockChangeFromAttrs(attrs)
+	if change == nil {
+		t.Fatalf("expected a ParaPropsChange, got nil")
+	}
+	if change.Mark.Date != "" {
+		t.Errorf("expected empty Mark.Date for ts=0, got %q", change.Mark.Date)
+	}
+}
+
+// TestBlockChangeFromAttrsBeforeStateHasHeadingStyle covers a "demote heading
+// to paragraph" proposal: the Previous state must carry the heading pStyle.
+func TestBlockChangeFromAttrsBeforeStateHasHeadingStyle(t *testing.T) {
+	b := newBuilder()
+	attrs := map[string]any{
+		NodeAttrSuggestedBlockChange: map[string]any{
+			"suggestionId": "s_bc_demote",
+			"authorId":     "uo_alice",
+			"ts":           float64(1700000000000),
+			"before":       map[string]any{"type": NodeTypeHeading, "attrs": map[string]any{"level": float64(2)}},
+			"after":        map[string]any{"type": NodeTypeParagraph, "attrs": map[string]any{}},
+		},
+	}
+	change := b.blockChangeFromAttrs(attrs)
+	if change == nil {
+		t.Fatalf("expected a ParaPropsChange, got nil")
+	}
+	if change.Previous.StyleID != "Heading2" {
+		t.Errorf("Previous.StyleID: got %q want Heading2", change.Previous.StyleID)
 	}
 }
 
@@ -327,13 +333,7 @@ func TestPMToDocxEmitsWPPrChangeForAttrOnlyChange(t *testing.T) {
 	if !strings.Contains(docXML, `w:id="1"`) {
 		t.Errorf("expected w:id=\"1\" in pPrChange; got:\n%s", docXML)
 	}
-	// The marker text must be stripped.
-	if strings.Contains(docXML, "{{__pmppr:") {
-		t.Errorf("marker text leaked into document.xml: %s", docXML)
-	}
-	// AFTER state — the heading's outer pPr should carry pStyle=Heading2
-	// (WordZero emits this when AddHeadingParagraph is called).
-	// WordZero may emit either <w:pStyle .../> or <w:pStyle ...></w:pStyle>.
+	// AFTER state — the heading's outer pPr should carry pStyle=Heading2.
 	if !strings.Contains(docXML, `<w:pStyle w:val="Heading2"/>`) &&
 		!strings.Contains(docXML, `<w:pStyle w:val="Heading2"></w:pStyle>`) {
 		t.Errorf("expected outer Heading2 pStyle; got:\n%s", docXML)

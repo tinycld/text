@@ -3,12 +3,12 @@ package translate
 import (
 	"strings"
 
-	"github.com/ZeroHawkeye/wordZero/pkg/document"
+	"github.com/nathanstitt/doctaculous/pkg/docx"
 )
 
-// normalizeShadingHex coerces whatever the .docx (or external caller)
-// gave us into the canonical "#RRGGBB" uppercase form we store on the
-// PM node. Returns empty string for anything that isn't six hex digits.
+// normalizeShadingHex coerces whatever the .docx (or external caller) gave us
+// into the canonical "#RRGGBB" uppercase form we store on the PM node. Returns
+// empty string for anything that isn't six hex digits.
 func normalizeShadingHex(raw string) string {
 	value := raw
 	if strings.HasPrefix(value, "#") {
@@ -27,26 +27,21 @@ func normalizeShadingHex(raw string) string {
 	return "#" + strings.ToUpper(value)
 }
 
-// tcShadingFromAttr builds a WordZero TableCellShading from the
-// `shading` PM attr. Returns nil when the attr is missing, the wrong
-// shape, or not a valid hex. The emitter attaches the result to
-// TableCellProperties.Shd if non-nil.
-//
-// Word's <w:shd w:fill> takes the hex without a leading '#'; we strip
-// it here. We always emit w:val="clear" + w:color="auto" — v1 doesn't
-// support patterned shading or non-auto foregrounds.
-func tcShadingFromAttr(attrs map[string]any) *document.TableCellShading {
+// tcShadingFromAttr builds a docx.Shading from the `shading` PM attr. Returns
+// (shading, true) on a valid hex; (zero, false) when the attr is missing, the
+// wrong shape, or not a valid hex.
+func tcShadingFromAttr(attrs map[string]any) (docx.Shading, bool) {
 	raw, ok := attrs["shading"].(string)
 	if !ok || raw == "" {
-		return nil
+		return docx.Shading{}, false
 	}
 	normalized := normalizeShadingHex(raw)
 	if normalized == "" {
-		return nil
+		return docx.Shading{}, false
 	}
-	return &document.TableCellShading{
-		Val:   "clear",
-		Color: "auto",
-		Fill:  strings.TrimPrefix(normalized, "#"),
+	rgba, ok := hexToRGBA(normalized)
+	if !ok {
+		return docx.Shading{}, false
 	}
+	return docx.Shading{Fill: rgba, HasFill: true}, true
 }

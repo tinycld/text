@@ -1,5 +1,4 @@
 import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
-import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
@@ -7,7 +6,7 @@ import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
-import { exportItemToPdf } from '@tinycld/drive/lib/export-pdf'
+import { exportItemToFormat, exportTargetsFor } from '@tinycld/drive/lib/export-pdf'
 import {
     fromTemplateName,
     isTemplateName,
@@ -16,7 +15,7 @@ import {
 } from '@tinycld/drive/lib/template-naming'
 import { router } from 'expo-router'
 import { lazy, Suspense, useState } from 'react'
-import type { PMNode } from '../../lib/markdown/types'
+import { DOCX_MIME_TYPE } from '../../lib/mime'
 import type { MenuBarProps } from './MenuBar'
 import { SaveVersionDialog } from './SaveVersionDialog'
 
@@ -104,49 +103,12 @@ export function FileMenu(props: MenuBarProps) {
         }
     }
 
-    // Tiptap's getJSON returns the editor's current PM JSON tree. We
-    // hand it straight to pmToMarkdown — the supported subset matches
-    // what the .docx exporter handles, and unsupported nodes (comments,
-    // footnotes, color/font/size, alignment, image dims/wrap, cell
-    // shading) degrade silently. Users wanting full fidelity should
-    // use Download (.docx). Help topic: text:markdown.
-    //
-    // Dynamic-imported because pmToMarkdown lives in a module that
-    // transitively pulls markdown-it; markdown-it ships ESM .mjs files
-    // that crash on Hermes when evaluated at module init. The download
-    // path is web-only anyway (it builds a Blob + clicks an <a>), so
-    // moving the markdown imports into the handler keeps them off the
-    // native module-init path.
-    const downloadMarkdown = async () => {
-        if (typeof window === 'undefined') return
-        const editor = props.tiptapEditor
-        if (!editor) return
-        try {
-            const { pmToMarkdown } = await import('../../lib/markdown/pm-to-md')
-            const md = pmToMarkdown(editor.getJSON() as unknown as PMNode)
-            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            const base = props.documentName?.trim() || 'document'
-            a.download = base.endsWith('.md') ? base : `${base}.md`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            // Defer revoke so Safari finishes the download before the
-            // object URL is invalidated.
-            setTimeout(() => URL.revokeObjectURL(url), 0)
-        } catch (err) {
-            captureException('text.downloadMarkdown', err)
-        }
-    }
-
-    // Exports the stored .docx blob to PDF on the server (doctaculous). Like
-    // Download (.docx), this reflects the last persisted state, not unflushed
-    // live edits — the live room auto-persists on a debounce.
-    const downloadPdf = () => {
-        exportItemToPdf(props.documentId, props.documentName)
-    }
+    // Server-side "Download as" targets (PDF, HTML, RTF, TXT, MD) — the stored
+    // .docx converted by doctaculous. Replaces the old client-side Markdown
+    // export, which degraded unsupported nodes; the server path renders from the
+    // full docx model. Reflects the last persisted state (the live room
+    // auto-persists on a debounce), like Download (.docx).
+    const exportTargets = exportTargetsFor(DOCX_MIME_TYPE)
 
     return (
         <>
@@ -182,12 +144,24 @@ export function FileMenu(props: MenuBarProps) {
                 <Menu.Item onPress={downloadSource} isDisabled={!props.sourceFile}>
                     <Menu.ItemTitle>Download (.docx)</Menu.ItemTitle>
                 </Menu.Item>
-                <Menu.Item onPress={downloadMarkdown} isDisabled={!props.tiptapEditor}>
-                    <Menu.ItemTitle>Download (.md)</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={downloadPdf} isDisabled={!props.sourceFile}>
-                    <Menu.ItemTitle>Download (.pdf)</Menu.ItemTitle>
-                </Menu.Item>
+                <Menu.Sub>
+                    <Menu.SubTrigger>
+                        <Menu.ItemTitle>Download as</Menu.ItemTitle>
+                    </Menu.SubTrigger>
+                    <Menu.SubContent>
+                        {exportTargets.map(target => (
+                            <Menu.Item
+                                key={target.to}
+                                isDisabled={!props.sourceFile}
+                                onPress={() =>
+                                    exportItemToFormat(props.documentId, props.documentName, target)
+                                }
+                            >
+                                <Menu.ItemTitle>{target.label}</Menu.ItemTitle>
+                            </Menu.Item>
+                        ))}
+                    </Menu.SubContent>
+                </Menu.Sub>
                 <Separator />
                 <Menu.Item onPress={() => setRenameOpen(true)}>
                     <Menu.ItemTitle>Rename</Menu.ItemTitle>

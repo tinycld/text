@@ -7,6 +7,7 @@ import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
+import { exportItemToPdf } from '@tinycld/drive/lib/export-pdf'
 import {
     fromTemplateName,
     isTemplateName,
@@ -140,6 +141,13 @@ export function FileMenu(props: MenuBarProps) {
         }
     }
 
+    // Exports the stored .docx blob to PDF on the server (doctaculous). Like
+    // Download (.docx), this reflects the last persisted state, not unflushed
+    // live edits — the live room auto-persists on a debounce.
+    const downloadPdf = () => {
+        exportItemToPdf(props.documentId, props.documentName)
+    }
+
     return (
         <>
             <MenuBarMenu menuId="file" label="File">
@@ -176,6 +184,9 @@ export function FileMenu(props: MenuBarProps) {
                 </Menu.Item>
                 <Menu.Item onPress={downloadMarkdown} isDisabled={!props.tiptapEditor}>
                     <Menu.ItemTitle>Download (.md)</Menu.ItemTitle>
+                </Menu.Item>
+                <Menu.Item onPress={downloadPdf} isDisabled={!props.sourceFile}>
+                    <Menu.ItemTitle>Download (.pdf)</Menu.ItemTitle>
                 </Menu.Item>
                 <Separator />
                 <Menu.Item onPress={() => setRenameOpen(true)}>

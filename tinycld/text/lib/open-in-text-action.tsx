@@ -8,7 +8,7 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import type { Href } from 'expo-router'
 import { router } from 'expo-router'
 import { ExternalLink } from 'lucide-react-native'
-import { DOCX_MIME_TYPE } from './mime'
+import { isTextEditableMime } from './mime'
 
 /**
  * Build the "Open in Text" preview action. Exposed (instead of being
@@ -28,7 +28,7 @@ export function buildOpenInTextAction(
         id: 'text.open',
         icon: ExternalLink,
         label: 'Open in Text',
-        isApplicable: (source: FilePreviewSource) => source.mimeType === DOCX_MIME_TYPE,
+        isApplicable: (source: FilePreviewSource) => isTextEditableMime(source.mimeType),
         onPress: (source: FilePreviewSource, ctx: PreviewActionContext) => {
             router.push(orgHref('text/[id]', { id: source.recordId }))
             // Dismiss the preview modal — otherwise it sits open

@@ -46,14 +46,21 @@ func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *
 		if err != nil {
 			return fmt.Errorf("text: load drive_items %s: %w", roomID, err)
 		}
-		docxBytes, err := readDriveItemBytes(app, item)
+		rawBytes, err := readDriveItemBytes(app, item)
 		if err != nil {
-			return fmt.Errorf("text: read docx for %s: %w", roomID, err)
+			return fmt.Errorf("text: read source for %s: %w", roomID, err)
 		}
-		if len(docxBytes) == 0 {
+		if len(rawBytes) == 0 {
 			// Empty file; first edit populates the Y.Doc and the
 			// flush serializes a fresh docx.
 			return nil
+		}
+
+		// RTF items are bridged to docx so the docx->PM walk below is
+		// format-agnostic (docx passes through untouched).
+		docxBytes, err := sourceBytesToDocx(item.GetString("mime_type"), rawBytes)
+		if err != nil {
+			return fmt.Errorf("text: normalize source for %s: %w", roomID, err)
 		}
 
 		pmJSON, warnings, entries, err := translate.DocxToPMJSONWithSuggestions(docxBytes)

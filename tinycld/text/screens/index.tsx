@@ -18,6 +18,7 @@ import { useCreateBlankTextDocument } from '../hooks/use-text-documents'
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const MD_MIME = 'text/markdown'
 const TXT_MIME = 'text/plain'
+const RTF_MIME = 'application/rtf'
 
 export default function TextIndex() {
     const orgHref = useOrgHref()
@@ -85,8 +86,8 @@ export default function TextIndex() {
                 headline="A blank page."
                 sublabel="Where the next thought lands."
                 newLabel="New document"
-                uploadHint=".docx, .md, .txt"
-                accept=".docx,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
+                uploadHint=".docx, .rtf, .md, .txt"
+                accept=".docx,.rtf,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/rtf,text/rtf,text/markdown,text/plain"
                 onCreateNew={handleCreateNew}
                 onUpload={handleUpload}
                 isPending={isBusy}
@@ -195,6 +196,7 @@ export function mimeForFile(file: File): string {
     if (explicit) return explicit
     const name = file.name.toLowerCase()
     if (name.endsWith('.docx')) return DOCX_MIME
+    if (name.endsWith('.rtf')) return RTF_MIME
     if (name.endsWith('.md') || name.endsWith('.markdown')) return MD_MIME
     if (name.endsWith('.txt')) return TXT_MIME
     return 'application/octet-stream'

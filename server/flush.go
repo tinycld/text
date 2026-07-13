@@ -93,20 +93,28 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 			return fmt.Errorf("text: load drive_items %s: %w", driveItemID, err)
 		}
 
+		// Preserve the source format on save: a doc opened from .rtf is
+		// written back as RTF, docx stays docx. The editor's model is
+		// docx-shaped, so RTF items convert docx->RTF here.
+		outBytes, ext, err := docxBytesToSource(item.GetString("mime_type"), docxBytes)
+		if err != nil {
+			return fmt.Errorf("text: convert output for %s: %w", driveItemID, err)
+		}
+
 		// Reuse the original filename so URLs / mime detection stay
 		// consistent. PocketBase will rename the on-disk blob to a
 		// fresh hash on save, so the prior blob isn't overwritten in
 		// place.
 		filename := item.GetString("file")
 		if filename == "" {
-			filename = "untitled.docx"
+			filename = "untitled." + ext
 		}
-		fileRef, err := filesystem.NewFileFromBytes(docxBytes, filename)
+		fileRef, err := filesystem.NewFileFromBytes(outBytes, filename)
 		if err != nil {
 			return fmt.Errorf("text: build filesystem.File for %s: %w", driveItemID, err)
 		}
 		item.Set("file", fileRef)
-		item.Set("size", len(docxBytes))
+		item.Set("size", len(outBytes))
 
 		// Compute the content hashes + page-1 preview model from the same
 		// ProseMirror snapshot we just serialized, then set the hashes on

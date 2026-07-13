@@ -32,12 +32,12 @@ func TestRenderETag_DependsOnInputs(t *testing.T) {
 
 func TestParseDriveFileURL(t *testing.T) {
 	tests := []struct {
-		name    string
-		in      string
-		coll    string
-		recID   string
-		fileNm  string
-		wantOK  bool
+		name   string
+		in     string
+		coll   string
+		recID  string
+		fileNm string
+		wantOK bool
 	}{
 		{
 			name:   "absolute https URL with token",
@@ -175,7 +175,7 @@ func TestRender_RejectsNonDocxMime(t *testing.T) {
 		ExpectedContent: []string{
 			// PocketBase capitalizes the first letter of the message
 			// before serializing — match the capitalised form.
-			"Not a docx",
+			"Not an editable document",
 		},
 		Headers: map[string]string{
 			"Authorization": userToken(t, app, user),
@@ -210,7 +210,7 @@ func TestRender_RejectsEmptyMime(t *testing.T) {
 		URL:            "/api/text/render/" + item.Id,
 		ExpectedStatus: http.StatusBadRequest,
 		ExpectedContent: []string{
-			"Not a docx",
+			"Not an editable document",
 		},
 		Headers: map[string]string{
 			"Authorization": userToken(t, app, user),

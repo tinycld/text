@@ -2,7 +2,7 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { registerDriveItemAction } from '@tinycld/drive/lib/item-actions-registry'
 import { router } from 'expo-router'
 import { ExternalLink } from 'lucide-react-native'
-import { DOCX_MIME_TYPE } from './mime'
+import { isTextEditableMime } from './mime'
 
 /**
  * Side-effect module: importing this file registers an "Open in Text"
@@ -26,7 +26,7 @@ registerDriveItemAction('text.open', () => {
         id: 'text.open',
         icon: ExternalLink,
         label: 'Open in Text',
-        isApplicable: item => item.mimeType === DOCX_MIME_TYPE,
+        isApplicable: item => isTextEditableMime(item.mimeType),
         onPress: item => {
             router.push(orgHref('text/[id]', { id: item.id }))
         },

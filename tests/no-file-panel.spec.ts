@@ -27,7 +27,7 @@ test.describe('Text No-File panel', () => {
         await expect(page.getByRole('link', { name: 'All' })).toBeVisible()
 
         // Hint copy underneath the Upload card surfaces the accepted formats.
-        await expect(page.getByText('.docx, .md, .txt')).toBeVisible()
+        await expect(page.getByText('.docx, .rtf, .md, .txt')).toBeVisible()
     })
 
     test('New document creates a document and opens it', async ({ page }) => {

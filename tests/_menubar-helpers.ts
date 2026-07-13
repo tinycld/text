@@ -79,23 +79,26 @@ export function uniqueDocName(label: string): string {
     return `${label}-${unique}.docx`
 }
 
-// Uploads tests/assets/feature-test.docx as a fresh drive_items row
-// owned by the seeded test user. Returns the new row id, which is
-// also the URL segment under /a/<org>/text/<id>.
-export async function uploadDocxAsDriveItem(name: string): Promise<string> {
+// Uploads an assets/ fixture as a fresh drive_items row owned by the seeded
+// test user. Returns the new row id, which is also the URL segment under
+// /a/<org>/text/<id>. Shared by the docx and rtf helpers below.
+export async function uploadFixtureAsDriveItem(
+    fixtureFile: string,
+    mime: string,
+    name: string
+): Promise<string> {
     const token = await authAsTestUser()
     const ctx = await resolveOrgContext(token)
-    const fixturePath = join(import.meta.dirname, 'assets', 'feature-test.docx')
-    const bytes = readFileSync(fixturePath)
+    const bytes = readFileSync(join(import.meta.dirname, 'assets', fixtureFile))
     const form = new FormData()
     form.append('org', ctx.orgId)
     form.append('name', name)
     form.append('is_folder', 'false')
-    form.append('mime_type', DOCX_MIME)
+    form.append('mime_type', mime)
     form.append('parent', '')
     form.append('created_by', ctx.userOrgId)
     form.append('size', String(bytes.length))
-    form.append('file', new Blob([new Uint8Array(bytes)], { type: DOCX_MIME }), name)
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: mime }), name)
     const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
         method: 'POST',
         headers: { Authorization: token },
@@ -104,8 +107,18 @@ export async function uploadDocxAsDriveItem(name: string): Promise<string> {
     if (!res.ok) {
         throw new Error(`Upload drive_item failed: ${res.status} ${await res.text()}`)
     }
-    const body = (await res.json()) as { id: string }
-    return body.id
+    return ((await res.json()) as { id: string }).id
+}
+
+// Uploads tests/assets/feature-test.docx as a fresh drive_items row.
+export async function uploadDocxAsDriveItem(name: string): Promise<string> {
+    return uploadFixtureAsDriveItem('feature-test.docx', DOCX_MIME, name)
+}
+
+// Uploads tests/assets/sample.rtf as a fresh drive_items row with an RTF
+// mime, so opening it exercises the server's RTF -> DOCX -> PM bridge.
+export async function uploadRtfAsDriveItem(name: string): Promise<string> {
+    return uploadFixtureAsDriveItem('sample.rtf', 'application/rtf', name)
 }
 
 // Polls drive_items until a non-folder row with `name` exists in the test

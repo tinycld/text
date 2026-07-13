@@ -56,11 +56,11 @@ func requireAuthText(re *core.RequestEvent) error {
 //
 // Query params:
 //   - images:  "url" (default) or "embed". Embed mode resolves any
-//              non-data: image src through PocketBase's file system
-//              and inlines the bytes as a base64 data URI. Used by
-//              print where the renderer's output is handed to
-//              expo-print (native) or a print iframe (web) that
-//              can't carry the user's auth cookie to fetch images.
+//     non-data: image src through PocketBase's file system
+//     and inlines the bytes as a base64 data URI. Used by
+//     print where the renderer's output is handed to
+//     expo-print (native) or a print iframe (web) that
+//     can't carry the user's auth cookie to fetch images.
 //
 // ETag: derived from drive_item `updated` + renderer version. Honors
 // `If-None-Match` → 304.
@@ -89,13 +89,13 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 // function performs no authorization.
 func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) error {
 	// Mime validation: the renderer's pipeline (DocxToPMJSON →
-	// PMJSONToHTML) is docx-only. Reading bytes from a PDF / image /
-	// arbitrary blob and feeding them through DocxToPMJSON would
-	// surface as an opaque 500 — return a clean 4xx instead so
-	// callers can distinguish "wrong content type" from "renderer
-	// crashed".
-	if mt := item.GetString("mime_type"); mt != docxMimeType {
-		return re.BadRequestError("not a docx", nil)
+	// PMJSONToHTML) consumes docx bytes; RTF is bridged to docx in
+	// RenderItemHTML. Reading bytes from a PDF / image / arbitrary blob
+	// and feeding them through would surface as an opaque 500 — return a
+	// clean 4xx instead so callers can distinguish "wrong content type"
+	// from "renderer crashed".
+	if !isEditableMime(item.GetString("mime_type")) {
+		return re.BadRequestError("not an editable document", nil)
 	}
 
 	etag := renderETag(item.Id, item.GetString("updated"))
@@ -146,9 +146,14 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 // callers without an authenticated user (e.g. a share-link session) —
 // embed fetches then fail closed and the images are dropped.
 func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
-	docxBytes, err := readDriveItemBytes(app, item)
+	rawBytes, err := readDriveItemBytes(app, item)
 	if err != nil {
 		return "", fmt.Errorf("could not read file: %w", err)
+	}
+	// RTF items are bridged to docx so DocxToHTML below is format-agnostic.
+	docxBytes, err := sourceBytesToDocx(item.GetString("mime_type"), rawBytes)
+	if err != nil {
+		return "", fmt.Errorf("could not normalize source: %w", err)
 	}
 
 	var fragment string

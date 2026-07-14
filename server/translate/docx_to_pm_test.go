@@ -108,6 +108,33 @@ func TestResolveWrap(t *testing.T) {
 	}
 }
 
+// TestIsDefaultParagraphStyle checks the body-paragraph predicate that
+// suppresses the unsupported-style warning. It must recognise the
+// LibreOffice/Word body aliases and the tab-stop-only "DecimalAlignment"
+// style while still rejecting genuinely unknown styles.
+func TestIsDefaultParagraphStyle(t *testing.T) {
+	cases := []struct {
+		pStyle string
+		want   bool
+	}{
+		{"Normal", true},
+		{"ListParagraph", true},
+		{"Body Text", true},
+		{"DecimalAlignment", true},
+		{"decimal alignment", true},
+		{"Heading1", false},
+		{"CustomStyle", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		t.Run(c.pStyle, func(t *testing.T) {
+			if got := isDefaultParagraphStyle(c.pStyle); got != c.want {
+				t.Errorf("isDefaultParagraphStyle(%q) = %v, want %v", c.pStyle, got, c.want)
+			}
+		})
+	}
+}
+
 // TestCommentsFromModel checks the parsed-comment flattening: author/date pass
 // through and the block body flattens to plain text (keyed by stringified id).
 func TestCommentsFromModel(t *testing.T) {

@@ -26,6 +26,7 @@ registerDriveItemAction('text.open', () => {
         id: 'text.open',
         icon: ExternalLink,
         label: 'Open in Text',
+        isOpener: true,
         isApplicable: item => isTextEditableMime(item.mimeType),
         onPress: item => {
             router.push(orgHref('text/[id]', { id: item.id }))

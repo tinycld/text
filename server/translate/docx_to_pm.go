@@ -626,9 +626,13 @@ func applyAlignIndentAttrs(attrs map[string]any, textAlign string, indentLevel i
 // exporters emit ("Body", "Body Text", "BodyText", "Default"). Matched
 // case-insensitively with spaces stripped so "Body Text" / "BodyText" /
 // "body text" all collapse to the same key.
+//
+// "DecimalAlignment" is a built-in Word style whose sole purpose is a
+// decimal tab stop for numeric columns; it carries no block semantics PM
+// can represent, so it collapses to a plain paragraph like the rest.
 func isDefaultParagraphStyle(pStyle string) bool {
 	switch strings.ToLower(strings.ReplaceAll(pStyle, " ", "")) {
-	case "normal", "listparagraph", "body", "bodytext", "default", "standard":
+	case "normal", "listparagraph", "body", "bodytext", "default", "standard", "decimalalignment":
 		return true
 	}
 	return false

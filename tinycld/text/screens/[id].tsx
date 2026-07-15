@@ -29,7 +29,6 @@ import { ImageAttrsBottomSheet } from '../components/ImageAttrsBottomSheet'
 import { useImageInsert } from '../components/ImageInsertButton'
 import { ImportWarningBanner } from '../components/ImportWarningBanner'
 import { LinkPopover } from '../components/LinkPopover'
-import { MobileToolbarAccessory } from '../components/MobileToolbarAccessory'
 import { MenuBar } from '../components/menubar/MenuBar'
 import { ReconnectingIndicator } from '../components/ReconnectingIndicator'
 import { SaveStatusIndicator } from '../components/SaveStatusIndicator'
@@ -586,11 +585,6 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         }
                         setContextLinkOpen(false)
                     }}
-                />
-                <MobileToolbarAccessory
-                    commands={commands}
-                    toolbarState={toolbarState}
-                    editable={!isReadOnly}
                 />
                 <ImageAttrsBottomSheet editable={!isReadOnly} commands={commands} />
                 <CopyToFolderDialog

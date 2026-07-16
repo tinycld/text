@@ -1,8 +1,9 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Menu } from '@tinycld/core/ui/menubar'
 import { ChevronDown } from 'lucide-react-native'
 import { useState } from 'react'
-import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import { FONT_SIZE_OPTIONS } from '../lib/font-options'
 
 export { FONT_SIZE_OPTIONS } from '../lib/font-options'
@@ -19,10 +20,11 @@ interface FontSizePickerProps {
 const DEFAULT_LABEL = 'Default'
 
 // FontSizePicker renders a trigger button with the current size (or
-// "Default") and opens a centred modal list when tapped. Selecting an
-// option fires setFontSize/unsetFontSize on the editor commands.
-// Mirrors the BorderMenu interaction pattern (Modal + Pressable
-// backdrop) so the picker works identically on web and native.
+// "Default") and opens a list anchored under the trigger when tapped.
+// Selecting an option fires setFontSize/unsetFontSize on the editor
+// commands. Uses the shared Menu popover so the panel anchors under the
+// button on both platforms — matching TextColorButton and TableMenu (an
+// earlier centred-Modal variant floated the list mid-screen on native).
 export function FontSizePicker({ currentPx, commands, disabled = false }: FontSizePickerProps) {
     const [open, setOpen] = useState(false)
     const fg = useThemeColor('foreground')
@@ -51,32 +53,29 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
     const triggerOpacity = disabled ? 0.4 : 1
 
     return (
-        <View>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Font size"
-                accessibilityState={{ expanded: open, disabled }}
-                disabled={disabled}
-                onPress={() => setOpen(true)}
-                {...webProps}
-                className="flex-row items-center gap-1 px-2 py-1 rounded-md"
-                style={{ opacity: triggerOpacity }}
-            >
-                <Text className="text-sm text-foreground min-w-[24px] text-center">{label}</Text>
-                <ChevronDown size={12} color={muted} />
-            </Pressable>
-
-            <Modal
-                transparent
-                animationType="fade"
-                visible={open}
-                onRequestClose={() => setOpen(false)}
-            >
+        <Menu isOpen={open} onOpenChange={setOpen}>
+            {/* The Pressable must be Menu.Trigger's DIRECT child: on native
+                Trigger clones it to inject onPress + a ref it measures for
+                popover placement. */}
+            <Menu.Trigger>
                 <Pressable
-                    className="flex-1 items-center justify-center bg-black/30"
-                    onPress={() => setOpen(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Font size"
+                    accessibilityState={{ expanded: open, disabled }}
+                    disabled={disabled}
+                    {...webProps}
+                    className="flex-row items-center gap-1 px-2 py-1 rounded-md"
+                    style={{ opacity: triggerOpacity }}
                 >
-                    <Pressable className="w-[140px] max-h-[360px] rounded-lg bg-background border border-border py-1">
+                    <Text className="text-sm text-foreground min-w-[24px] text-center">
+                        {label}
+                    </Text>
+                    <ChevronDown size={12} color={muted} />
+                </Pressable>
+            </Menu.Trigger>
+            <Menu.Portal>
+                <Menu.Content placement="bottom" align="start">
+                    <View className="w-[140px] max-h-[360px]">
                         <ScrollView>
                             <SizeRow
                                 label={DEFAULT_LABEL}
@@ -94,10 +93,10 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
                                 />
                             ))}
                         </ScrollView>
-                    </Pressable>
-                </Pressable>
-            </Modal>
-        </View>
+                    </View>
+                </Menu.Content>
+            </Menu.Portal>
+        </Menu>
     )
 }
 

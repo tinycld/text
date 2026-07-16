@@ -1,8 +1,9 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Menu } from '@tinycld/core/ui/menubar'
 import { ChevronDown } from 'lucide-react-native'
 import { useState } from 'react'
-import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import { cssFamily, FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
 
 export { FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
@@ -55,34 +56,29 @@ export function FontFamilyPicker({
             : {}
 
     return (
-        <View>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Font family"
-                accessibilityState={{ expanded: open, disabled }}
-                disabled={disabled}
-                onPress={() => setOpen(true)}
-                {...webProps}
-                className="flex-row items-center gap-1 px-2 py-1 rounded-md"
-                style={{ opacity: triggerOpacity }}
-            >
-                <Text className="text-sm text-foreground min-w-[60px]" numberOfLines={1}>
-                    {triggerLabel}
-                </Text>
-                <ChevronDown size={12} color={muted} />
-            </Pressable>
-
-            <Modal
-                transparent
-                animationType="fade"
-                visible={open}
-                onRequestClose={() => setOpen(false)}
-            >
+        <Menu isOpen={open} onOpenChange={setOpen}>
+            {/* The Pressable must be Menu.Trigger's DIRECT child: on native
+                Trigger clones it to inject onPress + a ref it measures for
+                popover placement. */}
+            <Menu.Trigger>
                 <Pressable
-                    className="flex-1 items-center justify-center bg-black/30"
-                    onPress={() => setOpen(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Font family"
+                    accessibilityState={{ expanded: open, disabled }}
+                    disabled={disabled}
+                    {...webProps}
+                    className="flex-row items-center gap-1 px-2 py-1 rounded-md"
+                    style={{ opacity: triggerOpacity }}
                 >
-                    <Pressable className="w-[220px] max-h-[360px] rounded-lg bg-background border border-border py-1">
+                    <Text className="text-sm text-foreground min-w-[60px]" numberOfLines={1}>
+                        {triggerLabel}
+                    </Text>
+                    <ChevronDown size={12} color={muted} />
+                </Pressable>
+            </Menu.Trigger>
+            <Menu.Portal>
+                <Menu.Content placement="bottom" align="start">
+                    <View className="w-[220px] max-h-[360px]">
                         <ScrollView>
                             <FamilyRow
                                 option={null}
@@ -100,10 +96,10 @@ export function FontFamilyPicker({
                                 />
                             ))}
                         </ScrollView>
-                    </Pressable>
-                </Pressable>
-            </Modal>
-        </View>
+                    </View>
+                </Menu.Content>
+            </Menu.Portal>
+        </Menu>
     )
 }
 

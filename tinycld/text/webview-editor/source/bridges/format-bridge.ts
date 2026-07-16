@@ -40,6 +40,25 @@ export interface FormatBridge {
     destroy: () => void
 }
 
+// TenTap's native bridges (BoldBridge, HeadingBridge, LinkBridge, ...)
+// don't post their action string at the top level. `sendAction` in
+// TenTap's useEditorBridge wraps every command as
+//   { type: 'action', payload: <the real { type, payload } action> }
+// (see @10play/tentap-editor RichText/useEditorBridge.js). So a Bold tap
+// arrives here as { type: 'action', payload: { type: 'toggle-bold' } },
+// not { type: 'toggle-bold' }. Our own commands (namespace 'format')
+// are already flat and pass through unchanged. Without this unwrap the
+// dispatcher reads the outer 'action' — matching no case — and every
+// native toolbar button (bold/italic/underline/heading/link/undo/redo)
+// silently no-ops.
+function unwrapTenTapAction(parsed: IncomingMessage): IncomingMessage {
+    if (parsed.type !== 'action') return parsed
+    const inner = parsed.payload
+    if (inner === null || typeof inner !== 'object') return parsed
+    if (typeof (inner as IncomingMessage).type !== 'string') return parsed
+    return inner as IncomingMessage
+}
+
 // postToNative is accepted but currently unused — the format bridge is
 // one-way (host -> WebView). Reserved for future per-command response
 // messages without forcing every call site to plumb a poster through.
@@ -304,7 +323,7 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
         if (parsed.namespace === 'comment') return
         if (parsed.namespace === 'find-replace') return
         if (parsed.namespace === 'ui') return
-        dispatch(parsed)
+        dispatch(unwrapTenTapAction(parsed))
     }
 
     window.addEventListener('message', onMessage)

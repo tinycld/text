@@ -325,7 +325,6 @@ mutations go through `useMutation`. Mentions resolve through
 | Activity tab (edit timeline)       | ✅  | ✅                      |
 | Authorship coloring                | ✅  | ✅                      |
 | Print                              | browser print | iOS print sheet |
-| Soft-keyboard accessory toolbar    | n/a | ✅ (iOS)               |
 
 The native editor runs inside a WebView hosting the same ProseMirror
 build under `webview-editor/`. The Yjs document and WebSocket live in

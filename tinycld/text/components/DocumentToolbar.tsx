@@ -30,7 +30,7 @@ import {
     Undo2,
 } from 'lucide-react-native'
 import type { ComponentType, ReactNode } from 'react'
-import { useState } from 'react'
+import { forwardRef, useState } from 'react'
 import { Platform, Pressable, ScrollView, View } from 'react-native'
 import type { EditorModeStore } from '../stores/editor-mode-store'
 import type { ReviewDrawerStore } from '../stores/review-drawer-store'
@@ -495,15 +495,19 @@ interface FormatButtonProps {
     activeColor: string
 }
 
-function FormatButton({
-    icon: Icon,
-    accessibilityLabel,
-    isActive,
-    disabled,
-    onPress,
-    iconColor,
-    activeColor,
-}: FormatButtonProps) {
+// forwardRef so a FormatButton can serve as a Menu.Trigger child (the
+// Table button): Menu.Trigger clones its direct child to forward a ref
+// it measures for native popover placement, and re-injects a composed
+// onPress (the child's own press + the menu-open toggle). FormatButton
+// forwards that ref straight to its Pressable and already drives the
+// Pressable from its onPress prop, so both work. ToolbarTooltip is a
+// Fragment on native, so it must NOT sit between Menu.Trigger and this
+// Pressable — Trigger clones FormatButton (a real component that forwards
+// the ref), not the tooltip, so the nesting here is fine.
+const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
+    { icon: Icon, accessibilityLabel, isActive, disabled, onPress, iconColor, activeColor },
+    ref
+) {
     const backgroundColor = isActive && !disabled ? `${activeColor}22` : undefined
     const opacity = disabled ? 0.4 : 1
     const color = isActive && !disabled ? activeColor : iconColor
@@ -522,6 +526,7 @@ function FormatButton({
     return (
         <ToolbarTooltip label={accessibilityLabel}>
             <Pressable
+                ref={ref}
                 accessibilityRole="button"
                 accessibilityLabel={accessibilityLabel}
                 accessibilityState={{ disabled, selected: isActive }}
@@ -538,7 +543,7 @@ function FormatButton({
             </Pressable>
         </ToolbarTooltip>
     )
-}
+})
 
 function Separator() {
     return <View className="w-px h-5 mx-1 bg-border" />

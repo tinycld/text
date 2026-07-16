@@ -43,6 +43,12 @@ interface ToolbarTooltipProps {
     children: ReactNode
 }
 
+// NOTE: never place ToolbarTooltip *between* a Menu.Trigger and its
+// Pressable. On native, Menu.Trigger clones its direct child to inject
+// onPress + a ref it measures for popover placement; this tooltip is a
+// Fragment passthrough there and would swallow both, so the menu would
+// never open. Put the Pressable as Trigger's direct child and wrap the
+// whole trigger in the tooltip from outside (see TextColorButton).
 export function ToolbarTooltip({ label, children }: ToolbarTooltipProps) {
     useWebStyles('text-toolbar-tooltip', tooltipCSS)
     const tooltipBg = useThemeColor('foreground')

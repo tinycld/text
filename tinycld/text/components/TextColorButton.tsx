@@ -1,6 +1,6 @@
 import { COLOR_PICKER_GRID_WIDTH, ColorPickerGrid } from '@tinycld/core/ui/color-picker'
 import { Menu, useOpenMenu } from '@tinycld/core/ui/menubar'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { useCallback } from 'react'
 import { Platform, Pressable, View } from 'react-native'
 import { ToolbarTooltip } from './ToolbarTooltip'
@@ -65,9 +65,17 @@ export function TextColorButton({
 
     return (
         <Menu isOpen={isOpen} onOpenChange={setIsOpen}>
-            <View {...(typeof document !== 'undefined' ? { 'data-tinycld-menu': 'trigger' } : {})}>
-                <Menu.Trigger>
-                    <ToolbarTooltip label={accessibilityLabel}>
+            {/* The Pressable must be Menu.Trigger's DIRECT child: on native
+                Trigger clones that child to inject onPress + a ref it
+                measures for popover placement. Anything in between — a
+                Fragment-on-native ToolbarTooltip, or a plain View — swallows
+                both and the color pane never opens. So the tooltip and the
+                web-only `data-tinycld-menu` positioning wrapper both sit
+                OUTSIDE Menu.Trigger; on native ToolbarTooltip is a passthrough
+                and the wrapper View is omitted. */}
+            <ToolbarTooltip label={accessibilityLabel}>
+                <MenuTriggerWrapper>
+                    <Menu.Trigger>
                         <Pressable
                             accessibilityRole="button"
                             accessibilityLabel={accessibilityLabel}
@@ -94,9 +102,9 @@ export function TextColorButton({
                                 />
                             </View>
                         </Pressable>
-                    </ToolbarTooltip>
-                </Menu.Trigger>
-            </View>
+                    </Menu.Trigger>
+                </MenuTriggerWrapper>
+            </ToolbarTooltip>
             <Menu.Portal>
                 <Menu.Content placement="bottom" align="start">
                     <View
@@ -116,4 +124,15 @@ export function TextColorButton({
             </Menu.Portal>
         </Menu>
     )
+}
+
+// On web, wrap the trigger in a View tagged data-tinycld-menu="trigger" so
+// the outside-click detector (use-open-menu-outside-click) treats a click
+// on the trigger as "inside" via target.closest('[data-tinycld-menu]'). On
+// native there's no outside-click DOM handler and an extra View here would
+// sit between Menu.Trigger and its Pressable — breaking Trigger's clone —
+// so we render the child directly.
+function MenuTriggerWrapper({ children }: { children: ReactNode }) {
+    if (Platform.OS !== 'web') return <>{children}</>
+    return <View {...{ 'data-tinycld-menu': 'trigger' }}>{children}</View>
 }

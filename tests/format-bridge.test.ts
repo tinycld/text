@@ -102,6 +102,52 @@ function makeFakeEditor() {
     return { editor, calls, commandsFocusCalls, setEditableCalls }
 }
 
+// --- TenTap action-envelope messages ---------------------------------
+//
+// TenTap's native bridges (BoldBridge, HeadingBridge, ...) don't post
+// their action string at the top level. `sendAction` in TenTap's
+// useEditorBridge wraps it: { type: 'action', payload: <the action> }.
+// So a Bold tap reaches the WebView as
+//   { type: 'action', payload: { type: 'toggle-bold' } }
+// The bridge must unwrap this envelope before dispatching, or every
+// native toolbar button (bold/italic/underline/heading/link/undo/redo)
+// silently no-ops. These tests use the real runtime shape.
+
+describe('installFormatBridge — TenTap action-envelope messages', () => {
+    it('unwraps { type:"action", payload:{type:"toggle-bold"} } and routes toggleBold', () => {
+        const fake = makeFakeEditor()
+        const bridge = installFormatBridge(fake.editor, () => undefined)
+        postFromHost({ type: 'action', payload: { type: 'toggle-bold' } })
+        expect(fake.calls).toHaveLength(1)
+        const methods = fake.calls[0].methods.map(m => m.name)
+        expect(methods).toEqual(['focus', 'toggleBold'])
+        bridge.destroy()
+    })
+
+    it('unwraps a wrapped toggle-heading, reading the level from the inner payload', () => {
+        const fake = makeFakeEditor()
+        const bridge = installFormatBridge(fake.editor, () => undefined)
+        postFromHost({ type: 'action', payload: { type: 'toggle-heading', payload: 2 } })
+        expect(fake.calls).toHaveLength(1)
+        const headingMethod = fake.calls[0].methods.find(m => m.name === 'toggleHeading')
+        expect(headingMethod?.args).toEqual([{ level: 2 }])
+        bridge.destroy()
+    })
+
+    it('unwraps a wrapped set-link', () => {
+        const fake = makeFakeEditor()
+        const bridge = installFormatBridge(fake.editor, () => undefined)
+        postFromHost({
+            type: 'action',
+            payload: { type: 'set-link', payload: 'https://example.com' },
+        })
+        expect(fake.calls).toHaveLength(1)
+        const methods = fake.calls[0].methods.map(m => m.name)
+        expect(methods).toEqual(['focus', 'extendMarkRange', 'setLink'])
+        bridge.destroy()
+    })
+})
+
 // --- TenTap-shape messages (no namespace) ----------------------------
 
 describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {

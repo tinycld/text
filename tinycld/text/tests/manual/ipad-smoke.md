@@ -33,14 +33,8 @@ Run this on the booted iPad simulator before merging any text PR that touches th
 ## Editing via the on-screen keyboard
 
 - [ ] Tap into the document body. iOS soft keyboard appears.
-- [ ] The MobileToolbarAccessory bar appears just above the keyboard with: **B** / *I* / U / H1 / H2 / • List / 1. List / ❝
-- [ ] Tap **B** while typing — text becomes bold.
-- [ ] Tap *I* — text becomes italic.
-- [ ] Tap U — text becomes underlined.
-- [ ] Tap H1 — current line becomes a heading 1; tapping H1 again removes the heading.
-- [ ] Tap • List — current line becomes a bullet item.
-- [ ] Tap ❝ — current paragraph becomes a blockquote.
-- [ ] Dismiss the keyboard (tap outside). The accessory bar disappears too.
+- [ ] Type text — it lands in the document.
+- [ ] Dismiss the keyboard (tap outside).
 
 ## Formatting via the main DocumentToolbar
 
@@ -62,8 +56,7 @@ Run this on the booted iPad simulator before merging any text PR that touches th
 
 - [ ] Open the doc as a view-only collaborator (share permission gates this).
 - [ ] The document renders normally.
-- [ ] The MobileToolbarAccessory's buttons are all visibly disabled (opacity-40).
-- [ ] The main DocumentToolbar's buttons are also disabled.
+- [ ] The main DocumentToolbar's buttons are all disabled.
 - [ ] Tapping in the document does NOT open the soft keyboard (the WebView's editor is in read-only mode).
 - [ ] Other users' cursors still appear in real-time.
 

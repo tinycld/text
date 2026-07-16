@@ -50,7 +50,6 @@ Editing features:
 - Save status indicator and reconnecting indicator wired to the
   realtime room's state
 - Word count badge
-- iOS soft-keyboard accessory toolbar (`MobileToolbarAccessory.ios.tsx`)
 - Landing panel (`No-File panel`) — when the workspace has no
   last-opened doc, the rail surfaces **New document** / **Upload
   files** / **Recent files**; otherwise the rail deep-links straight

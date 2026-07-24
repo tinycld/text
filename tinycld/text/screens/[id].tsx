@@ -11,7 +11,6 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
-import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
@@ -100,15 +99,13 @@ export default function TextDetail() {
     const { id } = useLocalSearchParams<{ id: string }>()
     const [driveItemsCollection] = useStore('drive_items')
     const { user } = useAuth()
-    const { userOrgId } = useCurrentRole()
     const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
     const orgHref = useOrgHref()
 
     const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
-        (query, { orgId }) =>
+        query =>
             query
                 .from({ item: driveItemsCollection })
-                .where(({ item }) => eq(item.org, orgId))
                 .where(({ item }) => eq(item.id, id ?? '')),
         [id]
     )
@@ -167,7 +164,7 @@ export default function TextDetail() {
         identity: {
             kind: 'member',
             userId: user.id,
-            userOrgId,
+            userOrgId: user.id,
             displayName: user.name,
             color: colorForUser(user.id),
         },
@@ -225,7 +222,8 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // focusedSuggestionId from doc A can't focus an unrelated row in
     // doc B after navigation.
     const reviewDrawerStore = useMemo(() => createReviewDrawerStore(), [])
-    const { userOrgId } = useCurrentRole()
+    const { user } = useAuth()
+    const userOrgId = user.id
     useEffect(() => {
         if (userOrgId) {
             modeStore.getState().setIdentity({ userOrgId })

@@ -1,12 +1,12 @@
-import { and, eq } from '@tanstack/db'
+import { eq } from '@tanstack/db'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 
-// useAuthorName resolves the display name for a user_org id. Two-table
-// join (user_org → users) so we render the human-readable name from
-// the user record, falling back to the email if name is unset.
+// useAuthorName resolves the display name for a users id. Reads the
+// user record directly so we render the human-readable name, falling
+// back to the email if name is unset.
 // Returns null while the query is loading or when the id doesn't
-// resolve (anonymous / orphan / cross-org id), letting callers degrade
+// resolve (anonymous / orphan id), letting callers degrade
 // gracefully — Activity rows render "Someone made N edits", blame
 // rows render "Anonymous", drawer rows render the raw id.
 //
@@ -24,13 +24,12 @@ import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 // handful of authorIds, so TanStack DB's caching makes this cheap in
 // practice.
 export function useAuthorName(authorId: string | null): string | null {
-    const [userOrgCollection, usersCollection] = useStore('user_org', 'users')
+    const [usersCollection] = useStore('users')
     const { data: rows } = useOrgLiveQuery(
-        (query, { orgId }) =>
+        query =>
             query
-                .from({ uo: userOrgCollection })
-                .join({ u: usersCollection }, ({ uo, u }) => eq(uo.user, u.id))
-                .where(({ uo }) => and(eq(uo.id, authorId ?? ''), eq(uo.org, orgId)))
+                .from({ u: usersCollection })
+                .where(({ u }) => eq(u.id, authorId ?? ''))
                 .select(({ u }) => ({ name: u.name, email: u.email })),
         [authorId]
     )

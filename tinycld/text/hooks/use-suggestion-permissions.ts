@@ -40,10 +40,10 @@ export function useSuggestionPermissions(driveItemId: string): SuggestionPermiss
     const [sharesCollection] = useStore('drive_shares')
 
     const { data: shareRows } = useOrgLiveQuery(
-        (query, { userOrgId }) =>
+        (query, { userId }) =>
             query
                 .from({ s: sharesCollection })
-                .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user_org, userOrgId))),
+                .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user_org, userId))),
         [driveItemId]
     )
 

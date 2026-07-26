@@ -19,8 +19,8 @@ import { useCallback, useMemo } from 'react'
 //     absent — suggestion replies anchor on the suggestion's Y.Map
 //     entry, not on a mark in the document.
 //
-// `mentions` is the flattened user_org id list extracted from the
-// reply body's `[[@userOrgId]]` tokens (the same wire format the
+// `mentions` is the flattened user id list extracted from the
+// reply body's `[[@userId]]` tokens (the same wire format the
 // composer writes when an @-mention is picked). Parsed client-side
 // via `parseMentions(body)` rather than a parallel `comment_mentions`
 // subscription — that collection's listRule is null (system-only,
@@ -52,7 +52,7 @@ const NO_OP_ADD_REPLY = async () => {}
 // mutation: one `text_comments` insert plus N `comment_mentions`
 // inserts, atomically yielded through the shared generator pattern.
 //
-// `authorUserOrgId`, `driveItemId`, and `authorDisplayName` are passed
+// `authorUserId`, `driveItemId`, and `authorDisplayName` are passed
 // in by the caller rather than read from `useEditorMount()` internally.
 // That keeps the hook side-effect-free against the editor-mount context
 // — so it works equally well from the drawer (which has the context) and
@@ -75,7 +75,7 @@ const NO_OP_ADD_REPLY = async () => {}
 export function useSuggestionDiscussion(
     suggestionId: string | null,
     driveItemId: string,
-    authorUserOrgId: string,
+    authorUserId: string,
     authorDisplayName?: string
 ): SuggestionDiscussion {
     const [textCommentsCollection, commentMentionsCollection] = useStore(
@@ -93,7 +93,7 @@ export function useSuggestionDiscussion(
     // client. That collection's listRule/viewRule are null (only the
     // server-side notify hook reads it; clients only ever insert),
     // so any client query against it 403s. Mentions for display are
-    // extracted from the reply body's `[[@userOrgId]]` tokens via
+    // extracted from the reply body's `[[@userId]]` tokens via
     // parseMentions — the composer writes those tokens directly, so
     // the body text IS the canonical mention list per row.
     const { data: commentRows = [], isLoading: commentsLoading } = useOrgLiveQuery(
@@ -124,7 +124,7 @@ export function useSuggestionDiscussion(
             authorId: row.author,
             body: row.body,
             createdAt: new Date(row.created).getTime(),
-            mentions: parseMentions(row.body).map(m => m.userOrgId),
+            mentions: parseMentions(row.body).map(m => m.userId),
         }))
     }, [suggestionId, commentRows])
 
@@ -153,7 +153,7 @@ export function useSuggestionDiscussion(
                 parent_comment: '',
                 body: args.body,
                 resolved_at: '',
-                author: authorUserOrgId,
+                author: authorUserId,
                 author_name: snapshotAuthorName,
                 suggestion_id: suggestionId,
             } as Parameters<typeof textCommentsCollection.insert>[0])
@@ -164,17 +164,17 @@ export function useSuggestionDiscussion(
             // mentions, no parallel notification path.
             const mentionTxs: Transaction<Record<string, unknown>>[] = []
             const seen = new Set<string>()
-            for (const userOrgId of args.mentions) {
-                if (seen.has(userOrgId)) continue
-                if (userOrgId === authorUserOrgId) continue
-                seen.add(userOrgId)
+            for (const userId of args.mentions) {
+                if (seen.has(userId)) continue
+                if (userId === authorUserId) continue
+                seen.add(userId)
                 mentionTxs.push(
                     commentMentionsCollection.insert({
                         id: newRecordId(),
                         comment_collection: 'text_comments',
                         comment_record: newCommentId,
                         drive_item: driveItemId,
-                        mentioned_user_org: userOrgId,
+                        mentioned_user: userId,
                     } as Parameters<typeof commentMentionsCollection.insert>[0])
                 )
             }

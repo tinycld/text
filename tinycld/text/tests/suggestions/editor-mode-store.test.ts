@@ -26,13 +26,13 @@ describe('editor-mode-store', () => {
 
     it('setIdentity stores the user-org id', () => {
         const store = createEditorModeStore()
-        store.getState().setIdentity({ userOrgId: 'uo_abc123' })
-        expect(store.getState().identity?.userOrgId).toBe('uo_abc123')
+        store.getState().setIdentity({ userId: 'uo_abc123' })
+        expect(store.getState().identity?.userId).toBe('uo_abc123')
     })
 
     it('setIdentity with null clears identity', () => {
         const store = createEditorModeStore()
-        store.getState().setIdentity({ userOrgId: 'uo_abc123' })
+        store.getState().setIdentity({ userId: 'uo_abc123' })
         store.getState().setIdentity(null)
         expect(store.getState().identity).toBeNull()
     })

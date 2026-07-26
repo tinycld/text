@@ -51,7 +51,7 @@ interface BlockChangePayload {
 // operation rather than grouping them under one session id.
 function setupMixedEditor() {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: 'uo_alice' })
     modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({
@@ -319,7 +319,7 @@ describe('bulkAccept / bulkReject across all Phase 5 suggestion kinds', () => {
         // get re-intercepted by the command layer.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
 
-        bulkAccept(editor, ids, { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkAccept(editor, ids, { resolverUserId: 'uo_carol', yDoc })
 
         // Every id is now ACCEPTED in the Y.Map.
         const map = new SuggestionsMap(yDoc)
@@ -382,7 +382,7 @@ describe('bulkAccept / bulkReject across all Phase 5 suggestion kinds', () => {
         expect(ids.length).toBeGreaterThanOrEqual(5)
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        bulkReject(editor, ids, { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkReject(editor, ids, { resolverUserId: 'uo_carol', yDoc })
 
         const map = new SuggestionsMap(yDoc)
         for (const id of ids) {
@@ -449,14 +449,14 @@ describe('bulkAccept / bulkReject across all Phase 5 suggestion kinds', () => {
         const { editor: editorA, yDoc: yDocA, modeStore: modeA } = setupMixedEditor()
         const idsA = Array.from(collectSuggestionIds(editorA))
         modeA.getState().setMode(EDITOR_MODE_EDITING)
-        bulkAccept(editorA, idsA, { resolverUserOrgId: 'uo_carol', yDoc: yDocA })
+        bulkAccept(editorA, idsA, { resolverUserId: 'uo_carol', yDoc: yDocA })
         expect(hasAnyRemainingSuggestionMarks(editorA)).toBe(false)
         editorA.destroy()
 
         const { editor: editorB, yDoc: yDocB, modeStore: modeB } = setupMixedEditor()
         const idsB = Array.from(collectSuggestionIds(editorB))
         modeB.getState().setMode(EDITOR_MODE_EDITING)
-        bulkReject(editorB, idsB, { resolverUserOrgId: 'uo_carol', yDoc: yDocB })
+        bulkReject(editorB, idsB, { resolverUserId: 'uo_carol', yDoc: yDocB })
         expect(hasAnyRemainingSuggestionMarks(editorB)).toBe(false)
         editorB.destroy()
     })

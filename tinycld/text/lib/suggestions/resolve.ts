@@ -14,7 +14,7 @@ import { deserializeMarks } from './serialize-marks'
 import { SuggestionsMap } from './suggestions-map'
 
 export interface ResolveOptions {
-    resolverUserOrgId: string
+    resolverUserId: string
     yDoc: Y.Doc
 }
 
@@ -386,7 +386,7 @@ export function acceptSuggestion(
         const map = new SuggestionsMap(options.yDoc)
         map.resolve(suggestionId, {
             status: SUGGESTION_STATUS_ACCEPTED,
-            by: options.resolverUserOrgId,
+            by: options.resolverUserId,
             at: Date.now(),
         })
     })
@@ -534,7 +534,7 @@ export function rejectSuggestion(
         const map = new SuggestionsMap(options.yDoc)
         map.resolve(suggestionId, {
             status: SUGGESTION_STATUS_REJECTED,
-            by: options.resolverUserOrgId,
+            by: options.resolverUserId,
             at: Date.now(),
         })
     })

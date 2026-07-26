@@ -27,7 +27,7 @@ describe('Phase 2a smoke', () => {
 
     it('full flow: type in suggest mode → mark stamped → accept → mark gone', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -71,7 +71,7 @@ describe('Phase 2a smoke', () => {
         // Switch to editing mode and accept
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         acceptSuggestion(editor, suggestionId!, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 
@@ -91,7 +91,7 @@ describe('Phase 2a smoke', () => {
 
     it('reject removes the inserted content entirely', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -119,7 +119,7 @@ describe('Phase 2a smoke', () => {
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         rejectSuggestion(editor, suggestionId!, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 

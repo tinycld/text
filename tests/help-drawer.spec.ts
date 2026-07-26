@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+
 import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Help drawer package-index mode: the Help menu's "Browse text help"
@@ -91,7 +91,7 @@ test.describe('Text — Help drawer package-index mode', () => {
 
         await page.getByText(/Read all tinycld help/i).click()
 
-        await expect(page).toHaveURL(new RegExp(`/a/${ORG_SLUG}/help`))
+        await expect(page).toHaveURL(/\/help/)
         // The drawer dismissed. Asserting on the body text won't work
         // because the destination /help page also lists the text
         // package's topics — checking for the "Read all" link itself

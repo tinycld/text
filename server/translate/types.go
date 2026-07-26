@@ -144,13 +144,13 @@ const (
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
 var SupportedMarks = map[string]bool{
-	MarkTypeBold:            true,
-	MarkTypeItalic:          true,
-	MarkTypeUnderline:       true,
-	MarkTypeStrike:          true,
-	MarkTypeLink:            true,
-	MarkTypeTextStyle:       true,
-	MarkTypeComment:         true,
+	MarkTypeBold:                  true,
+	MarkTypeItalic:                true,
+	MarkTypeUnderline:             true,
+	MarkTypeStrike:                true,
+	MarkTypeLink:                  true,
+	MarkTypeTextStyle:             true,
+	MarkTypeComment:               true,
 	MarkTypeSuggestedInsert:       true,
 	MarkTypeSuggestedDelete:       true,
 	MarkTypeSuggestedFormatChange: true,

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { login } from '../../tinycld/tests/e2e/helpers'
 import { editorRoot, uploadRtfAsDriveItem, waitForEditor } from './_menubar-helpers'
 
 test.describe('Text — RTF round-trip', () => {
@@ -9,7 +9,7 @@ test.describe('Text — RTF round-trip', () => {
 
         await login(page)
         // Initial doc load is the one allowed goto (SPA is torn down on nav).
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
         await waitForEditor(page)
 
         // The fixture's heading + a unique searchable token must render —

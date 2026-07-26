@@ -69,7 +69,7 @@ export function createClientAuthorsBridge(yDoc: Y.Doc | null): ClientAuthorsBrid
 
 // useClientAuthors subscribes to the `clientAuthors` Y.Map on the
 // supplied doc and returns a Map<number, string> from Yjs clientID to
-// user_org ID. The bridge identity is memoized on the yDoc reference
+// user ID. The bridge identity is memoized on the yDoc reference
 // so React's useSyncExternalStore sees stable subscribe / getSnapshot
 // functions across renders.
 export function useClientAuthors(yDoc: Y.Doc | null): Map<number, string> {

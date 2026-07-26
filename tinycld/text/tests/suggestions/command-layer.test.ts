@@ -50,7 +50,7 @@ describe('SuggestionCommandLayer', () => {
     it('insert in editing mode does not stamp suggestedInsert mark', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeState(modeStore, yDoc)
         const tr = state.tr.insertText('hello', 1)
@@ -62,7 +62,7 @@ describe('SuggestionCommandLayer', () => {
     it('insert in suggesting mode stamps suggestedInsert with the active session id', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeState(modeStore, yDoc)
         const tr = state.tr.insertText('hello', 1)
@@ -87,7 +87,7 @@ describe('SuggestionCommandLayer', () => {
         // intercepted clicks, hanging the Playwright suite.
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeStateWithText(modeStore, yDoc, 'hi')
         const end = state.doc.content.size - 1
@@ -112,7 +112,7 @@ describe('SuggestionCommandLayer', () => {
         // paths produce.
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeStateWithText(modeStore, yDoc, 'original text')
         const { schema } = state
@@ -143,7 +143,7 @@ describe('SuggestionCommandLayer', () => {
     it('two rapid inserts in suggesting mode share one suggestionId', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeState(modeStore, yDoc)
         state = state.apply(state.tr.insertText('hello', 1))
@@ -161,7 +161,7 @@ describe('SuggestionCommandLayer', () => {
     it('inserts 31s apart in suggesting mode get different suggestionIds', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeState(modeStore, yDoc)
         state = state.apply(state.tr.insertText('hello', 1))
@@ -188,7 +188,7 @@ describe('SuggestionCommandLayer', () => {
     it('delete in suggesting mode wraps the range in suggestedDelete without removing text', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeStateWithText(modeStore, yDoc, 'original text')
         const sel = TextSelection.create(state.doc, 1, 9)
@@ -207,7 +207,7 @@ describe('SuggestionCommandLayer', () => {
     it('delete in editing mode removes text as normal (no mark)', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeStateWithText(modeStore, yDoc, 'original text')
         const sel = TextSelection.create(state.doc, 1, 9)
@@ -218,7 +218,7 @@ describe('SuggestionCommandLayer', () => {
     it('delete of own active-suggestion content (Case 2d) removes outright', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeState(modeStore, yDoc)
         state = state.apply(state.tr.insertText('hello', 1))
@@ -236,7 +236,7 @@ describe('SuggestionCommandLayer', () => {
         // layer's addMark calls run independently per author.
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const schema = getSchema([StarterKit, ...buildSuggestionEditorExtensions()])
         const docNode = schema.nodes.doc.create(
@@ -252,7 +252,7 @@ describe('SuggestionCommandLayer', () => {
         let sel = TextSelection.create(state.doc, 1, 7)
         state = state.apply(state.tr.setSelection(sel).deleteSelection())
         // Switch to Bob
-        modeStore.getState().setIdentity({ userOrgId: 'uo_bob' })
+        modeStore.getState().setIdentity({ userId: 'uo_bob' })
         // Wait beyond idle window so a fresh session mints — and so
         // that Bob's command-layer transaction is independent of
         // Alice's.
@@ -280,7 +280,7 @@ describe('SuggestionCommandLayer', () => {
     it('creates a suggestions map entry on first edit in suggest mode', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeState(modeStore, yDoc)
         state.apply(state.tr.insertText('hello', 1))
@@ -292,7 +292,7 @@ describe('SuggestionCommandLayer', () => {
     it('replace in suggesting mode preserves old text (struck) AND marks new text as inserted', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeStateWithText(modeStore, yDoc, 'original text')
         // Select "original" and type "REPLACED" — a single ReplaceStep
@@ -319,7 +319,7 @@ describe('SuggestionCommandLayer', () => {
     it('viewing mode does not stamp marks (plugin is a no-op)', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode('viewing')
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         const state = makeState(modeStore, yDoc)
         // Even though the editor is "viewing", a programmatically-applied
@@ -336,7 +336,7 @@ describe('SuggestionCommandLayer', () => {
     it('identity change mints a fresh session for the new author', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         const yDoc = new Y.Doc()
         let state = makeState(modeStore, yDoc)
 
@@ -360,7 +360,7 @@ describe('SuggestionCommandLayer', () => {
         expect(firstIds[0].author).toBe('uo_alice')
 
         // Switch identity to Bob
-        modeStore.getState().setIdentity({ userOrgId: 'uo_bob' })
+        modeStore.getState().setIdentity({ userId: 'uo_bob' })
         state = state.apply(state.tr.insertText(' world', state.doc.content.size - 1))
 
         const allIds: { id: string; author: string }[] = []

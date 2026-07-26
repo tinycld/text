@@ -27,7 +27,7 @@ interface BlockChangePayload {
 
 function setupSuggestingEditor(content: object) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: 'uo_alice' })
     modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({

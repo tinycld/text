@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { ORG_SLUG } from '../../../tinycld/tests/e2e/helpers'
+
 import { PB_URL } from '../_menubar-helpers'
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -7,7 +7,7 @@ import { PB_URL } from '../_menubar-helpers'
 //
 // WHY THIS IS RAW REST (and not UI-driven, per the CLAUDE.md e2e rule):
 // The collaboration/authorship/comments specs each need a *second real
-// membership* in the test org — a distinct user + user_org row so a
+// account — a distinct users row so a
 // second browser context can sign in as a different person and open a
 // shared document. There is no in-app flow an e2e test can drive to
 // produce that: the only UI path to a new membership is the email-invite
@@ -24,7 +24,7 @@ import { PB_URL } from '../_menubar-helpers'
 // module: one clearly-named, clearly-justified home for the raw writes.
 //
 // SCOPE: setup only. Read-only assertions (polling notifications,
-// reading back a text_comments row, listing peer user_org rows) stay in
+// reading back a text_comments row, listing peer users) stay in
 // the spec that needs them — the CLAUDE.md rule explicitly permits raw
 // REST for read-only assertions, and they're not shared across specs.
 // ─────────────────────────────────────────────────────────────────────────
@@ -36,15 +36,13 @@ export interface SecondUser {
     id: string
     email: string
     password: string
-    userOrgId: string
 }
 
 export type ShareRole = 'viewer' | 'editor' | 'commentor'
 
 // Authenticate as the PocketBase superuser and return the auth token.
-// Every setup write below needs superuser rights (creating a user in
-// another org, minting a membership, granting a share), so they all
-// funnel through here.
+// Every setup write below needs superuser rights (creating a user,
+// granting a share), so they all funnel through here.
 async function superuserToken(): Promise<string> {
     const res = await fetch(`${PB_URL}/api/collections/_superusers/auth-with-password`, {
         method: 'POST',
@@ -58,22 +56,12 @@ async function superuserToken(): Promise<string> {
     return token
 }
 
-async function resolveOrgId(token: string): Promise<string> {
-    const res = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: token } }
-    )
-    const orgs = (await res.json()) as { items: { id: string }[] }
-    if (!orgs.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    return orgs.items[0].id
-}
-
-// Mint a fresh, verified user and add them to the test org as a member.
+// Mint a fresh, verified user with the member role. Single-org: the role
+// select on the users auth record IS the membership.
 // `label` becomes the email prefix (e.g. 'authorship-blame') so a failing
 // run's stray users are traceable to the spec that created them.
 export async function createSecondUser(label: string): Promise<SecondUser> {
     const token = await superuserToken()
-    const orgId = await resolveOrgId(token)
 
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const email = `${label}-${suffix}@tinycld.org`
@@ -89,6 +77,7 @@ export async function createSecondUser(label: string): Promise<SecondUser> {
             name: `${label} tester ${suffix}`,
             username: `mu_${suffix.replace(/-/g, '_')}`,
             verified: true,
+            role: 'member',
         }),
     })
     if (!userRes.ok) {
@@ -96,17 +85,7 @@ export async function createSecondUser(label: string): Promise<SecondUser> {
     }
     const user = (await userRes.json()) as { id: string }
 
-    const userOrgRes = await fetch(`${PB_URL}/api/collections/user_org/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: token },
-        body: JSON.stringify({ user: user.id, org: orgId, role: 'member' }),
-    })
-    if (!userOrgRes.ok) {
-        throw new Error(`Create user_org failed: ${userOrgRes.status} ${await userOrgRes.text()}`)
-    }
-    const userOrg = (await userOrgRes.json()) as { id: string }
-
-    return { id: user.id, email, password, userOrgId: userOrg.id }
+    return { id: user.id, email, password }
 }
 
 // Grant `user` access to a drive item. Defaults to 'editor' (the common
@@ -123,9 +102,9 @@ export async function shareDriveItemWith(
         headers: { 'Content-Type': 'application/json', Authorization: token },
         body: JSON.stringify({
             item: itemId,
-            user_org: user.userOrgId,
+            user: user.id,
             role,
-            created_by: user.userOrgId,
+            created_by: user.id,
         }),
     })
     if (!res.ok) {
@@ -145,7 +124,7 @@ export async function loginAs(page: Page, identifier: string, password: string):
 }
 
 // Read the live Y.Doc's clientAuthors map on `page` and return the
-// flattened [clientID, userOrgId] entries. The screen exposes the doc via
+// flattened [clientID, userId] entries. The screen exposes the doc via
 // the dev-only window.__tinyTextDoc hook (see useDevYDocWindowHook in
 // screens/[id].tsx). Callers wrap this in expect.poll to wait for the
 // stamping delta's fan-out to land.

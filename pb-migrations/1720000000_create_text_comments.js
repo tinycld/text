@@ -89,11 +89,11 @@ migrate(
             // drive_shares row for the parent drive_item can read/write
             // comments; only the author can update or delete their own.
             listRule:
-                '@request.auth.id != "" && drive_item.drive_shares_via_item.user_org ?= @request.auth.id',
+                '@request.auth.id != "" && drive_item.drive_shares_via_item.user ?= @request.auth.id',
             viewRule:
-                '@request.auth.id != "" && drive_item.drive_shares_via_item.user_org ?= @request.auth.id',
+                '@request.auth.id != "" && drive_item.drive_shares_via_item.user ?= @request.auth.id',
             createRule:
-                '@request.auth.id != "" && drive_item.drive_shares_via_item.user_org ?= @request.auth.id && author = @request.auth.id',
+                '@request.auth.id != "" && drive_item.drive_shares_via_item.user ?= @request.auth.id && author = @request.auth.id',
             updateRule: '@request.auth.id != "" && author = @request.auth.id',
             deleteRule: '@request.auth.id != "" && author = @request.auth.id',
         })

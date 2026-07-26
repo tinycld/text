@@ -1,12 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
-import {
-    login,
-    ORG_SLUG,
-    TEST_USER_EMAIL,
-    TEST_USER_PASSWORD,
-} from '../../tinycld/tests/e2e/helpers'
+import { login, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 
 export const PB_URL = 'http://127.0.0.1:7200'
 
@@ -14,14 +9,8 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 
 export const FEATURE_DOC_HEADING = 'Sample Document'
 
-interface OrgContext {
-    orgId: string
-    userOrgId: string
-    userId: string
-}
-
 let cachedAuthToken: string | null = null
-let cachedOrgContext: OrgContext | null = null
+let cachedUserId: string | null = null
 
 export async function authAsTestUser(): Promise<string> {
     if (cachedAuthToken) return cachedAuthToken
@@ -38,8 +27,11 @@ export async function authAsTestUser(): Promise<string> {
     return token
 }
 
-async function resolveOrgContext(token: string): Promise<OrgContext> {
-    if (cachedOrgContext) return cachedOrgContext
+// Single-org: the deployment IS the org, so the only context these
+// helpers need is the authenticated user id. The org lookups
+// this used to do query collections that no longer exist.
+async function resolveUserId(token: string): Promise<string> {
+    if (cachedUserId) return cachedUserId
     const me = await fetch(`${PB_URL}/api/collections/users/auth-refresh`, {
         method: 'POST',
         headers: { Authorization: token },
@@ -47,29 +39,12 @@ async function resolveOrgContext(token: string): Promise<OrgContext> {
     const meBody = (await me.json()) as { record?: { id: string } }
     const userId = meBody.record?.id
     if (!userId) throw new Error('auth-refresh returned no user record')
-
-    const orgs = await fetch(
-        `${PB_URL}/api/collections/orgs/records?filter=${encodeURIComponent(`slug='${ORG_SLUG}'`)}`,
-        { headers: { Authorization: token } }
-    )
-    const orgItems = (await orgs.json()) as { items: { id: string }[] }
-    if (!orgItems.items[0]) throw new Error(`Org ${ORG_SLUG} not found`)
-    const orgId = orgItems.items[0].id
-
-    const userOrgs = await fetch(
-        `${PB_URL}/api/collections/user_org/records?filter=${encodeURIComponent(
-            `org='${orgId}' && user='${userId}'`
-        )}`,
-        { headers: { Authorization: token } }
-    )
-    const userOrgItems = (await userOrgs.json()) as { items: { id: string }[] }
-    if (!userOrgItems.items[0]) throw new Error(`user_org for ${ORG_SLUG} not found`)
-    cachedOrgContext = { orgId, userOrgId: userOrgItems.items[0].id, userId }
-    return cachedOrgContext
+    cachedUserId = userId
+    return userId
 }
 
 // Collision-proof unique document name. drive_items treats
-// (org, parent, name) as unique, so two parallel workers uploading in
+// (parent, name) as unique, so two parallel workers uploading in
 // the same millisecond with a bare `Date.now()` would collide and the
 // second create would 400 — surfacing as a misleading "editor never
 // loaded" timeout downstream. Appending a random suffix removes the
@@ -81,22 +56,21 @@ export function uniqueDocName(label: string): string {
 
 // Uploads an assets/ fixture as a fresh drive_items row owned by the seeded
 // test user. Returns the new row id, which is also the URL segment under
-// /a/<org>/text/<id>. Shared by the docx and rtf helpers below.
+// /text/<id>. Shared by the docx and rtf helpers below.
 export async function uploadFixtureAsDriveItem(
     fixtureFile: string,
     mime: string,
     name: string
 ): Promise<string> {
     const token = await authAsTestUser()
-    const ctx = await resolveOrgContext(token)
+    const userId = await resolveUserId(token)
     const bytes = readFileSync(join(import.meta.dirname, 'assets', fixtureFile))
     const form = new FormData()
-    form.append('org', ctx.orgId)
     form.append('name', name)
     form.append('is_folder', 'false')
     form.append('mime_type', mime)
     form.append('parent', '')
-    form.append('created_by', ctx.userOrgId)
+    form.append('created_by', userId)
     form.append('size', String(bytes.length))
     form.append('file', new Blob([new Uint8Array(bytes)], { type: mime }), name)
     const res = await fetch(`${PB_URL}/api/collections/drive_items/records`, {
@@ -127,11 +101,10 @@ export async function uploadRtfAsDriveItem(name: string): Promise<string> {
 // the ChooseFolderDialog closes, so a spec that immediately looks for the
 // template in the UI can race the create. Awaiting server-visibility here
 // removes that leg of the race deterministically. Uses the shared test-user
-// token + resolved org context so it doesn't depend on any UI state.
+// token so it doesn't depend on any UI state.
 export async function waitForTemplateItem(page: Page, name: string): Promise<void> {
     const token = await authAsTestUser()
-    const ctx = await resolveOrgContext(token)
-    const filter = encodeURIComponent(`org='${ctx.orgId}' && is_folder=false && name='${name}'`)
+    const filter = encodeURIComponent(`is_folder=false && name='${name}'`)
     await expect(async () => {
         const res = await page.request.get(
             `${PB_URL}/api/collections/drive_items/records?perPage=1&skipTotal=1&filter=${filter}`,
@@ -160,7 +133,7 @@ export async function waitForEditor(page: Page): Promise<void> {
 export async function openTextDocument(page: Page, label: string): Promise<string> {
     const itemId = await uploadDocxAsDriveItem(uniqueDocName(label))
     await login(page)
-    await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+    await page.goto(`/text/${itemId}`)
     await waitForEditor(page)
     // Scope the heading match to the editor: a bare getByText also matches the
     // frozen no-file-panel sibling's "<name>.docx" recent-files label (the app

@@ -159,13 +159,12 @@ func TestRender_RejectsNonDocxMime(t *testing.T) {
 	// resolveShareRole gate so the mime check is the only thing
 	// standing between the request and a 200.
 	user := mustCreateUser(t, app, "render-mime-test@example.com")
-	item := seedDriveItemInOrg(t, app, "org1", "not-a-docx.png")
+	item := seedSharedItem(t, app, nil, "not-a-docx.png")
 	item.Set("mime_type", "image/png")
 	if err := app.Save(item); err != nil {
 		t.Fatalf("save mime_type: %v", err)
 	}
-	userOrgID := seedUserOrg(t, app, user.Id, "org1")
-	seedShare(t, app, item.Id, userOrgID, "owner")
+	seedShare(t, app, item.Id, user.Id, "owner")
 
 	scenario := &tests.ApiScenario{
 		Name:           "non-docx mime returns 400",
@@ -196,13 +195,12 @@ func TestRender_RejectsEmptyMime(t *testing.T) {
 	registerRenderAPI(app)
 
 	user := mustCreateUser(t, app, "render-mime-empty@example.com")
-	item := seedDriveItemInOrg(t, app, "org1", "no-mime")
+	item := seedSharedItem(t, app, nil, "no-mime")
 	item.Set("mime_type", "")
 	if err := app.Save(item); err != nil {
 		t.Fatalf("save mime_type: %v", err)
 	}
-	userOrgID := seedUserOrg(t, app, user.Id, "org1")
-	seedShare(t, app, item.Id, userOrgID, "owner")
+	seedShare(t, app, item.Id, user.Id, "owner")
 
 	scenario := &tests.ApiScenario{
 		Name:           "empty mime returns 400",
@@ -228,7 +226,7 @@ func TestRender_RejectsEmptyMime(t *testing.T) {
 func TestRender_RejectsUnauthenticated(t *testing.T) {
 	app := setupAuthTestApp(t)
 	registerRenderAPI(app)
-	item := seedDriveItemInOrg(t, app, "org1", "anything.docx")
+	item := seedSharedItem(t, app, nil, "anything.docx")
 	scenario := &tests.ApiScenario{
 		Name:           "no auth returns 401",
 		Method:         http.MethodGet,
@@ -252,7 +250,7 @@ func TestRender_RejectsUnshared(t *testing.T) {
 	app := setupAuthTestApp(t)
 	registerRenderAPI(app)
 	user := mustCreateUser(t, app, "render-mime-unshared@example.com")
-	item := seedDriveItemInOrg(t, app, "org1", "secret.docx")
+	item := seedSharedItem(t, app, nil, "secret.docx")
 	item.Set("mime_type", docxMimeType)
 	if err := app.Save(item); err != nil {
 		t.Fatalf("save mime_type: %v", err)

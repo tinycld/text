@@ -104,9 +104,7 @@ export default function TextDetail() {
 
     const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
         query =>
-            query
-                .from({ item: driveItemsCollection })
-                .where(({ item }) => eq(item.id, id ?? '')),
+            query.from({ item: driveItemsCollection }).where(({ item }) => eq(item.id, id ?? '')),
         [id]
     )
 
@@ -164,7 +162,6 @@ export default function TextDetail() {
         identity: {
             kind: 'member',
             userId: user.id,
-            userOrgId: user.id,
             displayName: user.name,
             color: colorForUser(user.id),
         },
@@ -223,14 +220,14 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // doc B after navigation.
     const reviewDrawerStore = useMemo(() => createReviewDrawerStore(), [])
     const { user } = useAuth()
-    const userOrgId = user.id
+    const userId = user.id
     useEffect(() => {
-        if (userOrgId) {
-            modeStore.getState().setIdentity({ userOrgId })
+        if (userId) {
+            modeStore.getState().setIdentity({ userId })
         } else {
             modeStore.getState().setIdentity(null)
         }
-    }, [userOrgId, modeStore])
+    }, [userId, modeStore])
     // The suggestion bridge is created below (it needs tiptapEditor +
     // yDoc, which come out of useTextDocument). But the native variant
     // of useTextDocument needs an onSuggestionMessage callback to wire
@@ -275,7 +272,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // surface, not a collaboration surface. Comment threads and
     // suggestion proposals are internal team artifacts; exposing them
     // to anonymous link recipients or downstream viewers would leak
-    // org context (author user_org ids, review timelines, internal
+    // org context (author user ids, review timelines, internal
     // edit discussion) we don't intend to share.
     //
     // The decision drives three categories of gating, all keyed off
@@ -339,23 +336,23 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     })
     const onBulkAccept = useCallback(
         (ids: string[]) => {
-            if (!tiptapEditor || !room.doc || !userOrgId) return
+            if (!tiptapEditor || !room.doc || !userId) return
             bulkAccept(tiptapEditor, ids, {
-                resolverUserOrgId: userOrgId,
+                resolverUserId: userId,
                 yDoc: room.doc,
             })
         },
-        [tiptapEditor, room.doc, userOrgId]
+        [tiptapEditor, room.doc, userId]
     )
     const onBulkReject = useCallback(
         (ids: string[]) => {
-            if (!tiptapEditor || !room.doc || !userOrgId) return
+            if (!tiptapEditor || !room.doc || !userId) return
             bulkReject(tiptapEditor, ids, {
-                resolverUserOrgId: userOrgId,
+                resolverUserId: userId,
                 yDoc: room.doc,
             })
         },
-        [tiptapEditor, room.doc, userOrgId]
+        [tiptapEditor, room.doc, userId]
     )
 
     // Reflect the editor mode into the Tiptap editor's editable flag so
@@ -606,11 +603,11 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                             // The drawer's focused-state thread renders a
                             // <SuggestionThread /> whose discussion adapter
                             // writes text_comments rows authored by the
-                            // current user_org. Thread it down once at the
+                            // current user. Thread it down once at the
                             // screen scope (same source as the bulk-accept /
                             // bulk-reject services) so the row stays
                             // identity-context-free.
-                            authorUserOrgId={userOrgId ?? ''}
+                            authorUserId={userId ?? ''}
                             // Match the drawer's top edge to the bottom of
                             // the title/menubar/toolbar stack, measured
                             // live via onLayout above. Falls back to a sane
@@ -647,7 +644,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         {/* Returns null on web. */}
                         <SuggestionThreadSheet
                             driveItemId={driveItemId}
-                            authorUserOrgId={userOrgId ?? ''}
+                            authorUserId={userId ?? ''}
                             anchored={anchored}
                             canResolve={canResolve}
                             isPending={resolveService.isPending}

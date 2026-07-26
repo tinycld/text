@@ -16,7 +16,7 @@ export interface SuggestionPermissions {
 //   - canResolve: can accept/reject existing suggestions
 //
 // Source of truth: the drive_shares row that connects the current
-// user's user_org to this drive_item. The text server's
+// user's user to this drive_item. The text server's
 // `resolveShareRole` (text/server/authorize.go) does the same lookup
 // to compute `hello.readOnly`, and gates writes server-side based on
 // the same predicate. We mirror that role check in the UI so the mode
@@ -43,11 +43,11 @@ export function useSuggestionPermissions(driveItemId: string): SuggestionPermiss
         (query, { userId }) =>
             query
                 .from({ s: sharesCollection })
-                .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user_org, userId))),
+                .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user, userId))),
         [driveItemId]
     )
 
-    // resolveShareRole on the server picks the highest-priority role
+    // driveshare.ResolveRole on the server picks the highest-priority role
     // when multiple share rows match (owner > editor > viewer); we
     // need the same behavior here so an editor row added on top of an
     // older viewer row doesn't lock the user out.

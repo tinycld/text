@@ -37,13 +37,12 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 
 	app := setupAuthTestApp(t)
 
-	// Seed two users in the same org, both with user_org rows pointing at
-	// the same drive_item. The stamper writes user_org.id (not user.id) into
-	// clientAuthors, so we capture those IDs to assert on.
-	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	// Seed two users sharing one drive_item. Single-org: the stamper
+	// writes the authenticated users.id straight into clientAuthors, so
+	// those are the ids to assert on.
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
 	itemID := alice.itemID
 	bob := mustCreateUser(t, app, "bob@e2e.test")
-	bobUO := seedUserOrg(t, app, bob.Id, alice.orgID)
 
 	runtime := NewRuntime()
 	t.Cleanup(runtime.Stop)
@@ -62,7 +61,7 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(itemID, room)
 		},
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateContent: makeAuthorshipStamper(runtime),
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},
@@ -130,11 +129,11 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 	aliceKey := strconv.FormatUint(uint64(aliceClientID), 10)
 	bobKey := strconv.FormatUint(uint64(bobClientID), 10)
 
-	if got := authors.Get(aliceKey); got != alice.userOrgID {
-		t.Errorf("clientAuthors[%s] (alice) = %v, want %q", aliceKey, got, alice.userOrgID)
+	if got := authors.Get(aliceKey); got != alice.userID {
+		t.Errorf("clientAuthors[%s] (alice) = %v, want %q", aliceKey, got, alice.userID)
 	}
-	if got := authors.Get(bobKey); got != bobUO {
-		t.Errorf("clientAuthors[%s] (bob) = %v, want %q", bobKey, got, bobUO)
+	if got := authors.Get(bobKey); got != bob.Id {
+		t.Errorf("clientAuthors[%s] (bob) = %v, want %q", bobKey, got, bob.Id)
 	}
 	if firstSeen.Get(aliceKey) == nil {
 		t.Errorf("clientFirstSeen[%s] (alice) is nil", aliceKey)
@@ -158,7 +157,7 @@ func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
 	t.Cleanup(realtime.ResetRegistryForTest)
 
 	app := setupAuthTestApp(t)
-	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
 	itemID := alice.itemID
 
 	runtime := NewRuntime()
@@ -170,7 +169,7 @@ func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(itemID, room)
 		},
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateContent: makeAuthorshipStamper(runtime),
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},

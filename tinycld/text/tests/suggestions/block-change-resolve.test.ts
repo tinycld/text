@@ -30,7 +30,7 @@ interface BlockChangePayload {
 
 function setupEditor(content: object) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: 'uo_alice' })
     modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({
@@ -106,7 +106,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         expect(blockTypeAndAttr(editor)?.attrs.level).toBe(1)
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After accept: level is 3, wrapper is gone.
         const after = blockTypeAndAttr(editor)
@@ -138,7 +138,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         const id = findBlockChangeId(editor) as string
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         const after = blockTypeAndAttr(editor)
         // Level still 1, wrapper gone.
@@ -168,7 +168,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         expect(blockTypeAndAttr(editor)?.type).toBe('paragraph')
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         const after = blockTypeAndAttr(editor)
         expect(after?.type).toBe('heading')
@@ -193,7 +193,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         const id = findBlockChangeId(editor) as string
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         const after = blockTypeAndAttr(editor)
         expect(after?.type).toBe('paragraph')
@@ -228,7 +228,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         expect(editor.state.doc.firstChild?.textContent).toBe('alpha')
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After accept: alpha is gone, only beta remains.
         expect(editor.state.doc.childCount).toBe(1)
@@ -273,7 +273,7 @@ describe('acceptSuggestion (suggestedBlockChange)', () => {
         expect(hadDeleteMark).toBe(true)
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After reject: alpha is back without strikethrough, both
         // paragraphs present.

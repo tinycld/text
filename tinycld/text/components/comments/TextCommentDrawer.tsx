@@ -1,5 +1,5 @@
-import type { Thread } from '@tinycld/core/lib/comments'
 import { useAuth } from '@tinycld/core/lib/auth'
+import type { Thread } from '@tinycld/core/lib/comments'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { CommentDrawer, type CommentDrawerGroup } from '@tinycld/core/ui/comments'
 import { useMemo } from 'react'
@@ -51,7 +51,7 @@ export function TextCommentDrawer({
             isOpen={drawerIsOpen}
             onClose={close}
             groups={groups}
-            currentUserOrgId={user.id}
+            currentUserId={user.id}
             focusedThreadId={focusedThreadId}
             onJump={group => {
                 focusThread(group.threads[0]?.root.id ?? null)

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	ycrdt "github.com/skyterra/y-crdt"
+
+	"tinycld.org/core/realtime"
 )
 
 // MaxEditEventsRetained caps the editEvents Y.Array's length so the
@@ -28,7 +30,7 @@ const MaxEditEventsRetained = 100
 // IAbstractType); we check nil rather than type-asserting.
 func writeEditEvent(doc *ycrdt.Doc, event EditEvent) ([]byte, error) {
 	beforeSV := ycrdt.EncodeStateVector(doc, nil, ycrdt.NewUpdateEncoderV1())
-	arr := doc.GetArray("editEvents")
+	arr := doc.GetArray(realtime.RootEditEvents)
 	if arr == nil {
 		return nil, fmt.Errorf("text: writeEditEvent: editEvents root missing (corrupt doc)")
 	}

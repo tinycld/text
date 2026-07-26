@@ -45,7 +45,7 @@ function makeDocWithSuggestions(ids: string[]) {
 describe('bulkAccept', () => {
     it('flips status to accepted for every suggestion in the list', () => {
         const { editor, yDoc, map } = makeDocWithSuggestions(['s1', 's2', 's3'])
-        bulkAccept(editor, ['s1', 's2', 's3'], { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkAccept(editor, ['s1', 's2', 's3'], { resolverUserId: 'uo_carol', yDoc })
         for (const id of ['s1', 's2', 's3']) {
             expect(map.get(id)?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
         }
@@ -66,7 +66,7 @@ describe('bulkAccept', () => {
         yDoc.on('afterTransaction', () => {
             txCount.value++
         })
-        bulkAccept(editor, ['s1', 's2', 's3'], { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkAccept(editor, ['s1', 's2', 's3'], { resolverUserId: 'uo_carol', yDoc })
         // The bulk operation should produce FAR fewer Yjs transactions
         // than the per-suggestion count. y-prosemirror may dispatch the
         // PM step separately from the map write, so we allow a small
@@ -79,7 +79,7 @@ describe('bulkAccept', () => {
         const { editor, yDoc, map } = makeDocWithSuggestions(['s1'])
         // s-missing is not in the map nor the doc
         bulkAccept(editor, ['s1', 's-missing'], {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
         expect(map.get('s1')?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
@@ -89,7 +89,7 @@ describe('bulkAccept', () => {
 
     it('empty list is a no-op', () => {
         const { editor, yDoc, map } = makeDocWithSuggestions(['s1'])
-        bulkAccept(editor, [], { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkAccept(editor, [], { resolverUserId: 'uo_carol', yDoc })
         expect(map.get('s1')?.status).not.toBe(SUGGESTION_STATUS_ACCEPTED)
         editor.destroy()
     })
@@ -98,7 +98,7 @@ describe('bulkAccept', () => {
 describe('bulkReject', () => {
     it('flips status to rejected and removes all marked text', () => {
         const { editor, yDoc, map } = makeDocWithSuggestions(['s1', 's2', 's3'])
-        bulkReject(editor, ['s1', 's2', 's3'], { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkReject(editor, ['s1', 's2', 's3'], { resolverUserId: 'uo_carol', yDoc })
         for (const id of ['s1', 's2', 's3']) {
             expect(map.get(id)?.status).toBe(SUGGESTION_STATUS_REJECTED)
         }

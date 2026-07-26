@@ -16,7 +16,7 @@ type ReviewDrawerTab = 'suggestions' | 'activity' | 'authorship'
 
 export interface ReviewDrawerProps {
     driveItemId: string
-    // authorUserOrgId is the current user's user_org id; threaded into
+    // authorUserId is the current user's user id; threaded into
     // each <SuggestionRow /> for the focused-state thread body (the
     // discussion adapter writes text_comments rows authored by this id).
     // Optional so existing tests that don't exercise the focused panel
@@ -24,7 +24,7 @@ export interface ReviewDrawerProps {
     // only fires its insert mutation when a focused suggestion exists,
     // and any focus-driven write requires the screen to have wired a
     // real id by then.
-    authorUserOrgId?: string
+    authorUserId?: string
     store: ReviewDrawerStore
     anchored: AnchoredSuggestion[]
     orphaned: OrphanedSuggestion[]
@@ -76,7 +76,7 @@ export interface ReviewDrawerProps {
 // later refinement.
 export function ReviewDrawer({
     driveItemId,
-    authorUserOrgId = '',
+    authorUserId = '',
     store,
     anchored,
     // orphaned is part of the prop shape for backward compatibility
@@ -274,7 +274,7 @@ export function ReviewDrawer({
                                 key={`${s.id}-${s.kind}`}
                                 suggestion={s}
                                 driveItemId={driveItemId}
-                                authorUserOrgId={authorUserOrgId}
+                                authorUserId={authorUserId}
                                 isFocused={s.id === focusedId}
                                 canResolve={canResolve}
                                 isPending={isPending}

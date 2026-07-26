@@ -103,7 +103,7 @@ function setupEditor(
     } = {}
 ) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: opts.authorId ?? 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: opts.authorId ?? 'uo_alice' })
     modeStore.getState().setMode(opts.mode ?? EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({
@@ -191,7 +191,7 @@ describe('Phase 5 table-change end-to-end', () => {
 
         // Reject: row disappears, table back to 2 rows.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         expect(editor.state.doc.firstChild?.childCount).toBe(2)
         expect(countCells(editor)).toBe(6)
@@ -211,7 +211,7 @@ describe('Phase 5 table-change end-to-end', () => {
 
         // Accept: row stays with 3 cells; the wrapper attribute is gone.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         expect(editor.state.doc.firstChild?.childCount).toBe(3)
         expect(countCells(editor)).toBe(9)
@@ -233,7 +233,7 @@ describe('Phase 5 table-change end-to-end', () => {
 
         // Reject: row stays, suggestedDelete marks gone.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         expect(editor.state.doc.firstChild?.childCount).toBe(2)
         expect(rowTextSummary(editor)).toEqual(['a1a2a3', 'b1b2b3'])
@@ -262,7 +262,7 @@ describe('Phase 5 table-change end-to-end', () => {
 
         // Accept: row B is deleted; only row A remains.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         expect(editor.state.doc.firstChild?.childCount).toBe(1)
         expect(rowTextSummary(editor)).toEqual(['a1a2a3'])
@@ -282,7 +282,7 @@ describe('Phase 5 table-change end-to-end', () => {
             const id = findCellPayloads(editor)[0].payload.suggestionId
 
             modeStore.getState().setMode(EDITOR_MODE_EDITING)
-            acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+            acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
             // After accept: colspan applied, wrapper gone.
             const cellAfter = editor.state.doc.nodeAt(cellPositions[0])
@@ -299,7 +299,7 @@ describe('Phase 5 table-change end-to-end', () => {
             const id = findCellPayloads(editor)[0].payload.suggestionId
 
             modeStore.getState().setMode(EDITOR_MODE_EDITING)
-            rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+            rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
             // After reject: colspan still 1, wrapper gone.
             const cellAfter = editor.state.doc.nodeAt(cellPositions[0])
@@ -334,7 +334,7 @@ describe('Phase 5 table-change end-to-end', () => {
         const id = payloads[0].payload.suggestionId
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After accept: middle column is gone — each row has 2 cells.
         expect(editor.state.doc.firstChild?.childCount).toBe(2)
@@ -353,7 +353,7 @@ describe('Phase 5 table-change end-to-end', () => {
         const id = payloads[0].payload.suggestionId
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After reject: column intact, both rows have 3 cells.
         expect(countCells(editor)).toBe(6)

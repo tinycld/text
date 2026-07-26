@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { login, navigateToPackage, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { login, navigateToPackage } from '../../tinycld/tests/e2e/helpers'
 import { FEATURE_DOC_HEADING } from './_menubar-helpers'
 
 // The text index renders the shared NoFilePanel whenever the user lands
@@ -73,13 +73,13 @@ test.describe('Text No-File panel', () => {
     test('Browse Recent navigates to drive recent view', async ({ page }) => {
         await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'Recent' }).click()
-        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/recent/?$`))
+        await page.waitForURL(/\/drive\/recent\/?$/)
     })
 
     test('Browse All navigates to drive root', async ({ page }) => {
         await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'All' }).click()
-        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive/?$`))
+        await page.waitForURL(/\/drive\/?$/)
     })
 
     test('the rail reopens the last edited document', async ({ page }) => {
@@ -98,7 +98,7 @@ test.describe('Text No-File panel', () => {
 
         // Detour through home, then click the Text rail icon — we should
         // land back on the document we just created, not on the panel.
-        await page.goto(`/a/${ORG_SLUG}`)
+        await page.goto(`/`)
         await page.getByTestId('nav-text').click()
         await page.waitForURL(editorUrl)
         await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()

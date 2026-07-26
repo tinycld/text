@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+
 import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Each spec opens its own fresh document — destructive items
@@ -12,14 +12,14 @@ test.describe('Text — Menubar', () => {
             await openFreshTextDocument(page, 'menubar-new')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'New document' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/?$`))
+            await page.waitForURL(/\/text\/?$/)
         })
 
         test('Open navigates to drive', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-open')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'Open' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive`))
+            await page.waitForURL(/\/drive/)
         })
 
         test('Rename updates the document header', async ({ page }) => {

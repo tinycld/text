@@ -56,7 +56,7 @@ export function useResolveSuggestionService(options: {
             setIsPending(true)
             try {
                 acceptSuggestion(editor, suggestionId, {
-                    resolverUserOrgId: userId,
+                    resolverUserId: userId,
                     yDoc,
                 })
             } catch (error) {
@@ -78,7 +78,7 @@ export function useResolveSuggestionService(options: {
             setIsPending(true)
             try {
                 rejectSuggestion(editor, suggestionId, {
-                    resolverUserOrgId: userId,
+                    resolverUserId: userId,
                     yDoc,
                 })
             } catch (error) {

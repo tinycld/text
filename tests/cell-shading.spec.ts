@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { login } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -16,7 +16,7 @@ test.describe('Text — Cell shading', () => {
     test('shading button is disabled outside a table and enabled inside', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('shading-disabled'))
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -38,7 +38,7 @@ test.describe('Text — Cell shading', () => {
     }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('shading-apply'))
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
         await expect(page.getByText('Complex Tables').first()).toBeVisible()
@@ -68,7 +68,7 @@ test.describe('Text — Cell shading', () => {
     test('picking "None" clears an existing shading', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('shading-clear'))
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
         await expect(page.getByText('Complex Tables').first()).toBeVisible()

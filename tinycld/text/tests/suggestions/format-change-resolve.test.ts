@@ -32,7 +32,7 @@ interface SuggestionSetupOptions {
 
 function setupEditor(opts: SuggestionSetupOptions = {}) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: 'uo_alice' })
     modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({
@@ -115,7 +115,7 @@ describe('acceptSuggestion (suggestedFormatChange)', () => {
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
 
         acceptSuggestion(editor, suggestionId, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 
@@ -149,7 +149,7 @@ describe('acceptSuggestion (suggestedFormatChange)', () => {
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         acceptSuggestion(editor, suggestionId, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 
@@ -176,7 +176,7 @@ describe('acceptSuggestion (suggestedFormatChange)', () => {
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         acceptSuggestion(editor, suggestionId, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 
@@ -211,7 +211,7 @@ describe('rejectSuggestion (suggestedFormatChange)', () => {
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         rejectSuggestion(editor, suggestionId, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 
@@ -240,7 +240,7 @@ describe('rejectSuggestion (suggestedFormatChange)', () => {
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         rejectSuggestion(editor, suggestionId, {
-            resolverUserOrgId: 'uo_carol',
+            resolverUserId: 'uo_carol',
             yDoc,
         })
 

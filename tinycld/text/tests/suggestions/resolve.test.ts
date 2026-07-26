@@ -63,7 +63,7 @@ function buildDocWithInsertAndDelete() {
 describe('acceptSuggestion', () => {
     it('strips suggestedInsert marks so text becomes regular', () => {
         const { editor, yDoc, map } = buildDocWithInsertAndDelete()
-        acceptSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, 's-ins', { resolverUserId: 'uo_carol', yDoc })
         let hasInsertMark = false
         editor.state.doc.descendants(node => {
             if (node.marks.some(m => m.type.name === 'suggestedInsert')) hasInsertMark = true
@@ -78,7 +78,7 @@ describe('acceptSuggestion', () => {
 
     it('removes text bearing suggestedDelete with the target id', () => {
         const { editor, yDoc, map } = buildDocWithInsertAndDelete()
-        acceptSuggestion(editor, 's-del', { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, 's-del', { resolverUserId: 'uo_carol', yDoc })
         expect(editor.state.doc.textContent).not.toContain('deleted text')
         expect(editor.state.doc.textContent).toContain('inserted text') // unrelated suggestion stays
         expect(map.get('s-del')?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
@@ -89,7 +89,7 @@ describe('acceptSuggestion', () => {
 describe('rejectSuggestion', () => {
     it('removes text bearing suggestedInsert with the target id', () => {
         const { editor, yDoc, map } = buildDocWithInsertAndDelete()
-        rejectSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, 's-ins', { resolverUserId: 'uo_carol', yDoc })
         expect(editor.state.doc.textContent).not.toContain('inserted text')
         expect(map.get('s-ins')?.status).toBe(SUGGESTION_STATUS_REJECTED)
         editor.destroy()
@@ -97,7 +97,7 @@ describe('rejectSuggestion', () => {
 
     it('strips suggestedDelete marks so text stays', () => {
         const { editor, yDoc, map } = buildDocWithInsertAndDelete()
-        rejectSuggestion(editor, 's-del', { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, 's-del', { resolverUserId: 'uo_carol', yDoc })
         expect(editor.state.doc.textContent).toContain('deleted text')
         let hasDeleteMark = false
         editor.state.doc.descendants(node => {
@@ -136,7 +136,7 @@ describe('resolve atomicity', () => {
             statusAtTransactionEnd = map.get('s-ins')?.status
         })
 
-        acceptSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, 's-ins', { resolverUserId: 'uo_carol', yDoc })
 
         // At least one Yjs transaction fired and the status was
         // already accepted by the time the observer saw it.
@@ -154,7 +154,7 @@ describe('resolve atomicity', () => {
             statusAtTransactionEnd = map.get('s-ins')?.status
         })
 
-        rejectSuggestion(editor, 's-ins', { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, 's-ins', { resolverUserId: 'uo_carol', yDoc })
 
         expect(transactionCount).toBeGreaterThanOrEqual(1)
         expect(statusAtTransactionEnd).toBe(SUGGESTION_STATUS_REJECTED)

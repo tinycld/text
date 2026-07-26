@@ -8,7 +8,6 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 )
 
-
 // TestComputeMetadata_EmptyDoc verifies a doc with no clientAuthors and
 // no suggestions yields a metadata struct with zero suggestionsOpen, an
 // empty (but non-nil) Authors slice, and SchemaVersion = 1. The non-nil

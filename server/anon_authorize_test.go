@@ -9,6 +9,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 
+	"tinycld.org/core/driveshare"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
 )
@@ -50,7 +51,7 @@ func setupShareTestApp(t *testing.T) *tests.TestApp {
 // the 64-char token and the item id.
 func seedShareLink(t *testing.T, app *tests.TestApp, role string, active bool) (token, itemID string) {
 	t.Helper()
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
+	item := seedSharedItem(t, app, nil, "doc.docx")
 
 	tok := strings.Repeat("a", 64-len(item.Id)) + item.Id
 
@@ -115,8 +116,8 @@ func TestAuthorizeAnonShare_RejectsItemIDMismatch(t *testing.T) {
 
 	claims := realtime.ShareClaims{ShareToken: tok, ItemID: "different-room-id", Role: sharelink.RoleViewer}
 	err := authorizeAnonShare(app, claims, "different-room-id")
-	if !errors.Is(err, errNoShare) {
-		t.Errorf("itemID mismatch: expected errNoShare, got %v", err)
+	if !errors.Is(err, driveshare.ErrNoAccess) {
+		t.Errorf("itemID mismatch: expected ErrNoAccess, got %v", err)
 	}
 }
 
@@ -136,7 +137,7 @@ func TestAuthorizeAnonShare_RejectsRevokedLink(t *testing.T) {
 // anon connections: viewer and commentor → read-only; editor → writable.
 func TestAuthorizeAnonShare_AnonIsReadOnly(t *testing.T) {
 	app := setupShareTestApp(t)
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
+	item := seedSharedItem(t, app, nil, "doc.docx")
 
 	cases := []struct {
 		shareRole string
@@ -160,7 +161,7 @@ func TestAuthorizeAnonShare_AnonIsReadOnly(t *testing.T) {
 // TestAuthorizeAnonShare_Expired verifies that an expired link is rejected.
 func TestAuthorizeAnonShare_Expired(t *testing.T) {
 	app := setupShareTestApp(t)
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
+	item := seedSharedItem(t, app, nil, "doc.docx")
 	tok := strings.Repeat("b", 64-len(item.Id)) + item.Id
 
 	linksCol, err := app.FindCollectionByNameOrId("drive_share_links")

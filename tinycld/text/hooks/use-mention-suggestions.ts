@@ -17,7 +17,7 @@ import { useMemo } from 'react'
 // Used by read-only viewer mounts where mention pickers are
 // unreachable — see screens/[id].tsx for the read-only design decision.
 export function useMentionSuggestions(
-    currentUserOrgId: string,
+    currentUserId: string,
     options?: { disabled?: boolean }
 ): MentionSuggestion[] {
     const disabled = options?.disabled === true
@@ -31,13 +31,11 @@ export function useMentionSuggestions(
             // off. Same short-circuit applies for `disabled` (read-only
             // viewer mount).
             if (disabled || !capabilities.canMention) return null
-            return query
-                .from({ u: usersCollection })
-                .select(({ u }) => ({
-                    userOrgId: u.id,
-                    displayName: u.name,
-                    email: u.email,
-                }))
+            return query.from({ u: usersCollection }).select(({ u }) => ({
+                userId: u.id,
+                displayName: u.name,
+                email: u.email,
+            }))
         },
         [capabilities.canMention, disabled]
     )
@@ -45,19 +43,19 @@ export function useMentionSuggestions(
     return useMemo(() => {
         const out: MentionSuggestion[] = []
         for (const m of members as Array<{
-            userOrgId: string
+            userId: string
             displayName: string | null
             email: string | null
         }>) {
-            if (m.userOrgId === currentUserOrgId) continue
+            if (m.userId === currentUserId) continue
             const displayName = m.displayName || m.email || 'Unknown'
             out.push({
-                userOrgId: m.userOrgId,
+                userId: m.userId,
                 displayName,
                 secondary: m.email || undefined,
             })
         }
         out.sort((a, b) => a.displayName.localeCompare(b.displayName))
         return out
-    }, [members, currentUserOrgId])
+    }, [members, currentUserId])
 }

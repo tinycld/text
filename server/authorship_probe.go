@@ -125,4 +125,3 @@ func skipStructsForClient(decoder *ycrdt.UpdateDecoderV1, n uint64) (ok bool) {
 	}
 	return true
 }
-

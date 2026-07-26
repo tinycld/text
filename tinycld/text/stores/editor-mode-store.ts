@@ -10,7 +10,7 @@ export type EditorMode =
     | typeof EDITOR_MODE_VIEWING
 
 export interface EditorIdentity {
-    userOrgId: string
+    userId: string
 }
 
 export interface EditorModeState {

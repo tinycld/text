@@ -4,7 +4,7 @@ import { acceptSuggestion, rejectSuggestion } from './resolve'
 import { SuggestionsMap } from './suggestions-map'
 
 export interface BulkResolveOptions {
-    resolverUserOrgId: string
+    resolverUserId: string
     yDoc: Y.Doc
 }
 

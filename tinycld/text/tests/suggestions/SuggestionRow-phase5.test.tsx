@@ -15,7 +15,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
 // pulls the current user_org id from useEditorMount. Stub it so
 // standalone renders work without an EditorMount provider.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
-    useEditorMount: () => ({ identity: { userOrgId: 'uo_me' } }),
+    useEditorMount: () => ({ identity: { userId: 'user_me' } }),
 }))
 vi.mock('~/tinycld/text/hooks/use-mention-suggestions', () => ({
     useMentionSuggestions: () => [],
@@ -69,7 +69,7 @@ function renderRow(
         <SuggestionRow
             suggestion={suggestion}
             driveItemId="di_test"
-            authorUserOrgId="uo_me"
+            authorUserId="uo_me"
             isFocused={overrides.isFocused ?? false}
             canResolve
             isPending={false}
@@ -226,7 +226,7 @@ describe('SuggestionRow (Task 4 — focus + header behavior)', () => {
             <SuggestionRow
                 suggestion={row({})}
                 driveItemId="di_test"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 isFocused
                 canResolve
                 isPending={false}
@@ -242,7 +242,7 @@ describe('SuggestionRow (Task 4 — focus + header behavior)', () => {
             <SuggestionRow
                 suggestion={row({})}
                 driveItemId="di_test"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 isFocused
                 canResolve
                 isPending={false}

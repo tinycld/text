@@ -46,10 +46,11 @@ function makeSource(overrides: Partial<FilePreviewSource>): FilePreviewSource {
 // factory hands to router.push, so the exact return shape needs to
 // match what useOrgHref produces.
 function stubOrgHref(path: string, extra?: Record<string, string>) {
-    const pathname = `/a/[orgSlug]/${path}`
+    // Single-org: core's useOrgHref emits a bare `/${path}` with no
+    // orgSlug segment and no org param.
     return {
-        pathname,
-        params: { orgSlug: 'acme', ...extra },
+        pathname: `/${path}`,
+        params: { ...extra },
     } as unknown as ReturnType<ReturnType<typeof Object>>
 }
 
@@ -90,7 +91,7 @@ describe('buildOpenInTextAction', () => {
             pathname: string
             params: Record<string, string>
         }
-        expect(navTarget.pathname).toBe('/a/[orgSlug]/text/[id]')
+        expect(navTarget.pathname).toBe('/text/[id]')
         expect(navTarget.params.id).toBe('drive_item_xyz')
         expect(ctx.close).toHaveBeenCalledTimes(1)
     })

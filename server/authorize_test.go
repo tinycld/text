@@ -7,6 +7,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/driveshare"
 	"tinycld.org/core/realtime"
 )
 
@@ -25,8 +26,8 @@ func TestRegisterRealtimeRegisters(t *testing.T) {
 		t.Fatalf("Register did not register the %q room kind", roomKindText)
 	}
 
-	if err := authorize(nil, "any-drive-item-id"); !errors.Is(err, errNoShare) {
-		t.Fatalf("nil auth: expected errNoShare, got %v", err)
+	if err := authorize(nil, "any-drive-item-id"); !errors.Is(err, driveshare.ErrNoAccess) {
+		t.Fatalf("nil auth: expected ErrNoAccess, got %v", err)
 	}
 }
 
@@ -54,8 +55,8 @@ func TestAuthorize_DeniesNilAuth(t *testing.T) {
 	authFn := makeAuthorize(app)
 	if err := authFn(nil, "any-id"); err == nil {
 		t.Error("expected error for nil auth")
-	} else if !errors.Is(err, errNoShare) {
-		t.Errorf("nil auth: want errNoShare, got %v", err)
+	} else if !errors.Is(err, driveshare.ErrNoAccess) {
+		t.Errorf("nil auth: want ErrNoAccess, got %v", err)
 	}
 }
 
@@ -80,12 +81,12 @@ func TestAuthorize_DeniesEmptyAuthID(t *testing.T) {
 func TestAuthorize_DeniesMissingShares(t *testing.T) {
 	app := setupAuthTestApp(t)
 	user := mustCreateUser(t, app, "alice@example.com")
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
+	item := seedSharedItem(t, app, nil, "doc.docx")
 
 	authFn := makeAuthorize(app)
 	err := authFn(user, item.Id)
-	if !errors.Is(err, errNoShare) {
-		t.Errorf("missing shares: want errNoShare, got %v", err)
+	if !errors.Is(err, driveshare.ErrNoAccess) {
+		t.Errorf("missing shares: want ErrNoAccess, got %v", err)
 	}
 }
 
@@ -97,8 +98,8 @@ func TestAuthorize_DeniesNonExistentItem(t *testing.T) {
 
 	authFn := makeAuthorize(app)
 	err := authFn(user, "nonexistent-item-id")
-	if !errors.Is(err, errNoShare) {
-		t.Errorf("nonexistent item: want errNoShare, got %v", err)
+	if !errors.Is(err, driveshare.ErrNoAccess) {
+		t.Errorf("nonexistent item: want ErrNoAccess, got %v", err)
 	}
 }
 
@@ -107,9 +108,8 @@ func TestAuthorize_DeniesNonExistentItem(t *testing.T) {
 func TestAuthorize_GrantsEditor(t *testing.T) {
 	app := setupAuthTestApp(t)
 	user := mustCreateUser(t, app, "alice@example.com")
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
-	userOrgID := seedUserOrg(t, app, user.Id, "org-acme")
-	seedShare(t, app, item.Id, userOrgID, "editor")
+	item := seedSharedItem(t, app, nil, "doc.docx")
+	seedShare(t, app, item.Id, user.Id, "editor")
 
 	authFn := makeAuthorize(app)
 	if err := authFn(user, item.Id); err != nil {
@@ -122,9 +122,8 @@ func TestAuthorize_GrantsEditor(t *testing.T) {
 func TestAuthorize_GrantsViewer(t *testing.T) {
 	app := setupAuthTestApp(t)
 	user := mustCreateUser(t, app, "alice@example.com")
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
-	userOrgID := seedUserOrg(t, app, user.Id, "org-acme")
-	seedShare(t, app, item.Id, userOrgID, "viewer")
+	item := seedSharedItem(t, app, nil, "doc.docx")
+	seedShare(t, app, item.Id, user.Id, "viewer")
 
 	authFn := makeAuthorize(app)
 	if err := authFn(user, item.Id); err != nil {
@@ -132,50 +131,14 @@ func TestAuthorize_GrantsViewer(t *testing.T) {
 	}
 }
 
-// TestAuthorize_DeniesCrossOrgShare: a share row in a different org
-// than the item must NOT grant access. This is the org-isolation
-// regression test — without the user_org.org constraint in the filter,
-// a stale share from a previous org membership would silently grant
-// edit access.
-func TestAuthorize_DeniesCrossOrgShare(t *testing.T) {
-	app := setupAuthTestApp(t)
-	user := mustCreateUser(t, app, "alice@example.com")
-	// Item belongs to org-bravo
-	item := seedDriveItemInOrg(t, app, "org-bravo", "doc.docx")
-	// But user's share row is keyed to a user_org in org-acme (stale
-	// from a previous org membership).
-	staleUserOrgID := seedUserOrg(t, app, user.Id, "org-acme")
-	seedShare(t, app, item.Id, staleUserOrgID, "editor")
-
-	authFn := makeAuthorize(app)
-	err := authFn(user, item.Id)
-	if !errors.Is(err, errNoShare) {
-		t.Errorf("cross-org share: want errNoShare, got %v", err)
-	}
-}
-
-// TestResolveShareRole_PicksHighestPrivilege: when a user has both a
-// viewer and an editor row for the same item (e.g. they were a viewer,
-// then promoted, and the cleanup didn't remove the old row), the
-// resolved role must be editor — owner > editor > viewer.
-func TestResolveShareRole_PicksHighestPrivilege(t *testing.T) {
-	app := setupAuthTestApp(t)
-	user := mustCreateUser(t, app, "alice@example.com")
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
-	userOrgID := seedUserOrg(t, app, user.Id, "org-acme")
-	seedShare(t, app, item.Id, userOrgID, "viewer")
-	// Second share row — different user_org, same user, same item, but editor.
-	secondUserOrgID := seedUserOrg(t, app, user.Id, "org-acme")
-	seedShare(t, app, item.Id, secondUserOrgID, "editor")
-
-	role, err := resolveShareRole(app, user.Id, item.Id)
-	if err != nil {
-		t.Fatalf("resolveShareRole: %v", err)
-	}
-	if role != roleEditor {
-		t.Errorf("role: want editor, got %q", role)
-	}
-}
+// The cross-org staleness test that lived here was deleted rather than
+// adapted: single-org has no second org for a share to be stale
+// against. The property it guarded — a departed member's grants not
+// surviving — is now userorg.OffboardUser's, which has its own tests.
+//
+// TestResolveShareRole_PicksHighestPrivilege also went away: role
+// resolution moved to core/driveshare, which unit-tests the full
+// owner > editor > viewer ladder against synthetic collections.
 
 // TestIsReadOnlyForConn covers the read-only signal that gets shipped
 // in MsgServerHello. owner/editor → false; viewer → true; missing
@@ -186,14 +149,11 @@ func TestIsReadOnlyForConn(t *testing.T) {
 	viewer := mustCreateUser(t, app, "viewer@example.com")
 	owner := mustCreateUser(t, app, "owner@example.com")
 	stranger := mustCreateUser(t, app, "stranger@example.com")
-	item := seedDriveItemInOrg(t, app, "org-acme", "doc.docx")
+	item := seedSharedItem(t, app, nil, "doc.docx")
 
-	editorUO := seedUserOrg(t, app, editor.Id, "org-acme")
-	seedShare(t, app, item.Id, editorUO, "editor")
-	viewerUO := seedUserOrg(t, app, viewer.Id, "org-acme")
-	seedShare(t, app, item.Id, viewerUO, "viewer")
-	ownerUO := seedUserOrg(t, app, owner.Id, "org-acme")
-	seedShare(t, app, item.Id, ownerUO, "owner")
+	seedShare(t, app, item.Id, editor.Id, "editor")
+	seedShare(t, app, item.Id, viewer.Id, "viewer")
+	seedShare(t, app, item.Id, owner.Id, "owner")
 	// stranger has no share
 
 	cases := []struct {
@@ -217,23 +177,5 @@ func TestIsReadOnlyForConn(t *testing.T) {
 	}
 }
 
-// TestRoleCanWrite covers the canWrite predicate that drives
-// isReadOnlyForConn: only owner and editor may write; viewer and any
-// unrecognized role are read-only (fail closed).
-func TestRoleCanWrite(t *testing.T) {
-	cases := []struct {
-		role shareRole
-		want bool
-	}{
-		{roleOwner, true},
-		{roleEditor, true},
-		{roleViewer, false},
-		{shareRole(""), false},
-		{shareRole("admin"), false}, // unknown role → fail closed
-	}
-	for _, c := range cases {
-		if got := c.role.canWrite(); got != c.want {
-			t.Errorf("canWrite(%q): got %v, want %v", c.role, got, c.want)
-		}
-	}
-}
+// The canWrite predicate moved to core/driveshare (Role.CanWrite) and
+// is unit-tested there, including the unknown-role fail-closed case.

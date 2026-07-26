@@ -16,9 +16,7 @@ export function useTextDocuments() {
     return useOrgLiveQuery(query =>
         query
             .from({ item: driveItemsCollection })
-            .where(({ item }) =>
-                and(eq(item.mime_type, DOCX_MIME_TYPE), eq(item.is_folder, false))
-            )
+            .where(({ item }) => and(eq(item.mime_type, DOCX_MIME_TYPE), eq(item.is_folder, false)))
             .orderBy(({ item }) => item.updated, 'desc')
     )
 }

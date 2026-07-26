@@ -10,7 +10,7 @@ import (
 
 // Regression: y-tiptap encodes "overlapping" marks (marks whose
 // excludes set permits a same-type mark to coexist on the same
-// range — suggestedDelete / suggestedInsert use excludes:'' so two
+// range — suggestedDelete / suggestedInsert use excludes:” so two
 // authors can independently propose the same edit) under a HASHED
 // attribute key on the YText: `${mark.type.name}--${hashOfJSON(json)}`.
 //
@@ -29,10 +29,10 @@ import (
 // survived.
 //
 // User-visible bug:
-//   1. switch to Suggesting mode
-//   2. delete a run — the strikethrough decoration applies
-//   3. reload the page
-//   4. the strikethrough is gone and the text reads as a plain run
+//  1. switch to Suggesting mode
+//  2. delete a run — the strikethrough decoration applies
+//  3. reload the page
+//  4. the strikethrough is gone and the text reads as a plain run
 //
 // This test exercises the exact path that breaks: build a YText
 // whose only mark is stored under the hashed key (i.e. exactly what

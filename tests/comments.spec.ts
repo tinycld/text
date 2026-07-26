@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     openFreshTextDocument,
@@ -15,7 +15,7 @@ import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-mu
 // drawer list. The comment system is layered:
 //   1. Tiptap mark — applied to the selected range.
 //   2. PB row in `text_comments` — stores body + author + thread state.
-//   3. PB row in `comment_mentions` — one per `[[@user_org_id]]` token.
+//   3. PB row in `comment_mentions` — one per `[[@user_id]]` token.
 //   4. notify hook — observes the mention insert and writes a
 //      notifications row + dispatches push.
 //
@@ -118,29 +118,27 @@ test.describe('Text — Comments', () => {
         await page.keyboard.press('a')
         await page.keyboard.up(meta)
 
-        // Need a second user_org row to mention. The simplest path:
-        // mention the test user themselves and assert the notify hook's
-        // self-mention guard drops the row. Negative coverage of the
-        // happy path is uncomfortable; instead, fetch any user_org row
-        // belonging to a *different* user in the same org from the
-        // admin API (the seeded fixtures always include at least one
+        // Need a second user to mention. The simplest path: mention the
+        // test user themselves and assert the notify hook's self-mention
+        // guard drops the row. Negative coverage of the happy path is
+        // uncomfortable; instead, fetch a *different* user from the admin
+        // API (the seeded fixtures always include at least one
         // collaborator). When none exists, skip.
-        const orgUOs = await fetchOtherUserOrgs(request)
+        const peers = await fetchOtherUsers(request)
         test.skip(
-            orgUOs.length === 0,
-            'no other user_org row available — seed a collaborator to exercise this path'
+            peers.length === 0,
+            'no other user available — seed a collaborator to exercise this path'
         )
-        const targetUserOrgId = orgUOs[0].id
-        const targetUserId = orgUOs[0].user
+        const targetUserId = peers[0].id
 
         await page.getByRole('button', { name: 'New comment' }).click()
         const composer = page.getByRole('textbox', { name: 'body' }).first()
         // Type @ to open the popover, then a fragment of the display
         // name to filter. Picking from the popover replaces the typed
-        // fragment with the `[[@user_org_id]]` token; on submit, the
+        // fragment with the `[[@user_id]]` token; on submit, the
         // mutations factory inserts a comment_mentions row and the Go
         // hook writes the notifications row.
-        await composer.fill(`Pinging [[@${targetUserOrgId}]] please review`)
+        await composer.fill(`Pinging [[@${targetUserId}]] please review`)
         await page.getByRole('button', { name: 'Comment', exact: true }).click()
         await expect(page.getByText('please review')).toBeVisible()
 
@@ -179,11 +177,11 @@ test.describe('Text — Comments', () => {
             const pageB = await ctxB.newPage()
 
             await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await pageA.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await pageA.goto(`/text/${itemId}`)
             await waitForEditor(pageA)
 
             await loginAs(pageB, userB.email, userB.password)
-            await pageB.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await pageB.goto(`/text/${itemId}`)
             await waitForEditor(pageB)
 
             // A: select-all and post a comment.
@@ -230,13 +228,13 @@ test.describe('Text — Comments', () => {
     })
 
     // SCHEMA-IMPOSSIBLE as written: text_comments.author is a
-    // required:true + cascadeDelete:false relation to user_org (see
+    // required:true + cascadeDelete:false relation to users (see
     // pb-migrations/1720000000_create_text_comments.js, field tc_author).
-    // PocketBase therefore *blocks* deleting any user_org that an existing
+    // PocketBase therefore *blocks* deleting any user that an existing
     // comment still references — it can neither null a required field nor
-    // cascade. So "delete the author's membership and watch the comment
-    // survive" can never run green: the membership delete 400s and
-    // deleteUserOrg returns false. No package e2e-tests this (calc's
+    // cascade. So "delete the author and watch the comment survive" can
+    // never run green: the user delete 400s and deleteCommentAuthor
+    // returns false. No package e2e-tests this (calc's
     // calc_comments.author carries the identical required+non-cascade
     // constraint and is only unit-tested). The author_name snapshot is a
     // display optimization (avoids a join), not a survives-deletion
@@ -248,13 +246,12 @@ test.describe('Text — Comments', () => {
         request,
     }) => {
         // A throwaway collaborator posts a comment, then we admin-delete
-        // the user_org row backing *that throwaway's* membership and
-        // verify the comment still renders with the snapshotted
-        // author_name.
+        // *that throwaway's* users row and verify the comment still
+        // renders with the snapshotted author_name.
         //
-        // Crucially we delete the THROWAWAY user's membership, never the
-        // shared test user's — deleting the test user's own user_org
-        // would lock every other (parallel or serial) test out of the org.
+        // Crucially we delete the THROWAWAY user, never the shared test
+        // user — deleting that one would lock every other (parallel or
+        // serial) test out of the deployment.
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('comments-author-deleted'))
         const author = await createSecondUser('comments-author-deleted')
         await shareDriveItemWith(itemId, author)
@@ -263,7 +260,7 @@ test.describe('Text — Comments', () => {
         try {
             const authorPage = await ctx.newPage()
             await loginAs(authorPage, author.email, author.password)
-            await authorPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await authorPage.goto(`/text/${itemId}`)
             await waitForEditor(authorPage)
 
             await editorRoot(authorPage).click()
@@ -281,18 +278,18 @@ test.describe('Text — Comments', () => {
             await ctx.close()
         }
 
-        // Wipe the comment author's membership. We read the author back
-        // from the just-posted comment rather than assuming it equals the
-        // user_org row we minted: the throwaway is the ONLY poster on this
-        // fresh per-test doc, so the latest comment's author is guaranteed
-        // to be them — and deleting whatever the app actually recorded is
-        // robust to however the poster's user_org gets resolved. Critically
-        // this is still the throwaway, never the shared test user, so no
-        // other test gets locked out of the org. text_comments.author has
+        // Wipe the comment author. We read the author back from the
+        // just-posted comment rather than assuming it equals the user we
+        // minted: the throwaway is the ONLY poster on this fresh per-test
+        // doc, so the latest comment's author is guaranteed to be them —
+        // and deleting whatever the app actually recorded is robust to
+        // however the poster gets resolved. Critically this is still the
+        // throwaway, never the shared test user, so no other test gets
+        // locked out. text_comments.author has
         // cascade-set-null semantics but author_name stays untouched.
         const comment = await findLatestTextComment(request, itemId)
         if (comment === null) throw new Error('no text_comment found for the document')
-        const ok = await deleteUserOrg(request, comment.author)
+        const ok = await deleteCommentAuthor(request, comment.author)
         expect(ok).toBe(true)
 
         // The shared test user opens the doc; the drawer should still
@@ -303,7 +300,7 @@ test.describe('Text — Comments', () => {
         try {
             const viewer = await viewerCtx.newPage()
             await loginAs(viewer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await viewer.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await viewer.goto(`/text/${itemId}`)
             await waitForEditor(viewer)
             await viewer.getByRole('button', { name: 'Comments', exact: true }).click()
             await expect(viewer.getByText('soon to be orphaned author').last()).toBeVisible()
@@ -330,16 +327,15 @@ async function adminToken(
     return body.token
 }
 
-// Returns up to a handful of user_org rows in the test user's org
-// belonging to *other* users. Used by the mention test to pick a real
-// target without requiring a fresh seed step.
-async function fetchOtherUserOrgs(
+// Returns up to a handful of users other than the test user. Used by the
+// mention test to pick a real target without requiring a fresh seed step.
+// Single-org: every users row is a member, so no membership join.
+async function fetchOtherUsers(
     request: import('@playwright/test').APIRequestContext
-): Promise<Array<{ id: string; user: string }>> {
+): Promise<Array<{ id: string }>> {
     const token = await adminToken(request)
     if (!token) return []
 
-    // Resolve the test user's org via the api refresh path.
     const meRes = await request.post(`${PB_URL}/api/collections/users/auth-with-password`, {
         data: {
             identity: process.env.TEST_USER_LOGIN ?? 'user@tinycld.org',
@@ -350,22 +346,12 @@ async function fetchOtherUserOrgs(
     const meBody = (await meRes.json()) as { record: { id: string } }
     const meId = meBody.record.id
 
-    // Walk user_org rows; filter to "same org as me, different user".
-    const myUO = await request.get(
-        `${PB_URL}/api/collections/user_org/records?filter=user='${meId}'&perPage=1`,
-        { headers: { Authorization: token } }
-    )
-    if (!myUO.ok()) return []
-    const myUOBody = (await myUO.json()) as { items: Array<{ org: string }> }
-    if (myUOBody.items.length === 0) return []
-    const orgId = myUOBody.items[0].org
-
     const peers = await request.get(
-        `${PB_URL}/api/collections/user_org/records?filter=org='${orgId}'%26%26user!='${meId}'&perPage=5`,
+        `${PB_URL}/api/collections/users/records?filter=${encodeURIComponent(`id!='${meId}'`)}&perPage=5`,
         { headers: { Authorization: token } }
     )
     if (!peers.ok()) return []
-    const peersBody = (await peers.json()) as { items: Array<{ id: string; user: string }> }
+    const peersBody = (await peers.json()) as { items: Array<{ id: string }> }
     return peersBody.items
 }
 
@@ -398,7 +384,7 @@ async function waitForNotification(
 
 // Returns the most recent text_comments row anchored to driveItemId,
 // or null if none exists. Used by the author-deleted test to find
-// the row it just posted from the UI so it can delete the user_org
+// the row it just posted from the UI so it can delete the user
 // behind it.
 async function findLatestTextComment(
     request: import('@playwright/test').APIRequestContext,
@@ -415,18 +401,18 @@ async function findLatestTextComment(
     return body.items[0] ?? null
 }
 
-async function deleteUserOrg(
+async function deleteCommentAuthor(
     request: import('@playwright/test').APIRequestContext,
-    userOrgId: string
+    userId: string
 ): Promise<boolean> {
     const token = await adminToken(request)
     if (!token) return false
-    // drive_shares.user_org is a non-cascading relation, so an existing
-    // share row referencing this membership blocks the user_org delete.
-    // Clear those first (the author-deleted test grants the throwaway a
-    // share so it can post), then delete the membership itself.
+    // drive_shares.user is a non-cascading relation, so an existing share
+    // row referencing this user blocks the delete. Clear those first (the
+    // author-deleted test grants the throwaway a share so it can post),
+    // then delete the user itself.
     const shares = await request.get(
-        `${PB_URL}/api/collections/drive_shares/records?filter=user_org='${userOrgId}'&perPage=200`,
+        `${PB_URL}/api/collections/drive_shares/records?filter=user='${userId}'&perPage=200`,
         { headers: { Authorization: token } }
     )
     if (shares.ok()) {
@@ -437,7 +423,7 @@ async function deleteUserOrg(
             })
         }
     }
-    const res = await request.delete(`${PB_URL}/api/collections/user_org/records/${userOrgId}`, {
+    const res = await request.delete(`${PB_URL}/api/collections/users/records/${userId}`, {
         headers: { Authorization: token },
     })
     return res.ok()

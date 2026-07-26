@@ -29,7 +29,7 @@ describe('Phase 5 format-change interception', () => {
 
     it('toggleBold in editing mode applies the bold mark normally (no interception)', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
         const yDoc = new Y.Doc()
 
@@ -65,7 +65,7 @@ describe('Phase 5 format-change interception', () => {
 
     it('toggleBold in suggesting mode stamps suggestedFormatChange with before/after', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -139,7 +139,7 @@ describe('Phase 5 format-change interception', () => {
 
     it('toggleBold removing a previously-bolded run stamps before=[bold], after=[]', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -199,7 +199,7 @@ describe('Phase 5 format-change interception', () => {
 
     it('two rapid toggleBold calls in suggesting mode share one suggestionId', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -239,7 +239,7 @@ describe('Phase 5 format-change interception', () => {
         // just verify the mechanical removal works — the range, the
         // mark type, and the schema all interact correctly.
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 

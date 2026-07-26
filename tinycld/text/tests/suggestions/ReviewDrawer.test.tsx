@@ -15,7 +15,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
 // shared CommentComposer; stub both so the drawer can render without
 // an EditorMount provider or a live TipTap mount.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
-    useEditorMount: () => ({ identity: { userOrgId: 'uo_me' } }),
+    useEditorMount: () => ({ identity: { userId: 'user_me' } }),
 }))
 vi.mock('~/tinycld/text/hooks/use-mention-suggestions', () => ({
     useMentionSuggestions: () => [],
@@ -50,7 +50,7 @@ describe('ReviewDrawer', () => {
         const { container } = render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[]}
                 orphaned={[]}
@@ -72,7 +72,7 @@ describe('ReviewDrawer', () => {
         const { container } = render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[]}
                 orphaned={[]}
@@ -94,7 +94,7 @@ describe('ReviewDrawer', () => {
         render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[
                     {
@@ -126,7 +126,7 @@ describe('ReviewDrawer', () => {
         render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[
                     {
@@ -159,7 +159,7 @@ describe('ReviewDrawer', () => {
         render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[]}
                 orphaned={[]}
@@ -188,7 +188,7 @@ describe('ReviewDrawer', () => {
         render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[]}
                 orphaned={[
@@ -223,7 +223,7 @@ describe('ReviewDrawer', () => {
         render(
             <ReviewDrawer
                 driveItemId="di_1"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 store={store}
                 anchored={[
                     {

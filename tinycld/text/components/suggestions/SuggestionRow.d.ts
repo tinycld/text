@@ -17,7 +17,7 @@ import type { AnchoredSuggestion } from '../../hooks/use-document-suggestions'
 export interface SuggestionRowProps {
     suggestion: AnchoredSuggestion
     driveItemId: string
-    authorUserOrgId: string
+    authorUserId: string
     isFocused: boolean
     canResolve: boolean
     isPending: boolean

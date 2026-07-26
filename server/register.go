@@ -9,6 +9,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/blankfile"
+	"tinycld.org/core/driveshare"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
 	"tinycld.org/core/userorg"
@@ -35,14 +36,14 @@ var blankDOCX []byte
 // (isReadOnlyForConn / SetReadOnly in OnConnect).
 func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string) error {
 	if claims.ItemID != roomID {
-		return errNoShare
+		return driveshare.ErrNoAccess
 	}
 	link, item, err := sharelink.ResolveLink(app, claims.ShareToken)
 	if err != nil {
 		return err
 	}
 	if item.Id != roomID {
-		return errNoShare
+		return driveshare.ErrNoAccess
 	}
 	role := link.GetString("role")
 	switch role {
@@ -51,9 +52,22 @@ func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string
 		// the broker WritePredicate (isReadOnlyForConn), so viewers and
 		// commentors may open the room but cannot write.
 	default:
-		return errNoShare
+		return driveshare.ErrNoAccess
 	}
 	return nil
+}
+
+// makeAuthorize returns the realtime.AuthorizeFn for "text-doc" rooms.
+// roomID is a drive_items.id; the user may join iff they may read the
+// item — its creator, or the holder of any drive_shares row. Viewers are
+// admitted read-only; the write gate is isReadOnlyForConn.
+func makeAuthorize(app core.App) func(*core.Record, string) error {
+	return func(auth *core.Record, roomID string) error {
+		if auth == nil || auth.Id == "" {
+			return driveshare.ErrNoAccess
+		}
+		return driveshare.CheckRead(app, auth.Id, roomID)
+	}
 }
 
 // roomKindText is the realtime roomKind name owned by this package.
@@ -132,7 +146,7 @@ func Register(app *pocketbase.PocketBase) {
 		// and stamp clientAuthors / clientFirstSeen for any ID we
 		// haven't seen yet in this room. The stamper is the orchestration
 		// layer that pulls together the probe (extractWritingClientIDs),
-		// the user_org resolver, the writer (writeAuthorshipEntries),
+		// the writer (writeAuthorshipEntries),
 		// and the broadcast (Room.PublishDocUpdate). See
 		// authorship_stamper.go for the full flow.
 		//
@@ -147,13 +161,13 @@ func Register(app *pocketbase.PocketBase) {
 		// is indexed (idx_text_comments_suggestion), so the combined
 		// overhead per frame stays in the low milliseconds.
 		OnDocUpdateContent: composeOnDocUpdateContent(
-			makeAuthorshipStamper(app, runtime),
+			makeAuthorshipStamper(runtime),
 			makeSuggestionDiscussionCleanup(app, runtime),
 		),
-		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
-		OnEmpty:            saveCoordinator.OnRoomEmpty,
-		ForceFlush:         saveCoordinator.FlushNow,
-		OnConnect:          makeOnConnect(app, runtime),
+		OnDocUpdateSeq: saveCoordinator.NoteSeq,
+		OnEmpty:        saveCoordinator.OnRoomEmpty,
+		ForceFlush:     saveCoordinator.FlushNow,
+		OnConnect:      makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads
 		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no
@@ -266,9 +280,9 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 //   - missing / unknown role → fail-closed read-only (returns true)
 //
 // The connection has already been admitted by makeAuthorize at this
-// point, so any error from resolveShareRole here is unexpected — we
-// log and return true (deny writes) rather than silently granting
-// edit access on a transient DB error.
+// point, so a denial here means the user holds only viewer access (or a
+// transient DB error occurred) — either way we deny writes rather than
+// silently granting edit access.
 //
 // Note: this resolves the read-only decision used for BOTH the client
 // serverHello signal (which disables the editor UI) and the cached flag
@@ -279,8 +293,8 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool {
 	// Anonymous share-session visitor: the editable route only admits
 	// editor-role links (enforced in AuthorizeShare), so an anon
-	// connection here is writable. Their drive has no drive_shares row,
-	// so don't run the org-member resolution below.
+	// connection here is writable. They have no drive_shares row, so
+	// don't run the member resolution below.
 	if conn.IsAnonymous() {
 		return conn.ShareRole() != sharelink.RoleEditor
 	}
@@ -288,11 +302,7 @@ func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool 
 	if userID == "" {
 		return true
 	}
-	role, err := resolveShareRole(app, userID, roomID)
-	if err != nil {
-		return true
-	}
-	return !role.canWrite()
+	return !driveshare.CanWrite(app, userID, roomID)
 }
 
 // convertWarnings maps the internal translate.Warning slice to the

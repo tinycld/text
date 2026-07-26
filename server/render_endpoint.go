@@ -7,6 +7,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/driveshare"
 	"tinycld.org/packages/text/render"
 	"tinycld.org/packages/text/translate"
 )
@@ -21,7 +22,7 @@ const docxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessi
 // registerRenderAPI binds the text HTTP render endpoint. Called from
 // Register at startup. The endpoint runs through the standard PB auth
 // middleware (so re.Auth is non-nil) and additionally enforces drive
-// share access via resolveShareRole — same predicate the realtime
+// share access via driveshare.CheckRead — same predicate the realtime
 // authorize uses.
 //
 // Mirrors calc/server/api.go::registerAPI verbatim. The two endpoints
@@ -69,10 +70,8 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 	if driveItemID == "" {
 		return re.BadRequestError("missing drive_item id", nil)
 	}
-	// resolveShareRole returns errNoShare for both "no row exists" and
-	// "row belongs to a different org" — the role itself isn't needed
-	// for render (read-only operation; viewers can render).
-	if _, err := resolveShareRole(app, re.Auth.Id, driveItemID); err != nil {
+	// Read access is enough: rendering is read-only, so viewers render.
+	if err := driveshare.CheckRead(app, re.Auth.Id, driveItemID); err != nil {
 		return re.ForbiddenError("no access to this drive item", nil)
 	}
 	item, err := app.FindRecordById(driveItemsCollection, driveItemID)
@@ -213,11 +212,11 @@ func renderETag(driveItemID, updated string) string {
 // content, and app.FindRecordById bypasses PocketBase collection
 // rules — so this fetcher must re-impose the read authorization PB
 // would normally enforce. Only drive_items records are resolvable,
-// and only when authUserID holds a live share on that exact record
-// (resolveShareRole — the same org-constrained predicate that gates
-// the render target, realtime room admission, and write access).
-// Without this, any editor could embed another org's file URL and
-// exfiltrate its bytes through the rendered output.
+// and only when authUserID may read that exact record
+// (driveshare.CheckRead — the same predicate that gates the render
+// target, realtime room admission, and write access). Without this, any
+// editor could embed another user's file URL and exfiltrate its bytes
+// through the rendered output.
 func makeEmbedFetcher(app core.App, authUserID string) translate.EmbedFetcher {
 	return func(src string) (string, []byte, error) {
 		coll, recID, fileName, ok := parseDriveFileURL(src)
@@ -233,7 +232,7 @@ func makeEmbedFetcher(app core.App, authUserID string) translate.EmbedFetcher {
 		if authUserID == "" {
 			return "", nil, fmt.Errorf("text render: embed fetch requires an authenticated user")
 		}
-		if _, err := resolveShareRole(app, authUserID, recID); err != nil {
+		if err := driveshare.CheckRead(app, authUserID, recID); err != nil {
 			return "", nil, fmt.Errorf("text render: no access to embedded drive item: %w", err)
 		}
 		record, err := app.FindRecordById(driveItemsCollection, recID)

@@ -14,25 +14,25 @@ import (
 // the referenced file's bytes off disk. app.FindRecordById bypasses
 // PocketBase collection rules, so the fetcher must re-impose the read
 // authorization PB would normally enforce: only drive_items records,
-// and only when the CALLER holds a live share on that exact record
-// (resolveShareRole, the same org-constrained predicate that gates the
-// render target and realtime room admission).
+// and only when the CALLER may read that exact record
+// (driveshare.CheckRead, the same predicate that gates the render target
+// and realtime room admission).
 //
 // The regression these guard against: any editor could embed another
-// org's file URL (e.g. .../api/files/drive_items/<victimRec>/<file>)
+// user's file URL (e.g. .../api/files/drive_items/<victimRec>/<file>)
 // and exfiltrate its bytes through the rendered output.
 //
 // We test at the level the fix lives — the makeEmbedFetcher closure
 // directly — because that's the single seam every render path (the
 // authenticated endpoint and the share-link render) funnels through.
 
-// seedDriveItemWithFileInOrg creates a drive_items record tagged to org
-// with a real file attachment, and returns the record plus the src URL
+// seedDriveItemWithFile creates a drive_items record with a real file
+// attachment, and returns the record plus the src URL
 // a document would carry to embed that file. PocketBase normalizes the
 // stored filename (adds a hash suffix), so the src must be built from
 // the persisted `file` value — not the name we passed in — for the
 // fetcher's storage-key lookup to resolve.
-func seedDriveItemWithFileInOrg(t *testing.T, app *tests.TestApp, orgID, name string, content []byte) (*core.Record, string) {
+func seedDriveItemWithFile(t *testing.T, app *tests.TestApp, creator *core.Record, name string, content []byte) (*core.Record, string) {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId(driveItemsCollection)
 	if err != nil {
@@ -41,7 +41,9 @@ func seedDriveItemWithFileInOrg(t *testing.T, app *tests.TestApp, orgID, name st
 	rec := core.NewRecord(collection)
 	rec.Set("name", name)
 	rec.Set("size", len(content))
-	rec.Set("org", orgID)
+	if creator != nil {
+		rec.Set("created_by", creator.Id)
+	}
 	f, err := filesystem.NewFileFromBytes(content, name)
 	if err != nil {
 		t.Fatalf("NewFileFromBytes: %v", err)
@@ -63,51 +65,51 @@ func seedDriveItemWithFileInOrg(t *testing.T, app *tests.TestApp, orgID, name st
 // decodes it; we only care whether the closure hands the bytes back.
 var pngBytes = []byte("\x89PNG\r\n\x1a\nSECRET-IMAGE-BYTES")
 
-// TestEmbedFetcher_DeniesCrossOrgNoShare is the KEY IDOR regression.
-// A user in org A asks (via document content they authored) to embed a
-// drive_items file owned by org B, with no share granting them access.
-// The fetcher must deny — returning an error and NO bytes — rather than
-// reading org B's file off disk and inlining it into org A's render.
-func TestEmbedFetcher_DeniesCrossOrgNoShare(t *testing.T) {
+// TestEmbedFetcher_DeniesUnsharedItem is the KEY IDOR regression.
+// An authenticated user asks (via document content they authored) to
+// embed a drive_items file another user owns, with no share granting
+// them access. The fetcher must deny — returning an error and NO bytes
+// — rather than reading the victim's file off disk and inlining it.
+func TestEmbedFetcher_DeniesUnsharedItem(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	attacker := mustCreateUser(t, app, "attacker@org-a.example.com")
-	// Attacker is a legitimate member of org A...
-	seedUserOrg(t, app, attacker.Id, "org-a")
+	attacker := mustCreateUser(t, app, "attacker@example.com")
+	victim := mustCreateUser(t, app, "victim@example.com")
 
-	// ...but the target file lives in org B, and the attacker holds no
-	// share on it.
-	_, src := seedDriveItemWithFileInOrg(t, app, "org-b", "victim-secret.png", pngBytes)
+	// The target file belongs to the victim; the attacker holds no share.
+	_, src := seedDriveItemWithFile(t, app, victim, "victim-secret.png", pngBytes)
 
 	fetch := makeEmbedFetcher(app, attacker.Id)
 	mime, data, err := fetch(src)
 	if err == nil {
-		t.Fatalf("cross-org embed must be denied, got mime=%q %d bytes", mime, len(data))
+		t.Fatalf("unshared embed must be denied, got mime=%q %d bytes", mime, len(data))
 	}
 	if len(data) != 0 {
 		t.Fatalf("denied embed must disclose NO bytes, got %d", len(data))
 	}
 }
 
-// TestEmbedFetcher_DeniesCrossOrgStaleShare hardens the previous case:
-// the attacker DOES have a drive_shares row for the target item, but it
-// is keyed to a user_org in the wrong org (org A) while the item lives
-// in org B — a stale share from a prior membership. resolveShareRole
-// constrains user_org.org to the item's org, so this must still deny.
-func TestEmbedFetcher_DeniesCrossOrgStaleShare(t *testing.T) {
+// TestEmbedFetcher_DeniesShareOnADifferentItem hardens the previous
+// case: the attacker holds a real editor share, but on a DIFFERENT
+// drive_item than the one the src points at. A share must authorize
+// only the exact record it names, so this must still deny.
+func TestEmbedFetcher_DeniesShareOnADifferentItem(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	attacker := mustCreateUser(t, app, "stale@org-a.example.com")
-	item, src := seedDriveItemWithFileInOrg(t, app, "org-b", "victim-secret.png", pngBytes)
+	attacker := mustCreateUser(t, app, "attacker@example.com")
+	victim := mustCreateUser(t, app, "victim@example.com")
 
-	// Stale share: user_org is in org A, item is in org B.
-	staleUserOrgID := seedUserOrg(t, app, attacker.Id, "org-a")
-	seedShare(t, app, item.Id, staleUserOrgID, "editor")
+	// A legitimate share the attacker holds — on an unrelated item.
+	decoy := seedSharedItem(t, app, victim, "decoy.docx")
+	seedShare(t, app, decoy.Id, attacker.Id, "editor")
+
+	// The src points at the victim's file, which the share does not cover.
+	_, src := seedDriveItemWithFile(t, app, victim, "victim-secret.png", pngBytes)
 
 	fetch := makeEmbedFetcher(app, attacker.Id)
 	mime, data, err := fetch(src)
 	if err == nil {
-		t.Fatalf("stale cross-org share must be denied, got mime=%q %d bytes", mime, len(data))
+		t.Fatalf("share on another item must not authorize this one, got mime=%q %d bytes", mime, len(data))
 	}
 	if len(data) != 0 {
 		t.Fatalf("denied embed must disclose NO bytes, got %d", len(data))
@@ -115,16 +117,14 @@ func TestEmbedFetcher_DeniesCrossOrgStaleShare(t *testing.T) {
 }
 
 // TestEmbedFetcher_AllowsShared is the positive control: a user with a
-// valid share (same org as the item) on the referenced drive_items
-// record gets the bytes back. Without this we couldn't tell a working
+// valid share on the referenced drive_items record gets the bytes back. Without this we couldn't tell a working
 // fetcher from one that denies everything.
 func TestEmbedFetcher_AllowsShared(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	user := mustCreateUser(t, app, "member@org-a.example.com")
-	item, src := seedDriveItemWithFileInOrg(t, app, "org-a", "shared.png", pngBytes)
-	userOrgID := seedUserOrg(t, app, user.Id, "org-a")
-	seedShare(t, app, item.Id, userOrgID, "viewer")
+	user := mustCreateUser(t, app, "member@example.com")
+	item, src := seedDriveItemWithFile(t, app, nil, "shared.png", pngBytes)
+	seedShare(t, app, item.Id, user.Id, "viewer")
 
 	fetch := makeEmbedFetcher(app, user.Id)
 	mime, data, err := fetch(src)
@@ -179,7 +179,7 @@ func seedOtherCollectionRecordWithFile(t *testing.T, app *tests.TestApp, collNam
 func TestEmbedFetcher_DeniesWrongCollection(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	user := mustCreateUser(t, app, "user@org-a.example.com")
+	user := mustCreateUser(t, app, "user@example.com")
 	src := seedOtherCollectionRecordWithFile(t, app, "mail_messages", pngBytes)
 
 	fetch := makeEmbedFetcher(app, user.Id)
@@ -199,11 +199,11 @@ func TestEmbedFetcher_DeniesWrongCollection(t *testing.T) {
 func TestEmbedFetcher_DeniesEmptyAuthUser(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	item, src := seedDriveItemWithFileInOrg(t, app, "org-a", "shared.png", pngBytes)
-	// A share exists for SOME user_org, but the fetcher is built with an
+	item, src := seedDriveItemWithFile(t, app, nil, "shared.png", pngBytes)
+	// A share exists for SOME user, but the fetcher is built with an
 	// empty authUserID, so there is no subject to match against.
-	userOrgID := seedUserOrg(t, app, "some-user-id", "org-a")
-	seedShare(t, app, item.Id, userOrgID, "owner")
+	other := mustCreateUser(t, app, "other@example.com")
+	seedShare(t, app, item.Id, other.Id, "owner")
 
 	fetch := makeEmbedFetcher(app, "")
 	mime, data, err := fetch(src)
@@ -224,10 +224,9 @@ func TestEmbedFetcher_DeniesEmptyAuthUser(t *testing.T) {
 func TestEmbedFetcher_DeniesTraversalFilename(t *testing.T) {
 	app := setupAuthTestApp(t)
 
-	user := mustCreateUser(t, app, "trav@org-a.example.com")
-	item, _ := seedDriveItemWithFileInOrg(t, app, "org-a", "shared.png", pngBytes)
-	userOrgID := seedUserOrg(t, app, user.Id, "org-a")
-	seedShare(t, app, item.Id, userOrgID, "owner")
+	user := mustCreateUser(t, app, "trav@example.com")
+	item, _ := seedDriveItemWithFile(t, app, nil, "shared.png", pngBytes)
+	seedShare(t, app, item.Id, user.Id, "owner")
 
 	// Even fully authorized on the record, a traversal filename is a
 	// hard drop.

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     openFreshTextDocument,
@@ -140,7 +140,7 @@ test.describe('Text — Suggestion thread flow', () => {
         try {
             const alicePage = await ctx.newPage()
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await alicePage.goto(`/text/${itemId}`)
             await waitForEditor(alicePage)
 
             // Alice writes a suggestion.
@@ -178,14 +178,14 @@ test.describe('Text — Suggestion thread flow', () => {
             await expect(alicePage.locator('[data-testid="suggestion-thread"]')).toBeVisible()
 
             // Type a reply with an embedded mention token. The wire
-            // format `[[@<userOrgId>]]` is what the composer would emit
+            // format `[[@<userId>]]` is what the composer would emit
             // after the user picked Bob from the @-popover; filling it
             // directly side-steps the popover keyboard dance and pins the
             // server contract (the notify hook fires off the mention row,
             // not the dropdown UI).
             const composer = alicePage.getByRole('textbox', { name: 'body' }).first()
             await composer.click()
-            await composer.fill(`Pinging [[@${bob.userOrgId}]] please review`)
+            await composer.fill(`Pinging [[@${bob.id}]] please review`)
             // submitOnEnter mode — Enter submits, no Reply button rendered.
             await composer.press('Enter')
 
@@ -196,10 +196,10 @@ test.describe('Text — Suggestion thread flow', () => {
             expect(comment?.suggestion_id).toBe(suggestionId)
 
             // The composer wrote one comment_mentions row pointing at
-            // Bob's user_org. The notify hook keys off that insert.
-            const mention = await waitForCommentMention(request, comment?.id ?? '', bob.userOrgId)
+            // Bob's user. The notify hook keys off that insert.
+            const mention = await waitForCommentMention(request, comment?.id ?? '', bob.id)
             expect(mention).toBeTruthy()
-            expect(mention?.mentioned_user_org).toBe(bob.userOrgId)
+            expect(mention?.mentioned_user).toBe(bob.id)
             expect(mention?.comment_collection).toBe('text_comments')
 
             // Bob's notification arrives. The hook is async (goroutine
@@ -380,13 +380,13 @@ interface CommentMentionRow {
     id: string
     comment_collection: string
     comment_record: string
-    mentioned_user_org: string
+    mentioned_user: string
 }
 
 async function waitForCommentMention(
     request: import('@playwright/test').APIRequestContext,
     commentRecord: string,
-    mentionedUserOrgId: string
+    mentionedUserId: string
 ): Promise<CommentMentionRow | null> {
     const token = await adminToken(request)
     if (!token) return null
@@ -395,7 +395,7 @@ async function waitForCommentMention(
         .poll(async () => {
             const res = await request.get(
                 `${PB_URL}/api/collections/comment_mentions/records?filter=${encodeURIComponent(
-                    `comment_record='${commentRecord}' && mentioned_user_org='${mentionedUserOrgId}'`
+                    `comment_record='${commentRecord}' && mentioned_user='${mentionedUserId}'`
                 )}&perPage=5`,
                 { headers: { Authorization: token } }
             )

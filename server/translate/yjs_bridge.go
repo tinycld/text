@@ -13,7 +13,7 @@ import (
 // y-tiptap (the JS-side Yjs <-> ProseMirror binding) appends to a
 // mark name when the mark type is "overlapping" — i.e. the mark
 // type's excludes set permits a same-type mark on the same range
-// (suggestedInsert / suggestedDelete use excludes:'' so two authors
+// (suggestedInsert / suggestedDelete use excludes:” so two authors
 // can layer independent proposals over the same run).
 //
 // The suffix is 6 bytes from a SHA-256 digest re-encoded as base64

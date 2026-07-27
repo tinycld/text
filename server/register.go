@@ -94,6 +94,25 @@ const roomKindText = "text-doc"
 //     ({readOnly, importWarnings}) so the joining client can render
 //     parse warnings as a banner and (eventually) gate writes.
 func Register(app *pocketbase.PocketBase) {
+	registerShared(app)
+	// No host-only tail: text binds no listener and mounts no protocol
+	// server, so the single-org app and a multi-org tenant run the same set.
+	// If a host-only registration ever appears, move it here with a reason —
+	// never fork registerShared (see
+	// multi-org/docs/FINDING-tenant-composition-gap.md).
+}
+
+// RegisterTenant composes the text server for a multi-org TENANT process. The
+// router's pinned package menu calls it, gated by the org's resolved package
+// set (multi-org/docs/SCOPE-tenant-feature-go.md). Identical to Register
+// today; the two entries exist so the host/tenant seam is uniform across
+// feature packages.
+func RegisterTenant(app *pocketbase.PocketBase) {
+	registerShared(app)
+}
+
+// registerShared is the single source of truth for what BOTH compositions run.
+func registerShared(app *pocketbase.PocketBase) {
 	// Read TINYCLD_EDIT_EVENT_WINDOW_MS once at boot. Lets e2e tests
 	// shorten the 60s edit-event debounce window without per-test
 	// surgery; production leaves the env unset and runs at the default.

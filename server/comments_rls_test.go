@@ -2,10 +2,12 @@ package text
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"tinycld.org/core/rlstest"
 )
 
 // comments_rls_test.go proves text_comments' access rules against
@@ -24,18 +26,16 @@ import (
 // Each scenario builds a FRESH TestApp: ApiScenario.Test re-triggers
 // OnServe, and reusing one app panics on duplicate route registration.
 
-// The rules below are copied verbatim from the migration that ships
-// them, so a migration edit that isn't mirrored here surfaces as a
-// failing assertion rather than a test that quietly validates a string
-// only this file believes in.
-
-// textCommentsViewRule mirrors the list/view rule in
-// 1720000000_create_text_comments.js.
-const textCommentsViewRule = `@request.auth.id != "" && drive_item.drive_shares_via_item.user ?= @request.auth.id`
-
-// textCommentsUpdateRule mirrors the update/delete rule in the same
-// migration: mutating someone else's comment is forbidden.
-const textCommentsUpdateRule = `@request.auth.id != "" && author = @request.auth.id`
+// The rules are NOT restated here. text_comments and its rules come from
+// text's own pb-migrations, applied against the test app, so what is asserted
+// below is what ships. The earlier version of this file kept the rules as
+// constants "copied verbatim from the migration" — the same arrangement that,
+// over in drive, let a shipped rule quietly lose a security clause while the
+// suite guarding it stayed green against its own stale copy.
+//
+// drive_items and drive_shares are still built by hand: they belong to a
+// different package whose migrations this module does not carry. Only the
+// collection whose rules are under test comes from a real migration.
 
 type textCommentsEnv struct {
 	app         *tests.TestApp
@@ -64,53 +64,34 @@ func setupTextCommentsRLSApp(t *testing.T) *textCommentsEnv {
 		t.Fatal(err)
 	}
 
-	items := core.NewBaseCollection("drive_items")
-	items.Id = "pbc_drive_items_01"
-	items.Fields.Add(&core.TextField{Name: "name", Required: true})
-	items.Fields.Add(&core.RelationField{
-		Name: "created_by", CollectionId: users.Id, MaxSelect: 1,
-	})
-	if err := app.Save(items); err != nil {
-		t.Fatal(err)
+	// `disabled` belongs to core's users schema, which this module does not
+	// carry; the rules under test read it, so it has to exist before they are
+	// installed.
+	users.Fields.Add(&core.BoolField{Name: "disabled"})
+	if err := app.Save(users); err != nil {
+		t.Fatalf("add users.disabled: %v", err)
 	}
 
-	shares := core.NewBaseCollection("drive_shares")
-	shares.Id = "pbc_drive_shares_01"
-	shares.Fields.Add(&core.RelationField{
-		Name: "item", Required: true, CollectionId: items.Id,
-		CascadeDelete: true, MaxSelect: 1,
-	})
-	shares.Fields.Add(&core.RelationField{
-		Name: "user", Required: true, CollectionId: users.Id,
-		CascadeDelete: true, MaxSelect: 1,
-	})
-	shares.Fields.Add(&core.SelectField{
-		Name: "role", Required: true, MaxSelect: 1,
-		Values: []string{"owner", "editor", "commentor", "viewer"},
-	})
-	if err := app.Save(shares); err != nil {
+	// The whole collection graph — drive's items/shares/versions and text's
+	// comments, schema and access rules alike — comes from the two packages'
+	// real migrations. drive's run first: text's version migrations alter
+	// drive_item_versions, and the comment rules walk drive_shares.
+	rlstest.Apply(t, app,
+		rlstest.MigrationsDir(t, "../../drive/pb-migrations"),
+		rlstest.MigrationsDir(t, "../pb-migrations"),
+	)
+
+	items, err := app.FindCollectionByNameOrId("drive_items")
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	comments := core.NewBaseCollection("text_comments")
-	comments.Id = "pbc_text_comments_01"
-	comments.Fields.Add(&core.RelationField{
-		Name: "drive_item", Required: true, CollectionId: items.Id,
-		CascadeDelete: true, MaxSelect: 1,
-	})
-	comments.Fields.Add(&core.TextField{Name: "comment_id", Required: true})
-	comments.Fields.Add(&core.TextField{Name: "body"})
-	comments.Fields.Add(&core.RelationField{
-		Name: "author", Required: true, CollectionId: users.Id, MaxSelect: 1,
-	})
-	viewRule := textCommentsViewRule
-	mutateRule := textCommentsUpdateRule
-	comments.ListRule = &viewRule
-	comments.ViewRule = &viewRule
-	comments.UpdateRule = &mutateRule
-	comments.DeleteRule = &mutateRule
-	if err := app.Save(comments); err != nil {
+	shares, err := app.FindCollectionByNameOrId("drive_shares")
+	if err != nil {
 		t.Fatal(err)
+	}
+	comments, err := app.FindCollectionByNameOrId("text_comments")
+	if err != nil {
+		t.Fatalf("text_comments should have been created by the migrations: %v", err)
 	}
 
 	sharee := textCommentsUser(t, app, "sharee@test.local")
@@ -127,6 +108,7 @@ func setupTextCommentsRLSApp(t *testing.T) *textCommentsEnv {
 	share.Set("item", item.Id)
 	share.Set("user", sharee.Id)
 	share.Set("role", "editor")
+	share.Set("created_by", sharee.Id)
 	if err := app.Save(share); err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +118,7 @@ func setupTextCommentsRLSApp(t *testing.T) *textCommentsEnv {
 	comment.Set("comment_id", "c1")
 	comment.Set("body", "SECRET-COMMENT-BODY")
 	comment.Set("author", sharee.Id)
+	comment.Set("author_name", "Sharee")
 	if err := app.Save(comment); err != nil {
 		t.Fatal(err)
 	}
@@ -265,24 +248,223 @@ func TestTextCommentsRLS_AnonCannotList(t *testing.T) {
 	scenario.Test(t)
 }
 
-// TestTextCommentsRLS_RuleMatchesMigration is the tripwire for the exact
-// failure that motivated this file: a rule string that references a
-// field the schema doesn't have. PB validates rules on save, so a stale
-// `user_org` walk is rejected here rather than silently matching zero
-// rows.
-func TestTextCommentsRLS_RuleMatchesMigration(t *testing.T) {
+// commentsUser creates a user, optionally suspended, and returns it with an
+// auth token minted before the suspension — the realistic case, since a
+// suspended account's client is holding a token it obtained while active.
+func commentsUser(t *testing.T, app core.App, email string, disabled bool) (*core.Record, string) {
+	t.Helper()
+	u := textCommentsUser(t, app, email)
+	token, err := u.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled {
+		fresh, err := app.FindRecordById("users", u.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh.Set("disabled", true)
+		if err := app.Save(fresh); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return u, token
+}
+
+// shareWith grants the given user a role on the env's item.
+func shareWith(t *testing.T, env *textCommentsEnv, user *core.Record, role string) {
+	t.Helper()
+	shares, err := env.app.FindCollectionByNameOrId("drive_shares")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := core.NewRecord(shares)
+	r.Set("item", env.item.Id)
+	r.Set("user", user.Id)
+	r.Set("role", role)
+	r.Set("created_by", env.sharee.Id)
+	if err := env.app.Save(r); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A suspended user's share rows survive their suspension, and the Go gate
+// never runs for /api/collections/*_comments — PocketBase evaluates these
+// rules instead. So without the disabled clause a suspended account keeps
+// full comment access over plain REST.
+// One app per scenario, not per test: ApiScenario.Test re-triggers OnServe, so
+// two scenarios sharing an app double-register routes. That is why each verb
+// is its own top-level test rather than a subtest sharing one env.
+func TestTextCommentsRLS_DisabledShareeCannotList(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	suspended, token := commentsUser(t, env.app, "suspended@test.local", true)
+	shareWith(t, env, suspended, "editor")
+
+	(&tests.ApiScenario{
+		Method:                http.MethodGet,
+		URL:                   "/api/collections/text_comments/records",
+		Headers:               map[string]string{"Authorization": token},
+		ExpectedStatus:        200,
+		ExpectedContent:       []string{`"totalItems":0`},
+		NotExpectedContent:    []string{"SECRET-COMMENT-BODY"},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+func TestTextCommentsRLS_DisabledShareeCannotView(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	suspended, token := commentsUser(t, env.app, "suspended@test.local", true)
+	shareWith(t, env, suspended, "editor")
+
+	(&tests.ApiScenario{
+		Method:                http.MethodGet,
+		URL:                   "/api/collections/text_comments/records/" + env.comment.Id,
+		Headers:               map[string]string{"Authorization": token},
+		ExpectedStatus:        404,
+		ExpectedContent:       []string{`"message"`},
+		NotExpectedContent:    []string{"SECRET-COMMENT-BODY"},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+func TestTextCommentsRLS_DisabledShareeCannotCreate(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	suspended, token := commentsUser(t, env.app, "suspended@test.local", true)
+	shareWith(t, env, suspended, "editor")
+
+	(&tests.ApiScenario{
+		Method: http.MethodPost,
+		URL:    "/api/collections/text_comments/records",
+		Body: strings.NewReader(`{"drive_item":"` + env.item.Id +
+			`","comment_id":"c-suspended","body":"x","author":"` + suspended.Id + `","author_name":"Tester"}`),
+		Headers: map[string]string{
+			"Authorization": token, "Content-Type": "application/json",
+		},
+		ExpectedStatus:        400,
+		ExpectedContent:       []string{`"message"`},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+// The positive control for all three verbs above: an enabled sharee still has
+// full comment access. Without it, a rule denying everyone would pass the
+// deny-tests — the exact bug this file was originally written for.
+func TestTextCommentsRLS_EnabledShareeCanComment(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	user, token := commentsUser(t, env.app, "enabled@test.local", false)
+	shareWith(t, env, user, "editor")
+
+	(&tests.ApiScenario{
+		Method: http.MethodPost,
+		URL:    "/api/collections/text_comments/records",
+		Body: strings.NewReader(`{"drive_item":"` + env.item.Id +
+			`","comment_id":"c-enabled","body":"hello","author":"` + user.Id + `","author_name":"Tester"}`),
+		Headers: map[string]string{
+			"Authorization": token, "Content-Type": "application/json",
+		},
+		ExpectedStatus:        200,
+		ExpectedContent:       []string{`"comment_id":"c-enabled"`},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+// A commentor's entire purpose is commenting. Tightening these rules must not
+// take that away — the two changes meet here, and locking the commentor out of
+// commenting is the easy mistake.
+func TestTextCommentsRLS_CommentorCanComment(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	user, token := commentsUser(t, env.app, "commentor@test.local", false)
+	shareWith(t, env, user, "commentor")
+
+	(&tests.ApiScenario{
+		Method: http.MethodPost,
+		URL:    "/api/collections/text_comments/records",
+		Body: strings.NewReader(`{"drive_item":"` + env.item.Id +
+			`","comment_id":"c-commentor","body":"a note","author":"` + user.Id + `","author_name":"Tester"}`),
+		Headers: map[string]string{
+			"Authorization": token, "Content-Type": "application/json",
+		},
+		ExpectedStatus:        200,
+		ExpectedContent:       []string{`"comment_id":"c-commentor"`},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+// The document's creator may hold no drive_shares row at all — drive's
+// owner-share hook can be bypassed by a direct SDK write, and historically
+// was. Without the creator disjunct they can open and edit the document while
+// seeing zero comments on it and being unable to post one.
+func TestTextCommentsRLS_DocumentCreatorWithoutShareCanComment(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+	creator, token := commentsUser(t, env.app, "creator@test.local", false)
+
+	items, err := env.app.FindCollectionByNameOrId("drive_items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := core.NewRecord(items)
+	item.Set("name", "unshared.docx")
+	item.Set("created_by", creator.Id)
+	if err := env.app.Save(item); err != nil {
+		t.Fatal(err)
+	}
+
+	(&tests.ApiScenario{
+		Method: http.MethodPost,
+		URL:    "/api/collections/text_comments/records",
+		Body: strings.NewReader(`{"drive_item":"` + item.Id +
+			`","comment_id":"c-creator","body":"mine","author":"` + creator.Id + `","author_name":"Tester"}`),
+		Headers: map[string]string{
+			"Authorization": token, "Content-Type": "application/json",
+		},
+		ExpectedStatus:        200,
+		ExpectedContent:       []string{`"comment_id":"c-creator"`},
+		TestAppFactory:        func(t testing.TB) *tests.TestApp { return env.app },
+		DisableTestAppCleanup: true,
+	}).Test(t)
+}
+
+// TestTextCommentsRLS_ShippedRulesCarryTheirGuards names the clauses each
+// shipped rule is meant to contribute, so a migration that restates a rule and
+// silently drops one says which one went missing — the failure mode that cost
+// drive its guest-exclusion clause.
+func TestTextCommentsRLS_ShippedRulesCarryTheirGuards(t *testing.T) {
+	env := setupTextCommentsRLSApp(t)
+
+	for _, kind := range []string{"list", "view", "create"} {
+		rlstest.RequireRuleContains(t, env.app, "text_comments", kind,
+			`@request.auth.disabled != true`)
+		// drive_items reads `created_by ?= auth.id || <has-share>`; comments
+		// must too, or the document's own creator sees none of them.
+		rlstest.RequireRuleContains(t, env.app, "text_comments", kind,
+			`drive_item.created_by ?= @request.auth.id`)
+	}
+	for _, kind := range []string{"update", "delete"} {
+		rlstest.RequireRuleContains(t, env.app, "text_comments", kind,
+			`@request.auth.disabled != true`)
+		rlstest.RequireRuleContains(t, env.app, "text_comments", kind,
+			`author = @request.auth.id`)
+	}
+}
+
+// TestTextCommentsRLS_StaleFieldWalkIsRejected pins the failure that motivated
+// this file: a rule string referencing a field the schema doesn't have. These
+// rules once walked `drive_shares_via_item.user_org`, a field drive renamed to
+// `user`, which made every list return zero rows and every create 403 with no
+// compile error. PB validates rules on save, so the stale walk is refused here
+// rather than silently matching nothing.
+func TestTextCommentsRLS_StaleFieldWalkIsRejected(t *testing.T) {
 	env := setupTextCommentsRLSApp(t)
 
 	col, err := env.app.FindCollectionByNameOrId("text_comments")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := col.ListRule; got == nil || *got != textCommentsViewRule {
-		t.Errorf("listRule = %v, want %q", got, textCommentsViewRule)
-	}
-
-	// The pre-migration rule must be rejected outright — proof that the
-	// field rename is load-bearing and not cosmetic.
 	stale := `@request.auth.id != "" && drive_item.drive_shares_via_item.user_org ?= @request.auth.id`
 	col.ListRule = &stale
 	if err := env.app.Save(col); err == nil {

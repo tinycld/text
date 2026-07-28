@@ -82,10 +82,11 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 }
 
 // writeRenderedItem performs mime validation, ETag handling, and writes
-// the rendered (and sanitized) HTML for a drive_item. Shared by the
-// authenticated render endpoint and the public share-link render
-// endpoint — both arrive here after their own access check, so this
-// function performs no authorization.
+// the rendered (and sanitized) HTML for a drive_item. Its only caller
+// today is the authenticated render endpoint (requireAuthText), which
+// does the access check before calling — so this function performs no
+// authorization, and any future caller (e.g. a share-link render) must
+// bring its own.
 func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) error {
 	// Mime validation: the renderer's pipeline (DocxToPMJSON →
 	// PMJSONToHTML) consumes docx bytes; RTF is bridged to docx in
@@ -113,9 +114,10 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 	// The embed fetcher authorizes each embedded image against the
 	// CALLER, not the document — a doc's content is user-authored and
 	// can reference arbitrary records, so "may render the doc" must not
-	// imply "may read every file the doc points at". Nil-guarded because
-	// a share-link caller reaching this shared writer has no auth
-	// record; the fetcher fails closed on an empty user ID.
+	// imply "may read every file the doc points at". Nil-guarded
+	// defensively: today's only route requires auth, and the fetcher
+	// fails closed on an empty user ID if an unauthenticated caller is
+	// ever added.
 	authUserID := ""
 	if re.Auth != nil {
 		authUserID = re.Auth.Id
@@ -134,16 +136,16 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 }
 
 // RenderItemHTML reads a docx drive_item's bytes and returns the
-// sanitized HTML fragment. Exported so the public share-link render path
-// (registered in this package) can reuse it after validating a share
-// session — the members are separate modules, so cross-package reuse
-// goes through exported funcs here, not imports of drive.
+// sanitized HTML fragment. Exported for reuse by future render paths
+// (e.g. a share-link render, not built yet) — the members are separate
+// modules, so cross-package reuse goes through exported funcs here, not
+// imports of drive.
 //
 // authUserID identifies the CALLER for per-image authorization in
 // embed mode: each embedded drive-file src is checked against that
 // user's share access before its bytes are inlined. Pass "" for
-// callers without an authenticated user (e.g. a share-link session) —
-// embed fetches then fail closed and the images are dropped.
+// callers without an authenticated user — embed fetches then fail
+// closed and the images are dropped.
 func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
 	rawBytes, err := readDriveItemBytes(app, item)
 	if err != nil {

@@ -9,7 +9,7 @@ A checked box means the item is fixed on `main`. The session that introduced thi
 ## Authorization & test coverage
 
 - [x] **CRITICAL** — `isReadOnlyForConn` returns a real owner/editor vs viewer signal sourced from `drive_shares.role` (was a `return false` stub).
-- [x] **CRITICAL** — `resolveShareRole` constrains `user_org.org = drive_items.org` so stale cross-org shares no longer grant access.
+- [x] **CRITICAL** — `resolveShareRole` constrained `user_org.org = drive_items.org` so stale cross-org shares no longer granted access. (Historical: both fields were later deleted in the single-org migration; `userorg.OffboardUser` owns that property now.)
 - [x] **IMPORTANT** — Trivial unit tests replaced with real coverage. 41 assertions across 5 files now exercise the manifest contract (incl. `server.module` vs `go.mod`, declared directories existing on disk), the `text.open` action's id/icon/label/`isApplicable`/`onPress` semantics, banner formatters, color stability, Y.Doc binding shape, and `typedServerHello`/`typedServerSlot` edge cases.
 
 ---

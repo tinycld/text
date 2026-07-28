@@ -24,7 +24,8 @@ import (
 //
 // We test at the level the fix lives — the makeEmbedFetcher closure
 // directly — because that's the single seam every render path (the
-// authenticated endpoint and the share-link render) funnels through.
+// authenticated endpoint today, plus any future share-link render)
+// funnels through.
 
 // seedDriveItemWithFile creates a drive_items record with a real file
 // attachment, and returns the record plus the src URL
@@ -193,7 +194,7 @@ func TestEmbedFetcher_DeniesWrongCollection(t *testing.T) {
 }
 
 // TestEmbedFetcher_DeniesEmptyAuthUser fails closed when there is no
-// authenticated subject (e.g. a share-link render reaching the shared
+// authenticated subject (e.g. a future share-link render reaching the shared
 // writer). Serving bytes with no subject to authorize is unsafe even
 // though the record and file exist and are otherwise readable.
 func TestEmbedFetcher_DeniesEmptyAuthUser(t *testing.T) {

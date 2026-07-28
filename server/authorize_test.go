@@ -135,7 +135,7 @@ func TestAuthorize_GrantsViewer(t *testing.T) {
 // The cross-org staleness test that lived here was deleted rather than
 // adapted: single-org has no second org for a share to be stale
 // against. The property it guarded — a departed member's grants not
-// surviving — is now userorg.OffboardUser's, which has its own tests.
+// surviving — is now offboard.OffboardUser's, which has its own tests.
 //
 // TestResolveShareRole_PicksHighestPrivilege also went away: role
 // resolution moved to core/driveshare, which unit-tests the full

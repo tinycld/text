@@ -12,7 +12,7 @@ import (
 	"tinycld.org/core/driveshare"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
-	"tinycld.org/core/userorg"
+	"tinycld.org/core/offboard"
 	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
@@ -96,7 +96,7 @@ func registerShared(app *pocketbase.PocketBase) {
 	// surgery; production leaves the env unset and runs at the default.
 	configureWindowFromEnv()
 
-	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
+	offboard.RegisterReassignable(offboard.ReassignableRef{Collection: "text_comments", Field: "author"})
 
 	// Attach a blank docx server-side when a new document is created with no
 	// file — the client just inserts the drive_items row (no Blob upload).

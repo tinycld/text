@@ -9,6 +9,7 @@ import (
 
 	"tinycld.org/core/driveshare"
 	"tinycld.org/core/realtime"
+	"tinycld.org/core/sharelink"
 )
 
 // TestRegisterRealtimeRegisters confirms Register plugs the
@@ -118,7 +119,7 @@ func TestAuthorize_GrantsEditor(t *testing.T) {
 }
 
 // TestAuthorize_GrantsViewer: a viewer share row grants admission
-// (read-only is enforced separately via isReadOnlyForConn, not here).
+// (read-only is enforced separately via sharelink.ReadOnlyForConn, not here).
 func TestAuthorize_GrantsViewer(t *testing.T) {
 	app := setupAuthTestApp(t)
 	user := mustCreateUser(t, app, "alice@example.com")
@@ -170,8 +171,8 @@ func TestIsReadOnlyForConn(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			conn := realtime.NewClientForTest(c.authID)
-			if got := isReadOnlyForConn(app, item.Id, conn); got != c.wantRO {
-				t.Errorf("isReadOnlyForConn(%s): got %v, want %v", c.name, got, c.wantRO)
+			if got := sharelink.ReadOnlyForConn(app, item.Id, conn); got != c.wantRO {
+				t.Errorf("ReadOnlyForConn(%s): got %v, want %v", c.name, got, c.wantRO)
 			}
 		})
 	}

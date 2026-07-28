@@ -133,7 +133,7 @@ func TestAuthorizeAnonShare_RejectsRevokedLink(t *testing.T) {
 	}
 }
 
-// TestAuthorizeAnonShare_AnonIsReadOnly exercises isReadOnlyForConn for
+// TestAuthorizeAnonShare_AnonIsReadOnly exercises sharelink.ReadOnlyForConn for
 // anon connections: viewer and commentor → read-only; editor → writable.
 func TestAuthorizeAnonShare_AnonIsReadOnly(t *testing.T) {
 	app := setupShareTestApp(t)
@@ -150,9 +150,9 @@ func TestAuthorizeAnonShare_AnonIsReadOnly(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.shareRole, func(t *testing.T) {
 			conn := realtime.NewAnonClientForTest(c.shareRole, "Anon Tiger")
-			got := isReadOnlyForConn(app, item.Id, conn)
+			got := sharelink.ReadOnlyForConn(app, item.Id, conn)
 			if got != c.wantRO {
-				t.Errorf("isReadOnlyForConn(anon %s): got %v, want %v", c.shareRole, got, c.wantRO)
+				t.Errorf("sharelink.ReadOnlyForConn(anon %s): got %v, want %v", c.shareRole, got, c.wantRO)
 			}
 		})
 	}

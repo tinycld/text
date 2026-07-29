@@ -120,7 +120,16 @@ export async function loginAs(page: Page, identifier: string, password: string):
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
-    await page.waitForURL(/\/a\//)
+
+    // Gate on the app shell, NOT on a URL. Single-org collapsed `/a/<org>/…`
+    // to a bare `/<pkg>`, so the old `waitForURL(/\/a\//)` could never match
+    // and every multi-user spec hung until the 30s test timeout — before it
+    // ever reached the document it meant to open. Waiting on a URL is fragile
+    // here for a second reason the shared helper documents: post-login lands
+    // on `/` and then client-side redirects to the first nav package, a SPA
+    // transition that fires no load event. The package rail is present in the
+    // shell regardless of which package wins that redirect.
+    await page.getByTestId('nav-home').waitFor({ state: 'visible', timeout: 15_000 })
 }
 
 // Read the live Y.Doc's clientAuthors map on `page` and return the

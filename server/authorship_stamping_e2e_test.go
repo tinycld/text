@@ -15,12 +15,13 @@ import (
 // two simulated peers with distinct Yjs clientIDs both write to the same
 // room, and after both writes the server-side Y.Doc's `clientAuthors` and
 // `clientFirstSeen` maps must contain entries for each peer's clientID
-// keyed to its user_org record id.
+// keyed to its users record id.
 //
 // This is the integration smoke for the stamper as wired into the broker
 // — distinct from authorship_writer_test.go (which tests the writer in
 // isolation), authorship_probe_test.go (which tests clientID extraction),
-// and user_org_resolver_test.go (which tests the DB lookup). All those
+// and authorship_cache_test.go (identity comes from conn.AuthID(); the
+// old multi-org DB resolver is gone). All those
 // units are stitched together here by routing real MsgDocUpdate frames
 // through Broker.route() with the same RoomKindOptions text.Register
 // would build, so a refactor that breaks any link in the chain
@@ -115,7 +116,7 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 	broker.RouteFrameForTest(roomKindText, itemID, bobConn, buildDocUpdateFrame(bobUpdate))
 
 	// Inspect the server-side Y.Doc: clientAuthors and clientFirstSeen
-	// must each have two entries, mapped to the right user_org IDs.
+	// must each have two entries, mapped to the right user IDs.
 	serverDoc := runtime.docFor(itemID)
 	if serverDoc == nil {
 		t.Fatalf("runtime has no server doc for %q after routing two frames", itemID)

@@ -14,9 +14,9 @@ import (
 // archived_at fields added in Phase 5 Task 1. Mirrors the pattern in
 // fixtures_test.go::setupTestApp + comment_mentions_test.go.
 //
-// The author relation on text_comments expects user_org in production;
+// The author relation on text_comments points at users in production;
 // here we stand it up as a TextField so the test doesn't have to seed
-// the full user_org chain just to satisfy schema validation.
+// real user records just to satisfy schema validation.
 func setupDiscussionCleanupTestApp(t *testing.T) *tests.TestApp {
 	t.Helper()
 	app, err := tests.NewTestApp()

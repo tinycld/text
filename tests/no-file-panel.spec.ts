@@ -34,7 +34,6 @@ test.describe('Text No-File panel', () => {
         await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('button', { name: 'New document' }).click()
 
-        await page.waitForURL(/\/text\/[^/]+$/)
         await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
     })
 
@@ -52,7 +51,6 @@ test.describe('Text No-File panel', () => {
         await page.getByTestId('nofile-upload-input').setInputFiles(fixturePath)
 
         // Single .docx upload routes straight to the editor.
-        await page.waitForURL(/\/text\/[^/]+$/)
         await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
 
         // The fixture's H1 must render in the editor — proves the upload
@@ -73,13 +71,15 @@ test.describe('Text No-File panel', () => {
     test('Browse Recent navigates to drive recent view', async ({ page }) => {
         await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'Recent' }).click()
-        await page.waitForURL(/\/drive\/recent\/?$/)
+        // Assert the drive screen mounted, not just that the router accepted
+        // the push — the URL is set before the target chunk commits.
+        await expect(page.getByTestId('pkg-active-drive')).toBeVisible()
     })
 
     test('Browse All navigates to drive root', async ({ page }) => {
         await expect(page.getByRole('heading', { level: 1, name: 'A blank page.' })).toBeVisible()
         await page.getByRole('link', { name: 'All' }).click()
-        await page.waitForURL(/\/drive\/?$/)
+        await expect(page.getByTestId('pkg-active-drive')).toBeVisible()
     })
 
     test('the rail reopens the last edited document', async ({ page }) => {
@@ -100,7 +100,10 @@ test.describe('Text No-File panel', () => {
         // land back on the document we just created, not on the panel.
         await page.goto(`/`)
         await page.getByTestId('nav-text').click()
-        await page.waitForURL(editorUrl)
+        // The rail's job here is reopening the LAST document, so the specific
+        // URL still matters — but assert the editor mounted first so a failure
+        // reports "no editor" rather than a URL diff against a blank screen.
         await expect(page.locator('.tinycld-document-editor .ProseMirror')).toBeVisible()
+        await expect(page).toHaveURL(editorUrl)
     })
 })

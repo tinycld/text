@@ -9,7 +9,7 @@ import { summarizeBlockChange, summarizeFormatChange } from '../../lib/suggestio
 
 export interface SuggestionRowProps {
     suggestion: AnchoredSuggestion
-    // driveItemId + authorUserOrgId are kept in the prop shape for
+    // driveItemId + authorUserId are kept in the prop shape for
     // symmetry with the web variant. The native row doesn't render
     // <SuggestionThread /> inline — the screen-scoped
     // <SuggestionThreadSheet /> renders the thread body in a
@@ -17,7 +17,7 @@ export interface SuggestionRowProps {
     // round-tripping them through the contract lets ReviewDrawer's
     // call site stay identical across platforms.
     driveItemId: string
-    authorUserOrgId: string
+    authorUserId: string
     isFocused: boolean
     canResolve: boolean
     isPending: boolean
@@ -95,13 +95,13 @@ function kindLabelFor(kind: AnchoredSuggestion['kind']): string {
 // inside a WebView and host-side scrolling doesn't apply.
 export function SuggestionRow({
     suggestion,
-    // driveItemId, authorUserOrgId, canResolve, isPending, onAccept,
+    // driveItemId, authorUserId, canResolve, isPending, onAccept,
     // onReject, and onJump are accepted for prop-shape parity with the
     // web variant but unused on native — the screen-scoped sheet owns
     // those affordances. Underscore-prefixed so biome's
     // noUnusedFunctionParameters stays quiet.
     driveItemId: _driveItemId,
-    authorUserOrgId: _authorUserOrgId,
+    authorUserId: _authorUserId,
     isFocused,
     canResolve: _canResolve,
     isPending: _isPending,
@@ -117,7 +117,7 @@ export function SuggestionRow({
     const KindIcon = kindIconFor(suggestion.kind)
     const summary = summarizeSuggestion(suggestion)
     const kindLabel = kindLabelFor(suggestion.kind)
-    // Resolve the user_org id to a human name (falls back to email,
+    // Resolve the user id to a human name (falls back to email,
     // then null while the live query loads or for unresolved ids).
     const authorName = useAuthorName(suggestion.authorId) ?? suggestion.authorId
 

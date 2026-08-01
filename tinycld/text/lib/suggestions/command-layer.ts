@@ -773,7 +773,7 @@ export interface SuggestionCommandLayerOptions {
 // fossilized until the idle window elapses, and within the window the
 // author may freely edit their own pending suggestion.
 //
-// Sessions are keyed by the editor's identity (userOrgId in the mode
+// Sessions are keyed by the editor's identity (userId in the mode
 // store). When the identity changes, the previous session is dropped
 // so the next touch mints a fresh suggestionId — the per-author
 // session is the right boundary for "this person's pending work".
@@ -829,7 +829,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             // Only act on user-driven content changes.
             if (!transactions.some(tr => tr.docChanged)) return null
 
-            const sess = getSession(identity.userOrgId)
+            const sess = getSession(identity.userId)
             const suggestionId = sess.touch()
             const now = Date.now()
 
@@ -844,7 +844,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
                 deleteMarkType: newState.schema.marks.suggestedDelete,
                 formatChangeMarkType: newState.schema.marks.suggestedFormatChange,
                 suggestionId,
-                authorId: identity.userOrgId,
+                authorId: identity.userId,
                 now,
             }
 
@@ -867,7 +867,7 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
             // commits atomically with the PM steps.
             suggestionsMap.create({
                 id: suggestionId,
-                authorId: identity.userOrgId,
+                authorId: identity.userId,
                 createdAt: now,
             })
 

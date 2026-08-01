@@ -9,9 +9,10 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/blankfile"
+	"tinycld.org/core/driveshare"
+	"tinycld.org/core/offboard"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
-	"tinycld.org/core/userorg"
 	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
@@ -27,33 +28,24 @@ import (
 //go:embed blank.docx
 var blankDOCX []byte
 
-// authorizeAnonShare admits an anonymous share-link visitor to a text room.
-// Re-resolves the share link (rejecting revoked/expired/downgraded links at
-// connect time) and admits any recognized share role (viewer, commentor, or
-// editor) bound to this exact drive_item. Non-editor roles are admitted
-// read-only: write enforcement is delegated to the broker's WritePredicate
-// (isReadOnlyForConn / SetReadOnly in OnConnect).
+// authorizeAnonShare admits an anonymous share-link visitor to a text room —
+// the shared sharelink.AuthorizeAnonRoom policy adapted to realtime's
+// ShareClaims shape.
 func authorizeAnonShare(app core.App, claims realtime.ShareClaims, roomID string) error {
-	if claims.ItemID != roomID {
-		return errNoShare
+	return sharelink.AuthorizeAnonRoom(app, claims.ShareToken, claims.ItemID, roomID)
+}
+
+// makeAuthorize returns the realtime.AuthorizeFn for "text-doc" rooms.
+// roomID is a drive_items.id; the user may join iff they may read the
+// item — its creator, or the holder of any drive_shares row. Viewers are
+// admitted read-only; the write gate is sharelink.ReadOnlyForConn.
+func makeAuthorize(app core.App) func(*core.Record, string) error {
+	return func(auth *core.Record, roomID string) error {
+		if auth == nil || auth.Id == "" {
+			return driveshare.ErrNoAccess
+		}
+		return driveshare.CheckRead(app, auth.Id, roomID)
 	}
-	link, item, err := sharelink.ResolveLink(app, claims.ShareToken)
-	if err != nil {
-		return err
-	}
-	if item.Id != roomID {
-		return errNoShare
-	}
-	role := link.GetString("role")
-	switch role {
-	case sharelink.RoleViewer, sharelink.RoleCommentor, sharelink.RoleEditor:
-		// Admit — read-only enforcement for non-editor roles happens via
-		// the broker WritePredicate (isReadOnlyForConn), so viewers and
-		// commentors may open the room but cannot write.
-	default:
-		return errNoShare
-	}
-	return nil
 }
 
 // roomKindText is the realtime roomKind name owned by this package.
@@ -80,12 +72,22 @@ const roomKindText = "text-doc"
 //     ({readOnly, importWarnings}) so the joining client can render
 //     parse warnings as a banner and (eventually) gate writes.
 func Register(app *pocketbase.PocketBase) {
+	registerShared(app)
+	// text binds no listener and mounts no protocol server, so this single
+	// entry point serves the single-org app and a multi-org tenant
+	// identically. If hosted behavior must ever differ (e.g. a listener),
+	// detect it with coreserver.GetTenantContext — never fork registerShared
+	// (see multi-org/docs/FINDING-tenant-composition-gap.md).
+}
+
+// registerShared is the single source of truth for what BOTH compositions run.
+func registerShared(app *pocketbase.PocketBase) {
 	// Read TINYCLD_EDIT_EVENT_WINDOW_MS once at boot. Lets e2e tests
 	// shorten the 60s edit-event debounce window without per-test
 	// surgery; production leaves the env unset and runs at the default.
 	configureWindowFromEnv()
 
-	userorg.RegisterReassignable(userorg.ReassignableRef{Collection: "text_comments", Field: "author"})
+	offboard.RegisterReassignable(offboard.ReassignableRef{Collection: "text_comments", Field: "author"})
 
 	// Attach a blank docx server-side when a new document is created with no
 	// file — the client just inserts the drive_items row (no Blob upload).
@@ -132,7 +134,7 @@ func Register(app *pocketbase.PocketBase) {
 		// and stamp clientAuthors / clientFirstSeen for any ID we
 		// haven't seen yet in this room. The stamper is the orchestration
 		// layer that pulls together the probe (extractWritingClientIDs),
-		// the user_org resolver, the writer (writeAuthorshipEntries),
+		// the writer (writeAuthorshipEntries),
 		// and the broadcast (Room.PublishDocUpdate). See
 		// authorship_stamper.go for the full flow.
 		//
@@ -147,13 +149,13 @@ func Register(app *pocketbase.PocketBase) {
 		// is indexed (idx_text_comments_suggestion), so the combined
 		// overhead per frame stays in the low milliseconds.
 		OnDocUpdateContent: composeOnDocUpdateContent(
-			makeAuthorshipStamper(app, runtime),
+			makeAuthorshipStamper(runtime),
 			makeSuggestionDiscussionCleanup(app, runtime),
 		),
-		OnDocUpdateSeq:     saveCoordinator.NoteSeq,
-		OnEmpty:            saveCoordinator.OnRoomEmpty,
-		ForceFlush:         saveCoordinator.FlushNow,
-		OnConnect:          makeOnConnect(app, runtime),
+		OnDocUpdateSeq: saveCoordinator.NoteSeq,
+		OnEmpty:        saveCoordinator.OnRoomEmpty,
+		ForceFlush:     saveCoordinator.FlushNow,
+		OnConnect:      makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads
 		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no
@@ -243,7 +245,7 @@ type importWarningJSON struct {
 // and a later reload should see a clean slate.
 func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 	return func(roomID string, conn *realtime.Client) ([]byte, error) {
-		readOnly := isReadOnlyForConn(app, roomID, conn)
+		readOnly := sharelink.ReadOnlyForConn(app, roomID, conn)
 		// Cache on the connection so the broker's WritePredicate (hot
 		// path, every MsgDocUpdate) is a pure field read, not a per-frame
 		// DB query. The share/membership role can't change mid-session.
@@ -255,44 +257,6 @@ func makeOnConnect(app core.App, runtime *Runtime) realtime.ServerHelloFn {
 		}
 		return json.Marshal(payload)
 	}
-}
-
-// isReadOnlyForConn determines whether the connecting user has edit
-// rights on the underlying drive_item, based on their highest-privilege
-// drive_shares role:
-//
-//   - owner / editor → writable (returns false)
-//   - viewer        → read-only (returns true)
-//   - missing / unknown role → fail-closed read-only (returns true)
-//
-// The connection has already been admitted by makeAuthorize at this
-// point, so any error from resolveShareRole here is unexpected — we
-// log and return true (deny writes) rather than silently granting
-// edit access on a transient DB error.
-//
-// Note: this resolves the read-only decision used for BOTH the client
-// serverHello signal (which disables the editor UI) and the cached flag
-// the broker's WritePredicate enforces. So a viewer that ignores
-// readOnly=true is still rejected server-side — its MsgDocUpdate frames
-// are dropped by the broker. The value is computed once at connect
-// (OnConnect → SetReadOnly) and not re-queried per frame.
-func isReadOnlyForConn(app core.App, roomID string, conn *realtime.Client) bool {
-	// Anonymous share-session visitor: the editable route only admits
-	// editor-role links (enforced in AuthorizeShare), so an anon
-	// connection here is writable. Their drive has no drive_shares row,
-	// so don't run the org-member resolution below.
-	if conn.IsAnonymous() {
-		return conn.ShareRole() != sharelink.RoleEditor
-	}
-	userID := conn.AuthID()
-	if userID == "" {
-		return true
-	}
-	role, err := resolveShareRole(app, userID, roomID)
-	if err != nil {
-		return true
-	}
-	return !role.canWrite()
 }
 
 // convertWarnings maps the internal translate.Warning slice to the

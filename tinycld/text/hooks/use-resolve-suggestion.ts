@@ -1,5 +1,5 @@
+import { useAuth } from '@tinycld/core/lib/auth'
 import { captureException } from '@tinycld/core/lib/errors'
-import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import type { Editor } from '@tiptap/core'
 import { useCallback, useState } from 'react'
 import type * as Y from 'yjs'
@@ -29,8 +29,8 @@ export interface UseResolveSuggestionService {
 // no-op when editor or yDoc is null (the native variant where the
 // WebView owns the editor), matching Phase 2a's defensive guard.
 //
-// The resolver's userOrgId comes from useCurrentRole (the same hook
-// the screen uses for identity wiring); both acceptSuggestion and
+// The resolver's user id comes from useAuth (the same identity the
+// screen uses for identity wiring); both acceptSuggestion and
 // rejectSuggestion stamp the resolution event with this id so audit
 // history can attribute the resolution to a specific member.
 export function useResolveSuggestionService(options: {
@@ -44,18 +44,19 @@ export function useResolveSuggestionService(options: {
     // See screens/[id].tsx for the read-only design decision.
     disabled?: boolean
 }): UseResolveSuggestionService {
-    const { userOrgId } = useCurrentRole()
+    const { user } = useAuth()
+    const userId = user.id
     const { editor, yDoc, disabled } = options
     const [isPending, setIsPending] = useState(false)
 
     const accept = useCallback(
         async (suggestionId: string) => {
             if (disabled) return
-            if (!editor || !yDoc || !userOrgId) return
+            if (!editor || !yDoc || !userId) return
             setIsPending(true)
             try {
                 acceptSuggestion(editor, suggestionId, {
-                    resolverUserOrgId: userOrgId,
+                    resolverUserId: userId,
                     yDoc,
                 })
             } catch (error) {
@@ -67,17 +68,17 @@ export function useResolveSuggestionService(options: {
                 setIsPending(false)
             }
         },
-        [editor, yDoc, userOrgId, disabled]
+        [editor, yDoc, userId, disabled]
     )
 
     const reject = useCallback(
         async (suggestionId: string) => {
             if (disabled) return
-            if (!editor || !yDoc || !userOrgId) return
+            if (!editor || !yDoc || !userId) return
             setIsPending(true)
             try {
                 rejectSuggestion(editor, suggestionId, {
-                    resolverUserOrgId: userOrgId,
+                    resolverUserId: userId,
                     yDoc,
                 })
             } catch (error) {
@@ -89,7 +90,7 @@ export function useResolveSuggestionService(options: {
                 setIsPending(false)
             }
         },
-        [editor, yDoc, userOrgId, disabled]
+        [editor, yDoc, userId, disabled]
     )
 
     return { accept, reject, isPending }

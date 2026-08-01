@@ -8,7 +8,6 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 )
 
-
 // TestComputeMetadata_EmptyDoc verifies a doc with no clientAuthors and
 // no suggestions yields a metadata struct with zero suggestionsOpen, an
 // empty (but non-nil) Authors slice, and SchemaVersion = 1. The non-nil
@@ -65,7 +64,7 @@ func TestComputeMetadata_CountsOnlyOpenSuggestions(t *testing.T) {
 }
 
 // TestComputeMetadata_AuthorsFromDistinctClients seeds clientAuthors
-// with three different clientIDs each mapped to a different userOrgID
+// with three different clientIDs each mapped to a different user id
 // and verifies all three surface in Authors.
 func TestComputeMetadata_AuthorsFromDistinctClients(t *testing.T) {
 	doc := ycrdt.NewDoc("meta-authors-distinct", false, nil, nil, false)
@@ -75,16 +74,16 @@ func TestComputeMetadata_AuthorsFromDistinctClients(t *testing.T) {
 	if !ok {
 		t.Fatalf("clientAuthors root missing")
 	}
-	authors.Set(strconv.FormatUint(100, 10), "uo-A")
-	authors.Set(strconv.FormatUint(200, 10), "uo-B")
-	authors.Set(strconv.FormatUint(300, 10), "uo-C")
+	authors.Set(strconv.FormatUint(100, 10), "u-A")
+	authors.Set(strconv.FormatUint(200, 10), "u-B")
+	authors.Set(strconv.FormatUint(300, 10), "u-C")
 
 	got := computeMetadata(doc)
 	if len(got.Authors) != 3 {
 		t.Fatalf("Authors = %v (len %d), want 3 entries", got.Authors, len(got.Authors))
 	}
 	sort.Strings(got.Authors)
-	want := []string{"uo-A", "uo-B", "uo-C"}
+	want := []string{"u-A", "u-B", "u-C"}
 	for i, w := range want {
 		if got.Authors[i] != w {
 			t.Errorf("Authors[%d] = %q, want %q", i, got.Authors[i], w)
@@ -95,7 +94,7 @@ func TestComputeMetadata_AuthorsFromDistinctClients(t *testing.T) {
 // TestComputeMetadata_AuthorsDeduplicateAcrossClientIDs covers the
 // common case where one user has edited from multiple devices/sessions
 // — each device gets its own Yjs clientID but maps back to the same
-// user_org. The badge should count unique humans, not unique clientIDs.
+// user. The badge should count unique humans, not unique clientIDs.
 func TestComputeMetadata_AuthorsDeduplicateAcrossClientIDs(t *testing.T) {
 	doc := ycrdt.NewDoc("meta-authors-dedup", false, nil, nil, false)
 	installYXmlElementPatcher(doc)
@@ -104,21 +103,21 @@ func TestComputeMetadata_AuthorsDeduplicateAcrossClientIDs(t *testing.T) {
 	if !ok {
 		t.Fatalf("clientAuthors root missing")
 	}
-	// Same user_org mapped from three distinct clientIDs.
-	authors.Set("100", "uo-A")
-	authors.Set("200", "uo-A")
-	authors.Set("300", "uo-A")
-	// And a separate user_org once.
-	authors.Set("400", "uo-B")
+	// Same user mapped from three distinct clientIDs.
+	authors.Set("100", "u-A")
+	authors.Set("200", "u-A")
+	authors.Set("300", "u-A")
+	// And a separate user once.
+	authors.Set("400", "u-B")
 
 	got := computeMetadata(doc)
 	if len(got.Authors) != 2 {
-		t.Fatalf("Authors = %v (len %d), want 2 unique entries (uo-A, uo-B)",
+		t.Fatalf("Authors = %v (len %d), want 2 unique entries (u-A, u-B)",
 			got.Authors, len(got.Authors))
 	}
 	sort.Strings(got.Authors)
-	if got.Authors[0] != "uo-A" || got.Authors[1] != "uo-B" {
-		t.Errorf("Authors = %v, want [uo-A uo-B]", got.Authors)
+	if got.Authors[0] != "u-A" || got.Authors[1] != "u-B" {
+		t.Errorf("Authors = %v, want [u-A u-B]", got.Authors)
 	}
 }
 
@@ -131,8 +130,8 @@ func TestApplyVersionRestore_DeltaApplicableToFreshPeer(t *testing.T) {
 	source := ycrdt.NewDoc("apply-source", false, nil, nil, false)
 	installYXmlElementPatcher(source)
 	srcAuthors, _ := source.GetMap("clientAuthors").(*ycrdt.YMap)
-	srcAuthors.Set("100", "uo-A")
-	srcAuthors.Set("200", "uo-B")
+	srcAuthors.Set("100", "u-A")
+	srcAuthors.Set("200", "u-B")
 	srcSuggestions, _ := source.GetMap("suggestions").(*ycrdt.YMap)
 	srcSuggestions.Set("s1", map[string]any{
 		"id":     "s1",
@@ -159,11 +158,11 @@ func TestApplyVersionRestore_DeltaApplicableToFreshPeer(t *testing.T) {
 
 	// Target should now mirror the source.
 	tgtAuthors, _ := target.GetMap("clientAuthors").(*ycrdt.YMap)
-	if v := tgtAuthors.Get("100"); v != "uo-A" {
-		t.Errorf("target clientAuthors[100] = %v, want uo-A", v)
+	if v := tgtAuthors.Get("100"); v != "u-A" {
+		t.Errorf("target clientAuthors[100] = %v, want u-A", v)
 	}
-	if v := tgtAuthors.Get("200"); v != "uo-B" {
-		t.Errorf("target clientAuthors[200] = %v, want uo-B", v)
+	if v := tgtAuthors.Get("200"); v != "u-B" {
+		t.Errorf("target clientAuthors[200] = %v, want u-B", v)
 	}
 
 	// Delta should fold into a third never-saw-it peer.
@@ -171,8 +170,8 @@ func TestApplyVersionRestore_DeltaApplicableToFreshPeer(t *testing.T) {
 	installYXmlElementPatcher(peer)
 	ycrdt.ApplyUpdate(peer, delta, nil)
 	peerAuthors, _ := peer.GetMap("clientAuthors").(*ycrdt.YMap)
-	if v := peerAuthors.Get("100"); v != "uo-A" {
-		t.Errorf("peer clientAuthors[100] = %v, want uo-A", v)
+	if v := peerAuthors.Get("100"); v != "u-A" {
+		t.Errorf("peer clientAuthors[100] = %v, want u-A", v)
 	}
 	peerSuggestions, _ := peer.GetMap("suggestions").(*ycrdt.YMap)
 	got := peerSuggestions.Get("s1")

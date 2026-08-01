@@ -102,7 +102,7 @@ function setupEditor(
     } = {}
 ) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: opts.authorId ?? 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: opts.authorId ?? 'uo_alice' })
     modeStore.getState().setMode(opts.mode ?? EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({

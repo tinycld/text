@@ -121,7 +121,7 @@ const (
 	// proposed in suggesting mode (toggling bold/italic/underline/color/
 	// font, etc.). Attrs:
 	//   - suggestionId: tinycld id of the proposal
-	//   - authorId:     userOrgId of the proposer
+	//   - authorId:     user id of the proposer
 	//   - ts:           unix-ms timestamp of the proposal
 	//   - before:       SerializedMarks ([]{type, attrs}) — the mark set
 	//                   in effect before the change
@@ -144,13 +144,13 @@ const (
 
 // SupportedMarks is the analog of SupportedNodeTypes for inline marks.
 var SupportedMarks = map[string]bool{
-	MarkTypeBold:            true,
-	MarkTypeItalic:          true,
-	MarkTypeUnderline:       true,
-	MarkTypeStrike:          true,
-	MarkTypeLink:            true,
-	MarkTypeTextStyle:       true,
-	MarkTypeComment:         true,
+	MarkTypeBold:                  true,
+	MarkTypeItalic:                true,
+	MarkTypeUnderline:             true,
+	MarkTypeStrike:                true,
+	MarkTypeLink:                  true,
+	MarkTypeTextStyle:             true,
+	MarkTypeComment:               true,
 	MarkTypeSuggestedInsert:       true,
 	MarkTypeSuggestedDelete:       true,
 	MarkTypeSuggestedFormatChange: true,
@@ -169,7 +169,7 @@ const (
 	// tableHeader) that carries a proposed paragraph-property change.
 	// Attrs map entries:
 	//   - suggestionId: tinycld id of the proposal
-	//   - authorId:     userOrgId of the proposer
+	//   - authorId:     user id of the proposer
 	//   - ts:           unix-ms timestamp of the proposal
 	//   - before:       { type, attrs[, added] } — block shape before
 	//   - after:        { type, attrs[, deleted] } — proposed block shape

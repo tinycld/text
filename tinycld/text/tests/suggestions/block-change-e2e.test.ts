@@ -51,7 +51,7 @@ function setupEditor(opts: {
     authorId?: string
 }) {
     const modeStore = createEditorModeStore()
-    modeStore.getState().setIdentity({ userOrgId: opts.authorId ?? 'uo_alice' })
+    modeStore.getState().setIdentity({ userId: opts.authorId ?? 'uo_alice' })
     modeStore.getState().setMode(opts.mode ?? EDITOR_MODE_SUGGESTING)
     const yDoc = new Y.Doc()
     const editor = new Editor({
@@ -142,7 +142,7 @@ describe('Phase 5 block-change end-to-end integration', () => {
         // Accept. Switch to editing mode so the resolver's PM writes
         // don't get re-intercepted as fresh proposals.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // The block is now a heading at level 2 with the original
         // content; the wrapper attribute is gone.
@@ -189,7 +189,7 @@ describe('Phase 5 block-change end-to-end integration', () => {
         const id = payload.suggestionId
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // Reject: paragraph back to default alignment, wrapper gone.
         const after = editor.state.doc.firstChild
@@ -244,7 +244,7 @@ describe('Phase 5 block-change end-to-end integration', () => {
         expect(hasSuggestedDeleteMark(editor, id)).toBe(true)
 
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        acceptSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        acceptSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // After accept: only "first" remains.
         expect(editor.state.doc.childCount).toBe(1)
@@ -293,7 +293,7 @@ describe('Phase 5 block-change end-to-end integration', () => {
         // Bulk reject by suggestionId — one reject call cleans up
         // both blocks.
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
-        rejectSuggestion(editor, id, { resolverUserOrgId: 'uo_carol', yDoc })
+        rejectSuggestion(editor, id, { resolverUserId: 'uo_carol', yDoc })
 
         // Both blocks reverted to their original shape.
         const blocks: Array<{ type: string; attrs: Record<string, unknown> }> = []

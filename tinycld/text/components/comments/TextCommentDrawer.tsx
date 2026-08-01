@@ -1,6 +1,6 @@
+import { useAuth } from '@tinycld/core/lib/auth'
 import type { Thread } from '@tinycld/core/lib/comments'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
-import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { CommentDrawer, type CommentDrawerGroup } from '@tinycld/core/ui/comments'
 import { useMemo } from 'react'
 import { useCommentMutations } from '../../hooks/use-comment-mutations'
@@ -33,9 +33,9 @@ export function TextCommentDrawer({
 
     const drawerIsOpen = isOpen && storeDriveItemId === driveItemId
 
-    const { userOrgId } = useCurrentRole()
+    const { user } = useAuth()
     const { reply, editBody, resolve, reopen, remove } = useCommentMutations()
-    const mentionSuggestions = useMentionSuggestions(userOrgId)
+    const mentionSuggestions = useMentionSuggestions(user.id)
 
     const { threadsByCommentId, orphanedCommentIds } = documentComments
 
@@ -51,7 +51,7 @@ export function TextCommentDrawer({
             isOpen={drawerIsOpen}
             onClose={close}
             groups={groups}
-            currentUserOrgId={userOrgId}
+            currentUserId={user.id}
             focusedThreadId={focusedThreadId}
             onJump={group => {
                 focusThread(group.threads[0]?.root.id ?? null)

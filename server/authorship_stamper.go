@@ -3,8 +3,6 @@ package text
 import (
 	"log/slog"
 
-	"github.com/pocketbase/pocketbase/core"
-
 	"tinycld.org/core/realtime"
 )
 
@@ -14,16 +12,16 @@ import (
 // update.
 //
 // The handler is the orchestrator: it consults the per-room cache,
-// extracts clientIDs from the payload, resolves user_org identity,
+// extracts clientIDs from the payload, reads the connection's user id,
 // writes the entries into the server doc through the handle's
 // synchronized stampAuthorship method, captures the delta, and
 // broadcasts it. Each sub-step is its own testable unit
 // (authorship_{cache,probe,writer}.go), but the wiring lives here.
 //
-// Skips anonymous (share-link) connections — they don't have a stable
-// userOrgID and stamping a placeholder would corrupt downstream
-// blame views. The clientID in clientAuthors must round-trip to a
-// real user_org record, so we simply don't stamp anonymous edits.
+// Skips anonymous (share-link) connections — they have no stable user
+// id and stamping a placeholder would corrupt downstream blame views.
+// The clientID in clientAuthors must round-trip to a real users record,
+// so we simply don't stamp anonymous edits.
 // Phase 3b / 3c renderers will surface anon-clientID items as
 // "anonymous" by virtue of having no clientAuthors entry.
 //
@@ -46,7 +44,7 @@ import (
 // (they touch only goroutine-local state or the authorshipCache's own
 // mu); the only meaningful serialization is the per-handle mutex
 // around the actual doc mutation.
-func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateContentFn {
+func makeAuthorshipStamper(runtime *Runtime) realtime.OnDocUpdateContentFn {
 	return func(roomID string, conn *realtime.Client, payload []byte) {
 		if conn == nil || conn.IsAnonymous() {
 			return
@@ -57,31 +55,13 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			return
 		}
 		cache := runtime.AuthorshipCache()
-		// Negative cache short-circuit. If a previous frame from this
-		// (roomID, authID) tried to resolve and failed, every subsequent
-		// frame would otherwise hit the DB again — a misbehaving client
-		// (e.g. removed from the org mid-session) could beat PB on every
-		// keystroke. The negative entry lives for the room's lifetime
-		// and is dropped by dropRoom when the doc evicts.
-		if cache.isUnresolvable(roomID, conn.AuthID()) {
+		// Single-org: the author IS the authenticated user on this
+		// connection. No DB lookup, so no memo and no negative cache —
+		// the multi-org resolver that used to map (user, item) through
+		// the user_org junction is gone.
+		userID := conn.AuthID()
+		if userID == "" {
 			return
-		}
-		// Resolve user_org BEFORE the cache filter so the Phase 3b
-		// buffer.Note path can use it even when the Phase 3a stamping
-		// branch short-circuits. The resolver result is itself cached
-		// per (roomID, authID), so after the first frame from a given
-		// connection this is a pure map lookup.
-		uoID, ok := cache.lookupUserOrg(roomID, conn.AuthID())
-		if !ok {
-			resolved, err := resolveUserOrgID(app, conn.AuthID(), roomID)
-			if err != nil {
-				slog.Warn("text: cannot resolve user_org for stamping",
-					"roomID", roomID, "authID", conn.AuthID(), "err", err)
-				cache.markUnresolvable(roomID, conn.AuthID())
-				return
-			}
-			uoID = resolved
-			cache.rememberUserOrg(roomID, conn.AuthID(), uoID)
 		}
 		fresh := make([]uint32, 0, len(clientIDs))
 		for _, cid := range clientIDs {
@@ -109,7 +89,7 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 			for _, cid := range fresh {
 				entries = append(entries, authorshipEntry{
 					ClientID:    cid,
-					UserOrgID:   uoID,
+					UserID:      userID,
 					FirstSeenMS: now,
 				})
 			}
@@ -164,7 +144,7 @@ func makeAuthorshipStamper(app core.App, runtime *Runtime) realtime.OnDocUpdateC
 		room := runtime.RoomFor(roomID)
 		if buffer != nil && room != nil && room.HasOtherWriter(conn) {
 			for _, cid := range clientIDs {
-				buffer.Note(cid, uoID, nil)
+				buffer.Note(cid, userID, nil)
 			}
 		}
 	}

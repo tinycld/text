@@ -27,7 +27,7 @@ describe('Phase 2b smoke', () => {
 
     it('three suggestions in doc order → bulkAccept resolves all three', () => {
         const modeStore = createEditorModeStore()
-        modeStore.getState().setIdentity({ userOrgId: 'uo_alice' })
+        modeStore.getState().setIdentity({ userId: 'uo_alice' })
         modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
         const yDoc = new Y.Doc()
 
@@ -59,7 +59,7 @@ describe('Phase 2b smoke', () => {
         expect(result.anchored.length).toBeGreaterThanOrEqual(3)
 
         const ids = result.anchored.map(r => r.id)
-        bulkAccept(editor, ids, { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkAccept(editor, ids, { resolverUserId: 'uo_carol', yDoc })
 
         for (const id of ids) {
             expect(map.get(id)?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
@@ -128,7 +128,7 @@ describe('Phase 2b smoke', () => {
 
         // Accepting just Bob's leaves Carol's mark still on the text.
         bulkAccept(editor, ['s-bob'], {
-            resolverUserOrgId: 'uo_dave',
+            resolverUserId: 'uo_dave',
             yDoc,
         })
         expect(map.get('s-bob')?.status).toBe(SUGGESTION_STATUS_ACCEPTED)
@@ -189,7 +189,7 @@ describe('Phase 2b smoke', () => {
         })
         const map = new SuggestionsMap(yDoc)
         map.create({ id: 's1', authorId: 'uo_alice', createdAt: 100 })
-        bulkReject(editor, ['s1'], { resolverUserOrgId: 'uo_carol', yDoc })
+        bulkReject(editor, ['s1'], { resolverUserId: 'uo_carol', yDoc })
         expect(editor.state.doc.textContent).not.toContain('UNWANTED')
         expect(editor.state.doc.textContent).toContain('KEEP')
         expect(map.get('s1')?.status).toBe(SUGGESTION_STATUS_REJECTED)

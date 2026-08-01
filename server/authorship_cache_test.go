@@ -2,6 +2,11 @@ package text
 
 import "testing"
 
+// The user_org memo and the unresolvable negative cache both went away
+// with the resolver: single-org reads the author id straight off the
+// connection, so there is no DB result to memoize and no lookup that can
+// fail. Only the stamped set remains.
+
 func TestAuthorshipCache_NotedClientIDs(t *testing.T) {
 	c := newAuthorshipCache()
 	if c.alreadyStamped("room-1", 42) {
@@ -21,49 +26,16 @@ func TestAuthorshipCache_NotedClientIDs(t *testing.T) {
 	}
 }
 
-func TestAuthorshipCache_UserOrgMemo(t *testing.T) {
-	c := newAuthorshipCache()
-	if got, ok := c.lookupUserOrg("room-1", "user-x"); ok || got != "" {
-		t.Errorf("fresh lookup must miss; got (%q, %v)", got, ok)
-	}
-	c.rememberUserOrg("room-1", "user-x", "uo-42")
-	if got, ok := c.lookupUserOrg("room-1", "user-x"); !ok || got != "uo-42" {
-		t.Errorf("lookup after remember = (%q, %v); want (uo-42, true)", got, ok)
-	}
-}
-
 func TestAuthorshipCache_DropRoomClears(t *testing.T) {
 	c := newAuthorshipCache()
 	c.noteStamped("room-1", 42)
-	c.rememberUserOrg("room-1", "user-x", "uo-42")
-	c.markUnresolvable("room-1", "user-y")
+	c.noteStamped("room-2", 7)
 	c.dropRoom("room-1")
 	if c.alreadyStamped("room-1", 42) {
 		t.Errorf("after dropRoom, stamped set must be cleared")
 	}
-	if _, ok := c.lookupUserOrg("room-1", "user-x"); ok {
-		t.Errorf("after dropRoom, user_org memo must be cleared")
-	}
-	if c.isUnresolvable("room-1", "user-y") {
-		t.Errorf("after dropRoom, unresolvable set must be cleared")
-	}
-}
-
-func TestAuthorshipCache_Unresolvable(t *testing.T) {
-	c := newAuthorshipCache()
-	if c.isUnresolvable("room-1", "user-x") {
-		t.Errorf("fresh cache must not report user-x unresolvable")
-	}
-	c.markUnresolvable("room-1", "user-x")
-	if !c.isUnresolvable("room-1", "user-x") {
-		t.Errorf("after markUnresolvable, user-x must report unresolvable")
-	}
-	// Per-room scoping: a different room is independent.
-	if c.isUnresolvable("room-2", "user-x") {
-		t.Errorf("room-2 must be independent of room-1's unresolvable set")
-	}
-	// Per-authID scoping: a different auth in the same room is independent.
-	if c.isUnresolvable("room-1", "user-y") {
-		t.Errorf("user-y in room-1 must be independent of user-x")
+	// Dropping one room must not disturb another.
+	if !c.alreadyStamped("room-2", 7) {
+		t.Errorf("dropRoom(room-1) must not clear room-2")
 	}
 }

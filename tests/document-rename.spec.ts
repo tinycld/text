@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { login } from '../../tinycld/tests/e2e/helpers'
 import { uniqueDocName, uploadDocxAsDriveItem } from './_menubar-helpers'
 
 test.describe('Text — Document rename', () => {
@@ -11,7 +11,7 @@ test.describe('Text — Document rename', () => {
         const itemId = await uploadDocxAsDriveItem(originalName)
 
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
 
         // The DocumentTitle Pressable carries an accessibilityLabel of
         // `Rename document, currently <name>`; aria-label on web makes
@@ -42,7 +42,7 @@ test.describe('Text — Document rename', () => {
         const itemId = await uploadDocxAsDriveItem(originalName)
 
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
 
         const titleTrigger = page.getByLabel(`Rename document, currently ${originalName}`)
         await expect(titleTrigger).toBeVisible()

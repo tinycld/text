@@ -1,4 +1,4 @@
-import type { DriveItems, TextComments, UserOrg } from '@tinycld/core/types/pbSchema'
+import type { DriveItems, TextComments, Users } from '@tinycld/core/types/pbSchema'
 
 // TextComments is generated from PocketBase schema on every migration
 // (see core/types/pbSchema.ts — the source of truth). Re-exported here
@@ -14,7 +14,7 @@ export type TextSchema = {
         relations: {
             drive_item: DriveItems
             parent_comment?: TextComments
-            author: UserOrg
+            author: Users
         }
     }
 }

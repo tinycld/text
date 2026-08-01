@@ -11,7 +11,6 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
-import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
@@ -100,16 +99,12 @@ export default function TextDetail() {
     const { id } = useLocalSearchParams<{ id: string }>()
     const [driveItemsCollection] = useStore('drive_items')
     const { user } = useAuth()
-    const { userOrgId } = useCurrentRole()
     const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
     const orgHref = useOrgHref()
 
     const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
-        (query, { orgId }) =>
-            query
-                .from({ item: driveItemsCollection })
-                .where(({ item }) => eq(item.org, orgId))
-                .where(({ item }) => eq(item.id, id ?? '')),
+        query =>
+            query.from({ item: driveItemsCollection }).where(({ item }) => eq(item.id, id ?? '')),
         [id]
     )
 
@@ -167,7 +162,6 @@ export default function TextDetail() {
         identity: {
             kind: 'member',
             userId: user.id,
-            userOrgId,
             displayName: user.name,
             color: colorForUser(user.id),
         },
@@ -225,14 +219,15 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // focusedSuggestionId from doc A can't focus an unrelated row in
     // doc B after navigation.
     const reviewDrawerStore = useMemo(() => createReviewDrawerStore(), [])
-    const { userOrgId } = useCurrentRole()
+    const { user } = useAuth()
+    const userId = user.id
     useEffect(() => {
-        if (userOrgId) {
-            modeStore.getState().setIdentity({ userOrgId })
+        if (userId) {
+            modeStore.getState().setIdentity({ userId })
         } else {
             modeStore.getState().setIdentity(null)
         }
-    }, [userOrgId, modeStore])
+    }, [userId, modeStore])
     // The suggestion bridge is created below (it needs tiptapEditor +
     // yDoc, which come out of useTextDocument). But the native variant
     // of useTextDocument needs an onSuggestionMessage callback to wire
@@ -277,7 +272,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // surface, not a collaboration surface. Comment threads and
     // suggestion proposals are internal team artifacts; exposing them
     // to anonymous link recipients or downstream viewers would leak
-    // org context (author user_org ids, review timelines, internal
+    // org context (author user ids, review timelines, internal
     // edit discussion) we don't intend to share.
     //
     // The decision drives three categories of gating, all keyed off
@@ -341,23 +336,23 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     })
     const onBulkAccept = useCallback(
         (ids: string[]) => {
-            if (!tiptapEditor || !room.doc || !userOrgId) return
+            if (!tiptapEditor || !room.doc || !userId) return
             bulkAccept(tiptapEditor, ids, {
-                resolverUserOrgId: userOrgId,
+                resolverUserId: userId,
                 yDoc: room.doc,
             })
         },
-        [tiptapEditor, room.doc, userOrgId]
+        [tiptapEditor, room.doc, userId]
     )
     const onBulkReject = useCallback(
         (ids: string[]) => {
-            if (!tiptapEditor || !room.doc || !userOrgId) return
+            if (!tiptapEditor || !room.doc || !userId) return
             bulkReject(tiptapEditor, ids, {
-                resolverUserOrgId: userOrgId,
+                resolverUserId: userId,
                 yDoc: room.doc,
             })
         },
-        [tiptapEditor, room.doc, userOrgId]
+        [tiptapEditor, room.doc, userId]
     )
 
     // Reflect the editor mode into the Tiptap editor's editable flag so
@@ -608,11 +603,11 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                             // The drawer's focused-state thread renders a
                             // <SuggestionThread /> whose discussion adapter
                             // writes text_comments rows authored by the
-                            // current user_org. Thread it down once at the
+                            // current user. Thread it down once at the
                             // screen scope (same source as the bulk-accept /
                             // bulk-reject services) so the row stays
                             // identity-context-free.
-                            authorUserOrgId={userOrgId ?? ''}
+                            authorUserId={userId ?? ''}
                             // Match the drawer's top edge to the bottom of
                             // the title/menubar/toolbar stack, measured
                             // live via onLayout above. Falls back to a sane
@@ -649,7 +644,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                         {/* Returns null on web. */}
                         <SuggestionThreadSheet
                             driveItemId={driveItemId}
-                            authorUserOrgId={userOrgId ?? ''}
+                            authorUserId={userId ?? ''}
                             anchored={anchored}
                             canResolve={canResolve}
                             isPending={resolveService.isPending}

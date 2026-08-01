@@ -41,7 +41,7 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 	t.Cleanup(func() { WindowDuration = origWindow })
 
 	app := setupAuthTestApp(t)
-	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
 	itemID := alice.itemID
 
 	runtime := NewRuntime()
@@ -57,7 +57,7 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(itemID, room)
 		},
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateContent: makeAuthorshipStamper(runtime),
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},
@@ -108,7 +108,7 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 		t.Fatalf("editEvents root missing from server doc")
 	}
 	// Solo writer + no audience → no buffer.Note → no editEvents.
-	// aliceClientID and aliceUO are only kept in scope above to make
+	// aliceClientID is only kept in scope above to make
 	// the test setup match a realistic stamping flow; they are
 	// intentionally unused in the assertions because the design says
 	// nothing should land.
@@ -145,10 +145,9 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 	t.Cleanup(func() { WindowDuration = origWindow })
 
 	app := setupAuthTestApp(t)
-	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
 	itemID := alice.itemID
 	bob := mustCreateUser(t, app, "bob@e2e.test")
-	bobUO := seedUserOrg(t, app, bob.Id, alice.orgID)
 
 	runtime := NewRuntime()
 	t.Cleanup(runtime.Stop)
@@ -159,7 +158,7 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(itemID, room)
 		},
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateContent: makeAuthorshipStamper(runtime),
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},
@@ -247,13 +246,13 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 
 	if author, ok := got[aliceClientID]; !ok {
 		t.Errorf("editEvents missing entry for alice clientID %d (got %v)", aliceClientID, got)
-	} else if author != alice.userOrgID {
-		t.Errorf("editEvents[alice].authorId = %q, want %q", author, alice.userOrgID)
+	} else if author != alice.userID {
+		t.Errorf("editEvents[alice].authorId = %q, want %q", author, alice.userID)
 	}
 	if author, ok := got[bobClientID]; !ok {
 		t.Errorf("editEvents missing entry for bob clientID %d (got %v)", bobClientID, got)
-	} else if author != bobUO {
-		t.Errorf("editEvents[bob].authorId = %q, want %q", author, bobUO)
+	} else if author != bob.Id {
+		t.Errorf("editEvents[bob].authorId = %q, want %q", author, bob.Id)
 	}
 }
 
@@ -277,7 +276,7 @@ func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
 	t.Cleanup(func() { WindowDuration = origWindow })
 
 	app := setupAuthTestApp(t)
-	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "org-1", "doc.docx")
+	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
 	itemID := alice.itemID
 	viewer := mustCreateUser(t, app, "viewer@e2e.test")
 
@@ -290,7 +289,7 @@ func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(itemID, room)
 		},
-		OnDocUpdateContent: makeAuthorshipStamper(app, runtime),
+		OnDocUpdateContent: makeAuthorshipStamper(runtime),
 		WritePredicate: func(c *realtime.Client, _ string) bool {
 			return !c.ReadOnly()
 		},

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+
 import {
     authAsTestUser,
     editorRoot,
@@ -128,7 +128,7 @@ test.describe('Text — Version snapshot + restore', () => {
         // Re-open the doc. New room, fresh bootstrap from the just-
         // restored v1 docx; the editor mounts the v1 content with no
         // v2 residue.
-        await page.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+        await page.goto(`/text/${itemId}`)
         await waitForEditor(page)
 
         // v1 marker is back; v2 marker is gone.

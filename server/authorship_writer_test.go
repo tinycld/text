@@ -11,8 +11,8 @@ func TestWriteAuthorshipEntries_PopulatesProtectedRoots(t *testing.T) {
 	doc := ycrdt.NewDoc("writer-test", false, nil, nil, false)
 	installYXmlElementPatcher(doc)
 	entries := []authorshipEntry{
-		{ClientID: 100, UserOrgID: "uo-A", FirstSeenMS: 1700000000000},
-		{ClientID: 200, UserOrgID: "uo-B", FirstSeenMS: 1700000000001},
+		{ClientID: 100, UserID: "user-A", FirstSeenMS: 1700000000000},
+		{ClientID: 200, UserID: "user-B", FirstSeenMS: 1700000000001},
 	}
 	delta, err := writeAuthorshipEntries(doc, entries)
 	if err != nil {
@@ -24,11 +24,11 @@ func TestWriteAuthorshipEntries_PopulatesProtectedRoots(t *testing.T) {
 
 	// Verify clientAuthors populated
 	authors, _ := doc.GetMap("clientAuthors").(*ycrdt.YMap)
-	if v := authors.Get(strconv.FormatUint(100, 10)); v != "uo-A" {
-		t.Errorf("clientAuthors[100] = %v, want uo-A", v)
+	if v := authors.Get(strconv.FormatUint(100, 10)); v != "user-A" {
+		t.Errorf("clientAuthors[100] = %v, want user-A", v)
 	}
-	if v := authors.Get(strconv.FormatUint(200, 10)); v != "uo-B" {
-		t.Errorf("clientAuthors[200] = %v, want uo-B", v)
+	if v := authors.Get(strconv.FormatUint(200, 10)); v != "user-B" {
+		t.Errorf("clientAuthors[200] = %v, want user-B", v)
 	}
 
 	// Verify clientFirstSeen populated. y-crdt only accepts its own
@@ -57,7 +57,7 @@ func TestWriteAuthorshipEntries_DeltaApplicableToFreshPeer(t *testing.T) {
 	server := ycrdt.NewDoc("writer-server", false, nil, nil, false)
 	installYXmlElementPatcher(server)
 	entries := []authorshipEntry{
-		{ClientID: 42, UserOrgID: "uo-X", FirstSeenMS: 9999},
+		{ClientID: 42, UserID: "user-X", FirstSeenMS: 9999},
 	}
 	delta, _ := writeAuthorshipEntries(server, entries)
 
@@ -67,8 +67,8 @@ func TestWriteAuthorshipEntries_DeltaApplicableToFreshPeer(t *testing.T) {
 	ycrdt.ApplyUpdate(peer, delta, nil)
 
 	peerAuthors, _ := peer.GetMap("clientAuthors").(*ycrdt.YMap)
-	if v := peerAuthors.Get("42"); v != "uo-X" {
-		t.Errorf("peer clientAuthors[42] = %v, want uo-X", v)
+	if v := peerAuthors.Get("42"); v != "user-X" {
+		t.Errorf("peer clientAuthors[42] = %v, want user-X", v)
 	}
 	peerFirstSeen, _ := peer.GetMap("clientFirstSeen").(*ycrdt.YMap)
 	if v := peerFirstSeen.Get("42"); v != int(9999) {

@@ -14,9 +14,9 @@ import (
 // archived_at fields added in Phase 5 Task 1. Mirrors the pattern in
 // fixtures_test.go::setupTestApp + comment_mentions_test.go.
 //
-// The author relation on text_comments expects user_org in production;
+// The author relation on text_comments points at users in production;
 // here we stand it up as a TextField so the test doesn't have to seed
-// the full user_org chain just to satisfy schema validation.
+// real user records just to satisfy schema validation.
 func setupDiscussionCleanupTestApp(t *testing.T) *tests.TestApp {
 	t.Helper()
 	app, err := tests.NewTestApp()
@@ -257,7 +257,7 @@ func TestDiffSuggestionKeysIdempotent(t *testing.T) {
 // this is the visible-effect signal that the cleanup ran.
 func TestArchiveOrphanedDiscussions(t *testing.T) {
 	app := setupDiscussionCleanupTestApp(t)
-	driveItem := seedDriveItemInOrg(t, app, "org-1", "doc.docx")
+	driveItem := seedSharedItem(t, app, nil, "doc.docx")
 
 	keep := seedDiscussionReply(t, app, driveItem.Id, "s1", "live")
 	archive := seedDiscussionReply(t, app, driveItem.Id, "s2", "going away")
@@ -292,7 +292,7 @@ func TestArchiveOrphanedDiscussions(t *testing.T) {
 // archive time.
 func TestArchiveOrphanedDiscussionsSkipsAlreadyArchived(t *testing.T) {
 	app := setupDiscussionCleanupTestApp(t)
-	driveItem := seedDriveItemInOrg(t, app, "org-1", "doc.docx")
+	driveItem := seedSharedItem(t, app, nil, "doc.docx")
 	row := seedDiscussionReply(t, app, driveItem.Id, "s1", "thread")
 
 	archiveOrphanedDiscussions(app, []string{"s1"})
@@ -327,7 +327,7 @@ func TestArchiveOrphanedDiscussionsSkipsAlreadyArchived(t *testing.T) {
 // refactor.
 func TestArchiveOrphanedDiscussionsEmptyIDs(t *testing.T) {
 	app := setupDiscussionCleanupTestApp(t)
-	driveItem := seedDriveItemInOrg(t, app, "org-1", "doc.docx")
+	driveItem := seedSharedItem(t, app, nil, "doc.docx")
 	row := seedDiscussionReply(t, app, driveItem.Id, "s1", "thread")
 
 	archiveOrphanedDiscussions(app, nil)

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+
 import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
 // Each spec opens its own fresh document — destructive items
@@ -12,14 +12,18 @@ test.describe('Text — Menubar', () => {
             await openFreshTextDocument(page, 'menubar-new')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'New document' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/?$`))
+            // The no-file panel is the text index's screen; assert it rendered
+            // rather than that the router accepted the push.
+            await expect(
+                page.getByRole('heading', { level: 1, name: 'A blank page.' })
+            ).toBeVisible()
         })
 
         test('Open navigates to drive', async ({ page }) => {
             await openFreshTextDocument(page, 'menubar-open')
             await openMenubarMenu(page, 'File')
             await page.getByRole('menuitem', { name: 'Open' }).click()
-            await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/drive`))
+            await expect(page.getByTestId('pkg-active-drive')).toBeVisible()
         })
 
         test('Rename updates the document header', async ({ page }) => {

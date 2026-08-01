@@ -87,7 +87,7 @@ type Runtime struct {
 
 	// authorship is the Phase 3a stamping cache. Lives the lifetime of
 	// the process; per-room state is dropped in closeDoc so a long-
-	// running server doesn't leak stamped-set / userOrg memos for
+	// running server doesn't leak stamped-set / author memos for
 	// rooms that have been evicted.
 	authorship *authorshipCache
 

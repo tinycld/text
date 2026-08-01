@@ -11,14 +11,14 @@ import { SuggestionThread } from './SuggestionThread'
 
 export interface SuggestionRowProps {
     suggestion: AnchoredSuggestion
-    // driveItemId + authorUserOrgId thread through to <SuggestionThread />
+    // driveItemId + authorUserId thread through to <SuggestionThread />
     // for the focused-state body — the discussion adapter writes
     // text_comments rows scoped to (drive_item, suggestion_id, author),
     // and the screen owns those identifiers. Plumbed down rather than
     // re-read from useEditorMount/useCurrentRole here so the row stays
     // identity-context-free and trivially mountable in unit tests.
     driveItemId: string
-    authorUserOrgId: string
+    authorUserId: string
     isFocused: boolean
     canResolve: boolean
     isPending: boolean
@@ -99,7 +99,7 @@ function kindLabelFor(kind: AnchoredSuggestion['kind']): string {
 export function SuggestionRow({
     suggestion,
     driveItemId,
-    authorUserOrgId,
+    authorUserId,
     isFocused,
     canResolve,
     isPending: _isPending,
@@ -115,7 +115,7 @@ export function SuggestionRow({
     const KindIcon = kindIconFor(suggestion.kind)
     const summary = summarizeSuggestion(suggestion)
     const kindLabel = kindLabelFor(suggestion.kind)
-    // Resolve the user_org id to a human name (falls back to email,
+    // Resolve the user id to a human name (falls back to email,
     // then null while the live query loads or for unresolved ids).
     // Until the query resolves we render the raw id so the row never
     // flashes "Loading…" — once the name lands, the row updates in
@@ -189,7 +189,7 @@ export function SuggestionRow({
                 <SuggestionThread
                     suggestion={suggestion}
                     driveItemId={driveItemId}
-                    authorUserOrgId={authorUserOrgId}
+                    authorUserId={authorUserId}
                     canResolve={canResolve}
                     onAccept={onAccept}
                     onReject={onReject}

@@ -90,7 +90,6 @@ describe('useTextDocuments query shape', () => {
         )
         expect(src).toContain('DOCX_MIME_TYPE')
         expect(src).toContain('is_folder')
-        expect(src).toContain('eq(item.org, orgId)')
         // Ordering: newest first
         expect(src).toContain("orderBy(({ item }) => item.updated, 'desc')")
     })

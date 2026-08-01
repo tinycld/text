@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -47,12 +47,12 @@ test.describe('Text — Viewer cannot resolve', () => {
             const bobPage = await bobContext.newPage()
 
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await alicePage.goto(`/text/${itemId}`)
             await waitForEditor(alicePage)
             await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
-            await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await bobPage.goto(`/text/${itemId}`)
             await waitForEditor(bobPage)
             await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 

@@ -37,7 +37,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
     useAuthorName: () => null,
 }))
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
-    useEditorMount: () => ({ identity: { userOrgId: 'uo_me' } }),
+    useEditorMount: () => ({ identity: { userId: 'user_me' } }),
 }))
 vi.mock('~/tinycld/text/hooks/use-mention-suggestions', () => ({
     useMentionSuggestions: () => [],
@@ -81,7 +81,7 @@ function renderSheet(opts: {
     return render(
         <SuggestionThreadSheet
             driveItemId="di_test"
-            authorUserOrgId="uo_me"
+            authorUserId="uo_me"
             anchored={opts.anchored}
             canResolve
             isPending={false}
@@ -205,7 +205,7 @@ describe('SuggestionThreadSheet', () => {
         const { container } = render(
             <WebSheet
                 driveItemId="di_test"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 anchored={[sampleSuggestion({ id: 's1' })]}
                 canResolve
                 isPending={false}

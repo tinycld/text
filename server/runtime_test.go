@@ -309,8 +309,8 @@ func TestRuntime_ImportWarningsOverflow(t *testing.T) {
 // the Phase 3a authorship cache lifecycle: when the janitor evicts an
 // idle room, closeDoc must drop the per-room authorship cache entries
 // alongside the doc/handle/room. Otherwise a long-running server
-// gradually leaks stamped-set / userOrg memos for rooms that haven't
-// been opened in hours.
+// gradually leaks stamped-set entries for rooms that haven't been
+// opened in hours.
 //
 // Drives the eviction with the fake clock + direct evictIdleDocs call
 // (consistent with TestRuntime_EvictIdleDoc) rather than racing the
@@ -332,14 +332,10 @@ func TestJanitor_ClearsAuthorshipCacheOnEvict(t *testing.T) {
 
 	cache := runtime.AuthorshipCache()
 	cache.noteStamped("room-evict-test", 99)
-	cache.rememberUserOrg("room-evict-test", "user-x", "uo-x")
 
 	// Sanity: cache entries are present before eviction.
 	if !cache.alreadyStamped("room-evict-test", 99) {
 		t.Fatal("cache should record clientID 99 as stamped before evict")
-	}
-	if got, ok := cache.lookupUserOrg("room-evict-test", "user-x"); !ok || got != "uo-x" {
-		t.Fatalf("cache should record user-x → uo-x before evict; got %q, ok=%v", got, ok)
 	}
 
 	// Advance the clock past MaxIdleDuration and trigger the janitor's
@@ -357,9 +353,6 @@ func TestJanitor_ClearsAuthorshipCacheOnEvict(t *testing.T) {
 	// these assertions will catch it.
 	if cache.alreadyStamped("room-evict-test", 99) {
 		t.Errorf("authorship stamped set should be cleared after evict")
-	}
-	if got, ok := cache.lookupUserOrg("room-evict-test", "user-x"); ok {
-		t.Errorf("authorship userOrg memo should be cleared after evict; got %q, ok=%v", got, ok)
 	}
 }
 

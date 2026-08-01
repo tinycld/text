@@ -13,7 +13,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
 // stub it so the standalone render works without an EditorMount
 // provider.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
-    useEditorMount: () => ({ identity: { userOrgId: 'uo_me' } }),
+    useEditorMount: () => ({ identity: { userId: 'user_me' } }),
 }))
 vi.mock('~/tinycld/text/hooks/use-mention-suggestions', () => ({
     useMentionSuggestions: () => [],
@@ -88,7 +88,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({ kind: 'insert', snippet: 'new text' })}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve
                 onAccept={NOOP}
                 onReject={NOOP}
@@ -107,7 +107,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({ kind: 'delete', snippet: 'to remove' })}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve
                 onAccept={NOOP}
                 onReject={NOOP}
@@ -129,7 +129,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({})}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve
                 onAccept={NOOP}
                 onReject={NOOP}
@@ -144,7 +144,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({})}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve={false}
                 onAccept={NOOP}
                 onReject={NOOP}
@@ -177,7 +177,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({})}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve
                 onAccept={NOOP}
                 onReject={NOOP}
@@ -192,7 +192,7 @@ describe('SuggestionThread', () => {
             <SuggestionThread
                 suggestion={row({})}
                 driveItemId="di_doc"
-                authorUserOrgId="uo_me"
+                authorUserId="uo_me"
                 canResolve
                 onAccept={NOOP}
                 onReject={NOOP}

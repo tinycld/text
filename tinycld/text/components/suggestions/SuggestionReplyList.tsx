@@ -19,7 +19,7 @@ export interface SuggestionReplyListProps {
 // shouldn't double-stack with an "(no replies yet)" line.
 //
 // Body is rendered as plain text in v1. The wire format used by the
-// composer is `[[@<userOrgId>]]` mention tokens (see
+// composer is `[[@<userId>]]` mention tokens (see
 // core/lib/comments/mentions.ts), which surface as literal bracketed
 // ids in the rendered text. Pretty rendering (turning the token into
 // "@Alice") is intentionally deferred to a later pass — for v1 we

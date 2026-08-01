@@ -12,7 +12,7 @@
 //      last debounced save.
 
 import { expect, type Page, test } from '@playwright/test'
-import { ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+
 import {
     editorRoot,
     openFreshTextDocument,
@@ -77,7 +77,6 @@ test.describe('Text — Document templates', () => {
         // coexist after the in-app navigation — the new doc's editor is the
         // DOM-later one. A bare editorRoot() would trip Playwright strict
         // mode on the two matches.
-        await page.waitForURL(new RegExp(`/a/${ORG_SLUG}/text/[^/]+`))
         const newEditor = editorRoot(page).last()
         await expect(newEditor).toBeVisible()
         await expect(newEditor).toContainText(FRESH_MARKER)

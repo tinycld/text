@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -18,7 +18,7 @@ import {
 // distinct browser contexts (alice + bob) each instantiate their own
 // Y.Doc with a distinct clientID, share the same text document, and
 // each types a character. The server's broker hook stamps the
-// `clientAuthors` Y.Map with each clientID → user_org_id pair as the
+// `clientAuthors` Y.Map with each clientID → user_id pair as the
 // writes flow through; after both round-trips converge, the live
 // Y.Doc on alice's tab must surface entries for both clientIDs.
 //
@@ -44,12 +44,12 @@ test.describe('Text — Authorship stamping', () => {
             const bobPage = await bobContext.newPage()
 
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await alicePage.goto(`/text/${itemId}`)
             await waitForEditor(alicePage)
             await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, userB.email, userB.password)
-            await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await bobPage.goto(`/text/${itemId}`)
             await waitForEditor(bobPage)
             await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -97,22 +97,22 @@ test.describe('Text — Authorship stamping', () => {
                 .poll(async () => (await readClientAuthors(alicePage)).length)
                 .toBeGreaterThanOrEqual(2)
             const entries = await readClientAuthors(alicePage)
-            for (const [, userOrgID] of entries) {
-                // user_org IDs are PocketBase 15-char lowercase
+            for (const [, userID] of entries) {
+                // user IDs are PocketBase 15-char lowercase
                 // alphanumerics; the laxer regex below tolerates any
                 // length of that alphabet to stay robust against an
                 // ID-format change while still pinning "this is not
                 // empty and not whitespace".
-                expect(userOrgID).toMatch(/^[a-z0-9]+$/)
-                expect(userOrgID.length).toBeGreaterThan(0)
+                expect(userID).toMatch(/^[a-z0-9]+$/)
+                expect(userID.length).toBeGreaterThan(0)
             }
 
-            // The two stamped user_org IDs must be distinct — one per
+            // The two stamped user IDs must be distinct — one per
             // writer. (If they collide, either the stamper used the
             // wrong identity for one side, or the test's two contexts
             // somehow ended up authenticated as the same membership.)
-            const distinctUserOrgIDs = new Set(entries.map(([, uo]) => uo))
-            expect(distinctUserOrgIDs.size).toBeGreaterThanOrEqual(2)
+            const distinctUserIDs = new Set(entries.map(([, uid]) => uid))
+            expect(distinctUserIDs.size).toBeGreaterThanOrEqual(2)
         } finally {
             await aliceContext.close()
             await bobContext.close()

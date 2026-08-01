@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { login, ORG_SLUG } from '../../tinycld/tests/e2e/helpers'
+import { login } from '../../tinycld/tests/e2e/helpers'
 import {
     authAsTestUser,
     FEATURE_DOC_HEADING,
@@ -135,7 +135,7 @@ test.describe('Text — Server-rendered preview', () => {
         const docxName = uniqueDocName('preview-ui')
         await uploadDocxAsDriveItem(docxName)
         await login(page)
-        await page.goto(`/a/${ORG_SLUG}/drive`)
+        await page.goto(`/drive`)
         const tile = page.getByText(docxName).first()
         await tile.waitFor({ state: 'visible' })
         await tile.dblclick()

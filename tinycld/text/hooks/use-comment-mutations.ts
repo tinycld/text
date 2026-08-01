@@ -21,7 +21,7 @@ export interface ReplyArgs {
 // Text-side comment mutations. Closes over the text_comments collection
 // and shapes the insert with the comment_id anchor + quoted_text
 // snapshot. Wired with the shared comment_mentions collection so any
-// `[[@user_org_id]]` token in the body yields a notify-triggering row
+// `[[@user_id]]` token in the body yields a notify-triggering row
 // alongside the comment insert.
 export function useCommentMutations() {
     const [textCommentsCollection, commentMentionsCollection] = useStore(
@@ -55,10 +55,10 @@ export function useCommentMutations() {
             commentCollection: 'text_comments',
             insertMention: row => commentMentionsCollection.insert(row),
         },
-        // commentor+ roles always have userOrgId; author_name resolves from
+        // commentor+ roles always have a userId; author_name resolves from
         // displayName so email is unused here.
         identity: {
-            userOrgId: identity.userOrgId ?? '',
+            userId: identity.userId ?? '',
             displayName: identity.displayName,
             email: '',
         },

@@ -7,23 +7,16 @@ import { useCallback } from 'react'
 import { createBlankTextDocument } from '../lib/create-blank-text-document'
 import { DOCX_MIME_TYPE } from '../lib/mime'
 
-// Shared list query: the docx-mime-typed, non-folder drive_items for
-// the current org, newest-updated first. Same shape both the
-// /text index screen and the sidebar's "Recent" list use; factored
-// out so the two surfaces can't drift on filter ordering / where
-// clauses / org scoping.
+// Shared list query: the docx-mime-typed, non-folder drive_items,
+// newest-updated first. Same shape both the /text index screen and
+// the sidebar's "Recent" list use; factored out so the two surfaces
+// can't drift on filter ordering / where clauses.
 export function useTextDocuments() {
     const [driveItemsCollection] = useStore('drive_items')
-    return useOrgLiveQuery((query, { orgId }) =>
+    return useOrgLiveQuery(query =>
         query
             .from({ item: driveItemsCollection })
-            .where(({ item }) =>
-                and(
-                    eq(item.org, orgId),
-                    eq(item.mime_type, DOCX_MIME_TYPE),
-                    eq(item.is_folder, false)
-                )
-            )
+            .where(({ item }) => and(eq(item.mime_type, DOCX_MIME_TYPE), eq(item.is_folder, false)))
             .orderBy(({ item }) => item.updated, 'desc')
     )
 }

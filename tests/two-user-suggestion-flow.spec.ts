@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -11,7 +11,7 @@ import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-mu
 
 // Two-user end-to-end flow for suggestion replication and remote
 // resolution. Alice (the doc owner) shares as editor with Bob (a
-// freshly-minted user_org), Alice switches to Suggesting and types
+// freshly-minted user), Alice switches to Suggesting and types
 // a phrase, Bob's tab sees the suggestedInsert decoration replicate
 // over Yjs realtime, Bob opens the review drawer (in Editing mode
 // to avoid the command layer re-stamping Accept), clicks Accept,
@@ -43,12 +43,12 @@ test.describe('Text — Two-user suggestion flow', () => {
             const bobPage = await bobContext.newPage()
 
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await alicePage.goto(`/text/${itemId}`)
             await waitForEditor(alicePage)
             await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
-            await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await bobPage.goto(`/text/${itemId}`)
             await waitForEditor(bobPage)
             await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -83,7 +83,7 @@ test.describe('Text — Two-user suggestion flow', () => {
             await bobPage.getByRole('button', { name: 'Open suggestion review drawer' }).click()
             await expect(bobPage.getByText('Suggestions').first()).toBeVisible()
 
-            // The drawer's SuggestionRow renders Alice's user_org id
+            // The drawer's SuggestionRow renders Alice's user id
             // as the authorId via accessibilityLabel "Suggestion by
             // <authorId>". Bob may be in Editing or Viewing by
             // default (he hasn't touched the menu); both keep the

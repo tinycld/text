@@ -53,40 +53,45 @@ func setupTestApp(t *testing.T) *tests.TestApp {
 		MaxSize: 50 << 20, // 50 MiB — a real document may be large
 	})
 	items.Fields.Add(&core.NumberField{Name: "size"})
-	items.Fields.Add(&core.TextField{Name: "org"})
 	// mime_type is read by render_endpoint.go's mime-validation gate.
 	// Real drive_items records carry this field (defined in the drive
 	// sibling's migration); tests need it present so the render
 	// handler's docx-only check has something to compare against.
 	items.Fields.Add(&core.TextField{Name: "mime_type"})
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatalf("find users collection: %v", err)
+	}
+	items.Fields.Add(&core.RelationField{
+		Name:         "created_by",
+		CollectionId: users.Id,
+		MaxSelect:    1,
+	})
 	if err := app.Save(items); err != nil {
 		t.Fatalf("save drive_items collection: %v", err)
 	}
 	return app
 }
 
-// setupAuthTestApp builds on setupTestApp by also creating the user_org
-// and drive_shares collections needed to exercise the authorize path.
-// The drive_items field stays text-typed for `org` (rather than a real
-// relation) because we don't need referential integrity in tests —
-// equality is sufficient for the share lookup.
+// setupAuthTestApp builds on setupTestApp by also creating the
+// drive_shares collection needed to exercise the authorize path.
+// Single-org: drive_shares.user points straight at the users auth
+// collection, so there is no junction to synthesize.
 func setupAuthTestApp(t *testing.T) *tests.TestApp {
 	t.Helper()
 	app := setupTestApp(t)
 
-	userOrg := core.NewBaseCollection("user_org")
-	userOrg.Fields.Add(&core.TextField{Name: "user", Required: true})
-	userOrg.Fields.Add(&core.TextField{Name: "org", Required: true})
-	if err := app.Save(userOrg); err != nil {
-		t.Fatalf("save user_org collection: %v", err)
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatalf("find users collection: %v", err)
 	}
 
 	shares := core.NewBaseCollection("drive_shares")
 	shares.Fields.Add(&core.TextField{Name: "item", Required: true})
 	shares.Fields.Add(&core.RelationField{
-		Name:          "user_org",
+		Name:          "user",
 		Required:      true,
-		CollectionId:  userOrg.Id,
+		CollectionId:  users.Id,
 		MaxSelect:     1,
 		CascadeDelete: true,
 	})
@@ -102,10 +107,11 @@ func setupAuthTestApp(t *testing.T) *tests.TestApp {
 	return app
 }
 
-// seedDriveItemInOrg creates a drive_items record tagged to the given org
-// and returns its saved record. Used by authorize tests where the org
-// alignment between item and share matters.
-func seedDriveItemInOrg(t *testing.T, app *tests.TestApp, orgID, name string) *core.Record {
+// seedSharedItem creates a drive_items record for the authorization
+// tests and returns its saved record. Pass a nil creator to isolate the
+// share-row path from the created_by branch driveshare also honors.
+// (seedDriveItem below is a different helper — it attaches file bytes.)
+func seedSharedItem(t *testing.T, app *tests.TestApp, creator *core.Record, name string) *core.Record {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId(driveItemsCollection)
 	if err != nil {
@@ -114,33 +120,18 @@ func seedDriveItemInOrg(t *testing.T, app *tests.TestApp, orgID, name string) *c
 	rec := core.NewRecord(collection)
 	rec.Set("name", name)
 	rec.Set("size", 0)
-	rec.Set("org", orgID)
+	if creator != nil {
+		rec.Set("created_by", creator.Id)
+	}
 	if err := app.Save(rec); err != nil {
 		t.Fatalf("save drive_item record: %v", err)
 	}
 	return rec
 }
 
-// seedUserOrg creates a user_org row binding the user to the org and
-// returns its saved record id.
-func seedUserOrg(t *testing.T, app *tests.TestApp, userID, orgID string) string {
-	t.Helper()
-	collection, err := app.FindCollectionByNameOrId("user_org")
-	if err != nil {
-		t.Fatalf("find user_org collection: %v", err)
-	}
-	rec := core.NewRecord(collection)
-	rec.Set("user", userID)
-	rec.Set("org", orgID)
-	if err := app.Save(rec); err != nil {
-		t.Fatalf("save user_org record: %v", err)
-	}
-	return rec.Id
-}
-
-// seedShare creates a drive_shares row binding the user_org row to the
+// seedShare creates a drive_shares row binding the user to the
 // drive_item with the given role.
-func seedShare(t *testing.T, app *tests.TestApp, itemID, userOrgID, role string) {
+func seedShare(t *testing.T, app *tests.TestApp, itemID, userID, role string) {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId("drive_shares")
 	if err != nil {
@@ -148,7 +139,7 @@ func seedShare(t *testing.T, app *tests.TestApp, itemID, userOrgID, role string)
 	}
 	rec := core.NewRecord(collection)
 	rec.Set("item", itemID)
-	rec.Set("user_org", userOrgID)
+	rec.Set("user", userID)
 	rec.Set("role", role)
 	if err := app.Save(rec); err != nil {
 		t.Fatalf("save drive_shares record: %v", err)
@@ -183,47 +174,38 @@ func seedDriveItem(t *testing.T, app *tests.TestApp, name string, content []byte
 // authorshipFixture bundles the records seeded by seedAuthorshipFixture
 // so tests can reference them by name (instead of re-deriving IDs from
 // raw collection queries). Mirrors how the broker's stamping path sees
-// the world: one user, one org membership, one drive_item.
+// the world: one user, one drive_item.
 type authorshipFixture struct {
-	userID    string
-	orgID     string
-	userOrgID string
-	itemID    string
+	userID string
+	itemID string
 }
 
-// seedAuthorshipFixture creates the minimum record set the user_org
-// resolver expects: one user (auth record), one drive_item tagged to
-// orgID, and one user_org tying the user to the org. Returned IDs are
-// the real PB record IDs (not the human-readable inputs) so callers
-// can assert against them.
+// seedAuthorshipFixture creates the minimum record set the stamper
+// expects: one user (auth record) and one drive_item they created.
+// Returned IDs are the real PB record IDs so callers can assert against
+// them.
 //
-// Distinct from the seedUserOrg / seedDriveItemInOrg helpers in that it
-// produces a coherent (user, org, user_org, item) tuple in one call —
-// the stamping tests don't care about drive_shares, only about the
-// underlying membership row.
-func seedAuthorshipFixture(t *testing.T, app *tests.TestApp, email, orgID, itemName string) authorshipFixture {
+// Single-org: the stamped author id IS the user id, so there is no
+// membership row to seed — the stamper reads conn.AuthID() directly.
+func seedAuthorshipFixture(t *testing.T, app *tests.TestApp, email, itemName string) authorshipFixture {
 	t.Helper()
 	user := mustCreateUser(t, app, email)
-	item := seedDriveItemInOrg(t, app, orgID, itemName)
-	userOrgID := seedUserOrg(t, app, user.Id, orgID)
+	item := seedSharedItem(t, app, user, itemName)
 	return authorshipFixture{
-		userID:    user.Id,
-		orgID:     orgID,
-		userOrgID: userOrgID,
-		itemID:    item.Id,
+		userID: user.Id,
+		itemID: item.Id,
 	}
 }
 
-// mustCreateUser creates a minimal _superusers record (the built-in
-// auth collection in PB's test harness) and returns it as a *core.Record
-// suitable for passing to makeAuthorize. Used by authorize_test.go's
-// integration tests; the share-grant path is not exercised here (it
-// would require populating user_org + drive_shares too).
+// mustCreateUser creates a minimal users record and returns it as a
+// *core.Record suitable for passing to makeAuthorize. Must be the real
+// users collection, not _superusers: drive_shares.user and
+// drive_items.created_by are relations that validate their target.
 func mustCreateUser(t *testing.T, app *tests.TestApp, email string) *core.Record {
 	t.Helper()
-	collection, err := app.FindCollectionByNameOrId("_superusers")
+	collection, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
-		t.Fatalf("find _superusers collection: %v", err)
+		t.Fatalf("find users collection: %v", err)
 	}
 	rec := core.NewRecord(collection)
 	rec.Set("email", email)

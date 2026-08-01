@@ -9,7 +9,7 @@ Feature package for the [tinycld](https://tinycld.org/) ecosystem. Lives as a st
 Stores documents as `.docx` files in `@tinycld/drive` and edits them
 collaboratively. Documents open from the drive UI (text registers a docx
 preview + an "Open in Text" file action) or from the dedicated
-`/a/<org>/text` index. The editor is a ProseMirror instance (hosted in a
+`/text` index. The editor is a ProseMirror instance (hosted in a
 WebView on native, inline on web) backed by a Yjs document.
 
 Editing features:

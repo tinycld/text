@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { ORG_SLUG, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -16,7 +16,7 @@ import {
 
 // End-to-end flow for paragraph-scoped authorship "blame":
 // Alice + Bob each type into distinct paragraphs, the doc's
-// clientAuthors Y.Map collects both clientIDs → user_org_ids, the
+// clientAuthors Y.Map collects both clientIDs → user ids, the
 // Authorship tab surfaces per-contributor percentages, and a
 // right-click on a paragraph opens a popover scoped to that
 // paragraph's authors.
@@ -49,12 +49,12 @@ test.describe('Text — Authorship blame', () => {
             const bobPage = await bobContext.newPage()
 
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await alicePage.goto(`/text/${itemId}`)
             await waitForEditor(alicePage)
             await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
-            await bobPage.goto(`/a/${ORG_SLUG}/text/${itemId}`)
+            await bobPage.goto(`/text/${itemId}`)
             await waitForEditor(bobPage)
             await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -123,7 +123,7 @@ test.describe('Text — Authorship blame', () => {
             await expect(popover).toBeVisible()
 
             // The popover lists contributors with their percentages.
-            // We can't easily map user_org_id to a display name in the
+            // We can't easily map user_id to a display name in the
             // test, but the popover's ContributorRow renders the
             // percentage in the form "(N%)" — assert at least one
             // such cell exists inside the popover scope.

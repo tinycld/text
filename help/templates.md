@@ -13,7 +13,7 @@ Templates are ordinary documents you reuse as a starting point. A template is an
 2. Click **From template…** (top-right of the page), or use **File → New from template…** while editing another document.
 3. Pick a template from the list. A new document opens with a copy of that template's content, ready to edit — your changes don't affect the template.
 
-The list shows every template in your organization's Drive, no matter which folder it lives in. If it's empty, no one has created a template yet.
+The list shows every template in Drive, no matter which folder it lives in. If it's empty, no one has created a template yet.
 
 To start from a blank page instead, click **New document** — no picker required.
 

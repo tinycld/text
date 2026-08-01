@@ -23,7 +23,7 @@ func TestEditEventBuffer_SingleWindow_FlushesOnTimer(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	})
-	buf.Note(42, "uo-A", []EditEventAffectedNode{{NodeID: "p1", Snippet: "hello"}})
+	buf.Note(42, "user-A", []EditEventAffectedNode{{NodeID: "p1", Snippet: "hello"}})
 
 	time.Sleep(150 * time.Millisecond)
 	mu.Lock()
@@ -32,7 +32,7 @@ func TestEditEventBuffer_SingleWindow_FlushesOnTimer(t *testing.T) {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
 	e := events[0]
-	if e.ClientID != 42 || e.AuthorID != "uo-A" || e.EditCount != 1 {
+	if e.ClientID != 42 || e.AuthorID != "user-A" || e.EditCount != 1 {
 		t.Errorf("unexpected event: %+v", e)
 	}
 }
@@ -46,11 +46,11 @@ func TestEditEventBuffer_MultipleNotes_ExtendsWindow(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	})
-	buf.Note(42, "uo-A", nil)
+	buf.Note(42, "user-A", nil)
 	time.Sleep(30 * time.Millisecond)
-	buf.Note(42, "uo-A", nil)
+	buf.Note(42, "user-A", nil)
 	time.Sleep(30 * time.Millisecond)
-	buf.Note(42, "uo-A", nil)
+	buf.Note(42, "user-A", nil)
 
 	time.Sleep(250 * time.Millisecond) // past the extended window
 	mu.Lock()
@@ -72,8 +72,8 @@ func TestEditEventBuffer_MultipleClientIDsIndependent(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	})
-	buf.Note(42, "uo-A", nil)
-	buf.Note(43, "uo-B", nil)
+	buf.Note(42, "user-A", nil)
+	buf.Note(43, "user-B", nil)
 
 	time.Sleep(150 * time.Millisecond)
 	mu.Lock()
@@ -99,14 +99,14 @@ func TestEditEventBuffer_AffectedNodes_DedupAndCap(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	})
-	buf.Note(42, "uo-A", []EditEventAffectedNode{
+	buf.Note(42, "user-A", []EditEventAffectedNode{
 		{NodeID: "p1", Snippet: "a"},
 		{NodeID: "p2", Snippet: "b"},
 		{NodeID: "p3", Snippet: "c"},
 		{NodeID: "p4", Snippet: "d"}, // exceeds cap
 		{NodeID: "p5", Snippet: "e"}, // exceeds cap
 	})
-	buf.Note(42, "uo-A", []EditEventAffectedNode{
+	buf.Note(42, "user-A", []EditEventAffectedNode{
 		{NodeID: "p1", Snippet: "a"}, // duplicate
 		{NodeID: "p6", Snippet: "f"}, // would extend but cap reached
 	})
@@ -139,8 +139,8 @@ func TestEditEventBuffer_FlushAll_DrainsAllWindows(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	})
-	buf.Note(42, "uo-A", nil)
-	buf.Note(43, "uo-B", nil)
+	buf.Note(42, "user-A", nil)
+	buf.Note(43, "user-B", nil)
 
 	buf.FlushAll()
 	mu.Lock()

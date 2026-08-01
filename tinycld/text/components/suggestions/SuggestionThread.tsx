@@ -11,7 +11,7 @@ import { SuggestionReplyList } from './SuggestionReplyList'
 export interface SuggestionThreadProps {
     suggestion: AnchoredSuggestion
     driveItemId: string
-    authorUserOrgId: string
+    authorUserId: string
     canResolve: boolean
     onAccept: () => void
     onReject: () => void
@@ -63,7 +63,7 @@ function summarizeForThread(suggestion: AnchoredSuggestion): string | null {
 export function SuggestionThread({
     suggestion,
     driveItemId,
-    authorUserOrgId,
+    authorUserId,
     canResolve,
     onAccept,
     onReject,
@@ -81,7 +81,7 @@ export function SuggestionThread({
     const { replies, addReply } = useSuggestionDiscussion(
         suggestion.id,
         driveItemId,
-        authorUserOrgId,
+        authorUserId,
         identity.displayName
     )
     const summary = summarizeForThread(suggestion)

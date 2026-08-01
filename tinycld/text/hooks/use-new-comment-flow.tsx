@@ -1,5 +1,5 @@
+import { useAuth } from '@tinycld/core/lib/auth'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
-import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { newRecordId } from 'pbtsdb/core'
 import { useState } from 'react'
 import { NewCommentModal } from '../components/comments/NewCommentModal'
@@ -39,12 +39,12 @@ export function useNewCommentFlow({
     const [pendingRange, setPendingRange] = useState<{ from: number; to: number } | null>(null)
     const { add } = useCommentMutations()
     const openDrawer = useCommentsDrawerStore(s => s.open)
-    const { userOrgId } = useCurrentRole()
-    // Skip the org-roster live query for read-only mounts: the user
+    const { user } = useAuth()
+    // Skip the roster live query for read-only mounts: the user
     // can't open the composer, so the mention pool would be unused.
     // The `editable` flag is the read-only signal threaded down by
     // the screen — see the read-only design decision.
-    const mentionSuggestions = useMentionSuggestions(userOrgId, { disabled: !editable })
+    const mentionSuggestions = useMentionSuggestions(user.id, { disabled: !editable })
 
     const canStart = editable && !selectionEmpty && commentBridge != null
 

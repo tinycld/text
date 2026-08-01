@@ -7,6 +7,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/driveshare"
 	"tinycld.org/packages/text/render"
 	"tinycld.org/packages/text/translate"
 )
@@ -21,7 +22,7 @@ const docxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessi
 // registerRenderAPI binds the text HTTP render endpoint. Called from
 // Register at startup. The endpoint runs through the standard PB auth
 // middleware (so re.Auth is non-nil) and additionally enforces drive
-// share access via resolveShareRole — same predicate the realtime
+// share access via driveshare.CheckRead — same predicate the realtime
 // authorize uses.
 //
 // Mirrors calc/server/api.go::registerAPI verbatim. The two endpoints
@@ -69,10 +70,8 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 	if driveItemID == "" {
 		return re.BadRequestError("missing drive_item id", nil)
 	}
-	// resolveShareRole returns errNoShare for both "no row exists" and
-	// "row belongs to a different org" — the role itself isn't needed
-	// for render (read-only operation; viewers can render).
-	if _, err := resolveShareRole(app, re.Auth.Id, driveItemID); err != nil {
+	// Read access is enough: rendering is read-only, so viewers render.
+	if err := driveshare.CheckRead(app, re.Auth.Id, driveItemID); err != nil {
 		return re.ForbiddenError("no access to this drive item", nil)
 	}
 	item, err := app.FindRecordById(driveItemsCollection, driveItemID)
@@ -83,10 +82,11 @@ func handleRender(app core.App, re *core.RequestEvent) error {
 }
 
 // writeRenderedItem performs mime validation, ETag handling, and writes
-// the rendered (and sanitized) HTML for a drive_item. Shared by the
-// authenticated render endpoint and the public share-link render
-// endpoint — both arrive here after their own access check, so this
-// function performs no authorization.
+// the rendered (and sanitized) HTML for a drive_item. Its only caller
+// today is the authenticated render endpoint (requireAuthText), which
+// does the access check before calling — so this function performs no
+// authorization, and any future caller (e.g. a share-link render) must
+// bring its own.
 func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) error {
 	// Mime validation: the renderer's pipeline (DocxToPMJSON →
 	// PMJSONToHTML) consumes docx bytes; RTF is bridged to docx in
@@ -114,9 +114,10 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 	// The embed fetcher authorizes each embedded image against the
 	// CALLER, not the document — a doc's content is user-authored and
 	// can reference arbitrary records, so "may render the doc" must not
-	// imply "may read every file the doc points at". Nil-guarded because
-	// a share-link caller reaching this shared writer has no auth
-	// record; the fetcher fails closed on an empty user ID.
+	// imply "may read every file the doc points at". Nil-guarded
+	// defensively: today's only route requires auth, and the fetcher
+	// fails closed on an empty user ID if an unauthenticated caller is
+	// ever added.
 	authUserID := ""
 	if re.Auth != nil {
 		authUserID = re.Auth.Id
@@ -135,16 +136,16 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 }
 
 // RenderItemHTML reads a docx drive_item's bytes and returns the
-// sanitized HTML fragment. Exported so the public share-link render path
-// (registered in this package) can reuse it after validating a share
-// session — the members are separate modules, so cross-package reuse
-// goes through exported funcs here, not imports of drive.
+// sanitized HTML fragment. Exported for reuse by future render paths
+// (e.g. a share-link render, not built yet) — the members are separate
+// modules, so cross-package reuse goes through exported funcs here, not
+// imports of drive.
 //
 // authUserID identifies the CALLER for per-image authorization in
 // embed mode: each embedded drive-file src is checked against that
 // user's share access before its bytes are inlined. Pass "" for
-// callers without an authenticated user (e.g. a share-link session) —
-// embed fetches then fail closed and the images are dropped.
+// callers without an authenticated user — embed fetches then fail
+// closed and the images are dropped.
 func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
 	rawBytes, err := readDriveItemBytes(app, item)
 	if err != nil {
@@ -213,11 +214,11 @@ func renderETag(driveItemID, updated string) string {
 // content, and app.FindRecordById bypasses PocketBase collection
 // rules — so this fetcher must re-impose the read authorization PB
 // would normally enforce. Only drive_items records are resolvable,
-// and only when authUserID holds a live share on that exact record
-// (resolveShareRole — the same org-constrained predicate that gates
-// the render target, realtime room admission, and write access).
-// Without this, any editor could embed another org's file URL and
-// exfiltrate its bytes through the rendered output.
+// and only when authUserID may read that exact record
+// (driveshare.CheckRead — the same predicate that gates the render
+// target, realtime room admission, and write access). Without this, any
+// editor could embed another user's file URL and exfiltrate its bytes
+// through the rendered output.
 func makeEmbedFetcher(app core.App, authUserID string) translate.EmbedFetcher {
 	return func(src string) (string, []byte, error) {
 		coll, recID, fileName, ok := parseDriveFileURL(src)
@@ -233,7 +234,7 @@ func makeEmbedFetcher(app core.App, authUserID string) translate.EmbedFetcher {
 		if authUserID == "" {
 			return "", nil, fmt.Errorf("text render: embed fetch requires an authenticated user")
 		}
-		if _, err := resolveShareRole(app, authUserID, recID); err != nil {
+		if err := driveshare.CheckRead(app, authUserID, recID); err != nil {
 			return "", nil, fmt.Errorf("text render: no access to embedded drive item: %w", err)
 		}
 		record, err := app.FindRecordById(driveItemsCollection, recID)

@@ -31,7 +31,7 @@ let mentionRows: Array<{
     id: string
     comment_record: string
     drive_item: string
-    mentioned_user_org: string
+    mentioned_user: string
 }> = []
 let commentLoading = false
 let mentionLoading = false
@@ -202,7 +202,7 @@ describe('useSuggestionDiscussion', () => {
         // longer subscribes to comment_mentions on the client
         // (that collection's listRule is null and would 403). The
         // mention list per reply is extracted from the body's
-        // [[@userOrgId]] tokens.
+        // [[@userId]] tokens.
         const { result } = renderHook(() => useSuggestionDiscussion('s1', DRIVE_ITEM, ME))
 
         expect(result.current.replies).toHaveLength(2)
@@ -279,10 +279,10 @@ describe('useSuggestionDiscussion', () => {
         const mentionRowsWritten = commentMentionsInsert.mock.calls.map(
             c => c[0] as Record<string, unknown>
         )
-        expect(mentionRowsWritten.map(r => r.mentioned_user_org).sort()).toEqual([
-            'uo_bob',
-            'uo_carol',
-        ])
+        // mentioned_user (not mentioned_user_org): the column drive
+        // renamed in the single-org migration. Asserting the old name
+        // here is what let the wrong-column write ship unnoticed.
+        expect(mentionRowsWritten.map(r => r.mentioned_user).sort()).toEqual(['uo_bob', 'uo_carol'])
         // Every mention row points back at the freshly-inserted
         // comment record and carries the right collection name for
         // the notify hook's allowlist.

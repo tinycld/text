@@ -35,7 +35,6 @@ export function ImportWarningBanner({ warnings }: ImportWarningBannerProps) {
                     {importWarningTitle(warnings.length)}
                 </Text>
                 {warnings.map((w, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static warnings list set once from the import response, never reordered; index disambiguates repeated codes
                     <Text key={`${w.code}-${i}`} className="text-xs text-muted-foreground">
                         {formatImportWarning(w)}
                     </Text>

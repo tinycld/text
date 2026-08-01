@@ -9,7 +9,7 @@ import { SuggestionThread } from './SuggestionThread'
 
 export interface SuggestionThreadSheetProps {
     driveItemId: string
-    authorUserOrgId: string
+    authorUserId: string
     // anchored is the current bridge snapshot. The sheet looks up the
     // focused suggestion in this list. When the focused id has been
     // cleaned up by orphan-auto-delete or is simply not in the doc,
@@ -53,7 +53,7 @@ export function SuggestionThreadSheet(props: SuggestionThreadSheetProps) {
 
 function NativeSuggestionThreadSheet({
     driveItemId,
-    authorUserOrgId,
+    authorUserId,
     anchored,
     canResolve,
     isPending: _isPending,
@@ -86,7 +86,7 @@ function NativeSuggestionThreadSheet({
                 <SuggestionThread
                     suggestion={focused}
                     driveItemId={driveItemId}
-                    authorUserOrgId={authorUserOrgId}
+                    authorUserId={authorUserId}
                     canResolve={canResolve}
                     onAccept={() => onAccept(focused.id)}
                     onReject={() => onReject(focused.id)}

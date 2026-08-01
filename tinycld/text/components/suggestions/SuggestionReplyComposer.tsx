@@ -14,12 +14,12 @@ export interface SuggestionReplyComposerProps {
 // focused-state suggestion thread. v1 reuses the shared CommentComposer
 // + MentionInput primitive from @tinycld/core/ui/comments rather than
 // re-implementing the @-mention autocomplete from scratch — those
-// components already render the dropdown, insert `[[@userOrgId]]` wire
+// components already render the dropdown, insert `[[@userId]]` wire
 // tokens, and integrate with react-hook-form's submit cycle.
 //
 // The CommentComposer's onSubmit hands us the raw body string. We then
 // call `parseMentions` (core/lib/comments/mentions.ts) on the body to
-// extract the embedded user_org ids and pass `(body, mentions[])` to
+// extract the embedded user ids and pass `(body, mentions[])` to
 // our consumer. Splitting that mapping here (rather than at the
 // useSuggestionDiscussion level) keeps the discussion adapter
 // agnostic of the body wire format — it still receives the parsed
@@ -27,7 +27,7 @@ export interface SuggestionReplyComposerProps {
 // regular comment-thread mutation pipeline.
 //
 // The picker pool comes from useMentionSuggestions, which returns the
-// org's user_orgs minus the current user. The current user_org id is
+// deployment's users minus the current user. The current user id is
 // pulled from useEditorMount() — the same context that the editor +
 // suggestion bridge run in, so this composer can only mount inside a
 // document screen.
@@ -41,8 +41,8 @@ export function SuggestionReplyComposer({
     placeholder = 'Reply or add others with @',
 }: SuggestionReplyComposerProps) {
     const { identity } = useEditorMount()
-    const currentUserOrgId = identity.userOrgId ?? ''
-    const mentionSuggestions = useMentionSuggestions(currentUserOrgId)
+    const currentUserId = identity.userId ?? ''
+    const mentionSuggestions = useMentionSuggestions(currentUserId)
     const [isPending, setIsPending] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -51,7 +51,7 @@ export function SuggestionReplyComposer({
             if (isPending) return
             setError(null)
             const parsed = parseMentions(body)
-            const mentions = parsed.map(m => m.userOrgId)
+            const mentions = parsed.map(m => m.userId)
             setIsPending(true)
             try {
                 await onSubmit(body, mentions)

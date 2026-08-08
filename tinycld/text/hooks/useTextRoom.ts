@@ -53,13 +53,18 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // The native room's Y.Doc is NOT bound to the WebView editor; the
 // WebView holds the canonical editing Y.Doc.
 //
-// Awareness cleanup: useRealtimeRoom's effect cleanup (see
-// `packages/@tinycld/core/lib/realtime/use-realtime-room.ts`) already
-// calls `awareness.setLocalState(null)` before tearing down the
-// transport on unmount or roomKind/roomID change. That covers logout,
-// route change, and tab close — remote peers see a clean awareness
-// removal frame instead of a frozen ghost cursor. No additional
-// cleanup is needed here.
+// Awareness cleanup: useRealtimeRoom (see
+// `tinycld/core/lib/realtime/use-realtime-room.ts`) publishes
+// `awareness.setLocalState(null)` on blur and on pagehide, and again in
+// its effect cleanup before tearing down the transport. Remote peers see
+// a clean awareness removal frame instead of a frozen ghost cursor. No
+// additional cleanup is needed here.
+//
+// The blur/pagehide half is load-bearing, not belt-and-braces: package
+// screens render with `freezeOnBlur`, so navigating to another package
+// leaves this one MOUNTED and the effect cleanup never runs. Keying the
+// leave on unmount alone left a ghost avatar on every peer until
+// y-protocols' 30s reaper cleared it.
 //
 // TODO(text-native v1.1): on native, the in-WebView editor opens a
 // SEPARATE realtime connection with its OWN awareness identity. That

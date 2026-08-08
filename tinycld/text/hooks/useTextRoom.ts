@@ -78,6 +78,17 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // Option 1 is cleaner but requires touching the PresenceAvatars
 // consumer. Picking the right approach depends on what other native
 // callers need from the native-side room's awareness.
+//
+// Cards hit the same fork and took a third path worth looking at before
+// picking one here: its WebView opens NO connection at all. The host keeps
+// the single room socket and relays Yjs updates over the message bus
+// (`core/lib/editor/rich/yjs-webview-host.ts`), so there is only ever one
+// awareness on the wire and the double-identity cannot arise. The cost is
+// that cards has no collaborator carets on native yet — awareness is not
+// relayed, only document updates — which is the mirror image of the tradeoff
+// made here. Relaying awareness over that same bridge, with the local
+// client's own slot filtered out, would give both packages carets without a
+// second connection.
 export interface UseTextRoomOptions {
     identity: EditorMount['identity']
     realtimeCredential: EditorMount['realtimeCredential']

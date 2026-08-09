@@ -14,7 +14,7 @@ import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useState } from 'react'
-import { Awareness } from 'y-protocols/awareness'
+import { Awareness, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
@@ -39,7 +39,19 @@ import {
     deriveCurrentTextColor,
     deriveImageSelection,
 } from './editor-state'
-import { RealtimeClient } from './realtime-client'
+import {
+    AWARENESS_CURSOR,
+    AWARENESS_LEAVE,
+    AWARENESS_PEERS,
+    type AwarenessLeavePayload,
+    type AwarenessPeersPayload,
+    decodeUpdate,
+    type EditorMessage,
+    encodeUpdate,
+    makeMessage,
+    YJS_UPDATE,
+    type YjsUpdatePayload,
+} from './relay-protocol'
 import { installSuggestionListBridge } from './suggestions/list-bridge'
 
 // Local extensions declared in this module — kept together so the
@@ -99,14 +111,32 @@ declare global {
     }
 }
 
+/**
+ * Everything the page needs to build its editor.
+ *
+ * Note what is NOT here any more: `baseURL`, `roomKind`, `roomId` and `token`.
+ * The page used to open its own WebSocket with those, which meant shipping a
+ * live credential into a WebView and — because that connection carried its own
+ * awareness identity — making one human appear as two peers, with two avatars
+ * and two carets and a slot the host's presence teardown could never clean up.
+ *
+ * The host owns the one connection now and relays over the bridge instead, the
+ * arrangement `@tinycld/core/lib/editor/rich` was built for.
+ */
 interface InitPayload {
-    baseURL: string
-    roomKind: string
-    roomId: string
-    token: string
     user: { id: string; name: string; color: string }
     editable: boolean
     placeholder?: string
+    /**
+     * The drive_item id. Correlation only — it names the document the
+     * suggestion-list bridge is reporting on, and no longer selects a
+     * connection for this page to open.
+     */
+    documentId: string
+    /** Base64 `Y.encodeStateAsUpdate` of the host doc at init. */
+    initialState?: string
+    /** Base64 `encodeAwarenessUpdate` of the peers already in the room. */
+    peers?: string
 }
 
 interface BuildEditorExtensionsOptions {
@@ -197,6 +227,124 @@ function postToNative(message: unknown) {
     window.ReactNativeWebView?.postMessage(JSON.stringify(message))
 }
 
+/** Tags doc transactions the host sent us, so the relay doesn't post them
+ *  straight back and bounce a single keystroke between the two docs forever. */
+const FROM_HOST: unique symbol = Symbol('yjs:from-host')
+
+/** The same guard for awareness. */
+const FROM_HOST_AWARENESS: unique symbol = Symbol('awareness:from-host')
+
+/**
+ * Read a bridge message, or null if it isn't one.
+ *
+ * Both listeners below need this, and both `window` and `document` need the
+ * listener — the two platforms differ in which one delivers.
+ */
+function parseBridgeMessage(evt: MessageEvent | Event): EditorMessage | null {
+    const data = (evt as MessageEvent).data
+    if (typeof data !== 'string') return null
+    try {
+        return JSON.parse(data) as EditorMessage
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Pump document updates between this page's Y.Doc and the host.
+ *
+ * The page opens no connection of its own: the host already holds the room
+ * socket, and a second one would ship a credential in here and make the local
+ * user two peers. Outbound is guarded on FROM_HOST so an update we just applied
+ * isn't posted back; the host guards the mirror-image case with its own origin.
+ */
+function useYjsRelay(doc: Y.Doc) {
+    useEffect(() => {
+        function onLocalUpdate(update: Uint8Array, origin: unknown) {
+            if (origin === FROM_HOST) return
+            postToNative(makeMessage('yjs', YJS_UPDATE, { update: encodeUpdate(update) }))
+        }
+        doc.on('update', onLocalUpdate)
+
+        function onMessage(evt: MessageEvent | Event) {
+            const parsed = parseBridgeMessage(evt)
+            if (!parsed || parsed.namespace !== 'yjs' || parsed.type !== YJS_UPDATE) return
+            const encoded = (parsed.payload as YjsUpdatePayload | undefined)?.update
+            if (typeof encoded !== 'string' || encoded.length === 0) return
+            try {
+                Y.applyUpdate(doc, decodeUpdate(encoded), FROM_HOST)
+            } catch {
+                // Convergent by construction: the next update from that peer
+                // carries the same state and repairs the gap.
+            }
+        }
+        window.addEventListener('message', onMessage)
+        document.addEventListener('message', onMessage)
+        return () => {
+            doc.off('update', onLocalUpdate)
+            window.removeEventListener('message', onMessage)
+            document.removeEventListener('message', onMessage)
+        }
+    }, [doc])
+}
+
+/**
+ * Pump collaborator carets between this page's Awareness and the host.
+ *
+ * Asymmetric on purpose: outbound carries only this page's own CURSOR POSITION,
+ * never an encoded awareness state, because the host merges it into its own slot
+ * — that is what keeps one human to one avatar now that the page has no identity
+ * on the wire. Inbound applies whatever the host relays, already filtered down
+ * to remote peers.
+ */
+function useAwarenessRelay(awareness: Awareness) {
+    useEffect(() => {
+        let lastSent: string | null = null
+        function onLocalAwareness(
+            { added, updated }: { added: number[]; updated: number[] },
+            origin: unknown
+        ) {
+            if (origin === FROM_HOST_AWARENESS) return
+            if (![...added, ...updated].includes(awareness.clientID)) return
+            const cursor =
+                (awareness.getLocalState() as { cursor?: unknown } | null)?.cursor ?? null
+            // y-tiptap rewrites the cursor field on every transaction; without
+            // this skip a burst of typing posts an identical cursor dozens of
+            // times.
+            const serialized = JSON.stringify(cursor ?? null)
+            if (serialized === lastSent) return
+            lastSent = serialized
+            postToNative(makeMessage('awareness', AWARENESS_CURSOR, { cursor }))
+        }
+        awareness.on('update', onLocalAwareness)
+
+        function onMessage(evt: MessageEvent | Event) {
+            const parsed = parseBridgeMessage(evt)
+            if (!parsed || parsed.namespace !== 'awareness') return
+            try {
+                if (parsed.type === AWARENESS_PEERS) {
+                    const encoded = (parsed.payload as AwarenessPeersPayload | undefined)?.update
+                    if (typeof encoded !== 'string' || encoded.length === 0) return
+                    applyAwarenessUpdate(awareness, decodeUpdate(encoded), FROM_HOST_AWARENESS)
+                } else if (parsed.type === AWARENESS_LEAVE) {
+                    const ids = (parsed.payload as AwarenessLeavePayload | undefined)?.clientIDs
+                    if (!Array.isArray(ids) || ids.length === 0) return
+                    removeAwarenessStates(awareness, ids, FROM_HOST_AWARENESS)
+                }
+            } catch {
+                // A malformed frame costs one repaint of the carets.
+            }
+        }
+        window.addEventListener('message', onMessage)
+        document.addEventListener('message', onMessage)
+        return () => {
+            awareness.off('update', onLocalAwareness)
+            window.removeEventListener('message', onMessage)
+            document.removeEventListener('message', onMessage)
+        }
+    }, [awareness])
+}
+
 // Editor mounts in two stages:
 //   1. Wait for the {namespace:'app', type:'init'} message from native
 //      with credentials + room id. Until then we render a tiny
@@ -251,27 +399,30 @@ function EditorMounted({ init }: EditorMountedProps) {
     // <Editor /> only renders <EditorMounted /> after the init payload
     // arrives, so this is effectively a one-shot construction tied to
     // the init payload's identity.
+    //
+    // Both are seeded from the host rather than filled by a connection of this
+    // page's own. Seeding the doc with a Yjs UPDATE (not text) is what makes it
+    // the same document as the host's rather than a copy that happens to start
+    // alike.
     const [{ yDoc, awareness }] = useState(() => {
         const doc = new Y.Doc()
+        if (init.initialState) {
+            Y.applyUpdate(doc, decodeUpdate(init.initialState), FROM_HOST)
+        }
         const aw = new Awareness(doc)
         aw.setLocalStateField('user', init.user)
+        if (init.peers) {
+            try {
+                applyAwarenessUpdate(aw, decodeUpdate(init.peers), FROM_HOST_AWARENESS)
+            } catch {
+                // A bad seed costs the initial carets, not the editor.
+            }
+        }
         return { yDoc: doc, awareness: aw }
     })
 
-    useEffect(() => {
-        const wsProto = init.baseURL.startsWith('https') ? 'wss' : 'ws'
-        const wsBase = init.baseURL.replace(/^https?/, wsProto)
-        const url =
-            `${wsBase}/api/realtime/${encodeURIComponent(init.roomKind)}/` +
-            `${encodeURIComponent(init.roomId)}?token=${encodeURIComponent(init.token)}`
-        const client = new RealtimeClient({
-            url,
-            doc: yDoc,
-            awareness,
-        })
-        client.connect()
-        return () => client.destroy()
-    }, [yDoc, awareness, init.baseURL, init.roomKind, init.roomId, init.token])
+    useYjsRelay(yDoc)
+    useAwarenessRelay(awareness)
 
     const editor = useEditor({
         editable: init.editable,
@@ -417,15 +568,13 @@ function EditorMounted({ init }: EditorMountedProps) {
     // useDocumentSuggestionBridge subscribes to these pushes via the
     // 'suggestion.changed' message and surfaces them through the
     // standard subscribe/getSnapshot bridge contract used by the
-    // review drawer. init.roomId is the driveItemId on this surface
-    // (set by use-document-editor.native.tsx's roomId: driveItemId
-    // mapping).
+    // review drawer.
     useEffect(() => {
         if (!editor) return
-        return installSuggestionListBridge(editor, yDoc, init.roomId, (kind, payload) => {
+        return installSuggestionListBridge(editor, yDoc, init.documentId, (kind, payload) => {
             postToNative({ kind, payload })
         })
-    }, [editor, yDoc, init.roomId])
+    }, [editor, yDoc, init.documentId])
 
     // Forward in-document scroll events out to the host. The host's
     // useWebViewEditor receives this on its 'ui' namespace channel and

@@ -66,29 +66,16 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // leave on unmount alone left a ghost avatar on every peer until
 // y-protocols' 30s reaper cleared it.
 //
-// TODO(text-native v1.1): on native, the in-WebView editor opens a
-// SEPARATE realtime connection with its OWN awareness identity. That
-// means the local user appears as TWO collaborators to remote peers
-// (one native client, one WebView client). To dedupe, either:
-//   1. Suppress this native room's awareness slot (don't pass
-//      initialAwareness) and route presence through a message-bus
-//      relay from the WebView to PresenceAvatars.
-//   2. Tag awareness records with a clientGroupId and dedupe in
-//      PresenceAvatars.
-// Option 1 is cleaner but requires touching the PresenceAvatars
-// consumer. Picking the right approach depends on what other native
-// callers need from the native-side room's awareness.
+// This room's awareness slot is the ONLY one on the wire, on native as well as
+// web — which is what makes the leave handling above sufficient.
 //
-// Cards hit the same fork and took a third path worth looking at before
-// picking one here: its WebView opens NO connection at all. The host keeps
-// the single room socket and relays Yjs updates over the message bus
-// (`core/lib/editor/rich/yjs-webview-host.ts`), so there is only ever one
-// awareness on the wire and the double-identity cannot arise. The cost is
-// that cards has no collaborator carets on native yet — awareness is not
-// relayed, only document updates — which is the mirror image of the tradeoff
-// made here. Relaying awareness over that same bridge, with the local
-// client's own slot filtered out, would give both packages carets without a
-// second connection.
+// It was not always so. The in-WebView editor used to open a SEPARATE realtime
+// connection with its own awareness identity, so the local user appeared as two
+// collaborators and the second slot was one this teardown knew nothing about.
+// The page opens no connection now: the host relays document updates and carets
+// over the message bus (`core/lib/editor/rich/{yjs,awareness}-webview-host.ts`),
+// filtering the local slot out in both directions, so the page's clientID never
+// reaches the wire and the double identity cannot arise.
 export interface UseTextRoomOptions {
     identity: EditorMount['identity']
     realtimeCredential: EditorMount['realtimeCredential']

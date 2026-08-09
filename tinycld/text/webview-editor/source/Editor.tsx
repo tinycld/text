@@ -268,7 +268,7 @@ function useYjsRelay(doc: Y.Doc) {
 
         function onMessage(evt: MessageEvent | Event) {
             const parsed = parseBridgeMessage(evt)
-            if (!parsed || parsed.namespace !== 'yjs' || parsed.type !== YJS_UPDATE) return
+            if (parsed?.namespace !== 'yjs' || parsed.type !== YJS_UPDATE) return
             const encoded = (parsed.payload as YjsUpdatePayload | undefined)?.update
             if (typeof encoded !== 'string' || encoded.length === 0) return
             try {
@@ -320,7 +320,7 @@ function useAwarenessRelay(awareness: Awareness) {
 
         function onMessage(evt: MessageEvent | Event) {
             const parsed = parseBridgeMessage(evt)
-            if (!parsed || parsed.namespace !== 'awareness') return
+            if (parsed?.namespace !== 'awareness') return
             try {
                 if (parsed.type === AWARENESS_PEERS) {
                     const encoded = (parsed.payload as AwarenessPeersPayload | undefined)?.update

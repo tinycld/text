@@ -13,6 +13,10 @@ const manifest = {
     provider: { component: 'provider' },
     migrations: { directory: 'pb-migrations' },
     collections: { register: 'collections', types: 'types' },
+    // Trigger catalog for workflow rules. The Go side
+    // (server/automation.go) resolves owners through the document's
+    // participants rather than the comment's author.
+    automation: { definitions: 'automation' },
     help: { directory: 'help' },
     server: { package: 'server', module: 'tinycld.org/packages/text' },
     repository: { url: 'https://github.com/tinycld/text' },

@@ -9,6 +9,7 @@
         "./manifest": "./manifest.ts",
         "./types": "./tinycld/text/types.ts",
         "./collections": "./tinycld/text/collections.ts",
+        "./automation": "./tinycld/text/automation.ts",
         "./screens/*": "./tinycld/text/screens/*.tsx",
         "./provider": "./tinycld/text/provider.tsx",
         "./hooks/*": "./tinycld/text/hooks/*.ts",

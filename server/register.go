@@ -89,6 +89,11 @@ func registerShared(app *pocketbase.PocketBase) {
 
 	offboard.RegisterReassignable(offboard.ReassignableRef{Collection: "text_comments", Field: "author"})
 
+	// Personal automation rules on doc comments resolve their owner through
+	// the document's participants; auto-detection would scope them to the
+	// comment's author, which fires the wrong way round.
+	registerAutomation()
+
 	// Attach a blank docx server-side when a new document is created with no
 	// file — the client just inserts the drive_items row (no Blob upload).
 	blankfile.Register(app, docxMimeType, "document.docx", blankDOCX)

@@ -19,6 +19,13 @@ const manifest = {
     automation: { definitions: 'automation' },
     help: { directory: 'help' },
     server: { package: 'server', module: 'tinycld.org/packages/text' },
+    // Contributes the `tinycld text` command group — comments only. The
+    // documents themselves are drive_items, which `tinycld drive` already owns.
+    cli: {
+        package: 'cli',
+        module: 'tinycld.org/packages/text/cli',
+        scopes: ['text:read', 'text:write'],
+    },
     repository: { url: 'https://github.com/tinycld/text' },
     seed: { script: 'seed' },
     // The WebView editor (used by native screens via TenTap's

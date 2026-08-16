@@ -13,10 +13,10 @@ import {
     UnderlineBridge,
 } from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
-import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
+import { AwarenessWebViewHost } from '@tinycld/core/lib/editor/rich/awareness-webview-host'
+import { YjsWebViewHost } from '@tinycld/core/lib/editor/rich/yjs-webview-host'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
-import { pb } from '@tinycld/core/lib/pocketbase'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
@@ -44,14 +44,10 @@ export interface UseDocumentEditorOptions {
     user?: { name: string; color: string }
     editable?: boolean
     placeholder?: string
-    // Required for native: the drive_item id determines the realtime
-    // room the WebView's editor connects to. On web, the parent
-    // useRealtimeRoom call passes the Y.Doc directly, so this field
-    // is unused. On native, we need it because the WebView opens its
-    // own realtime connection (its own Y.Doc lives inside the
-    // WebView's JS context). When omitted, the WebView shows
-    // "Connecting…" forever — useTextDocument is responsible for
-    // forwarding it.
+    // Retained for call-site symmetry with the web hook and for the
+    // suggestion bridge's room correlation. It no longer selects a
+    // connection: the WebView used to open its own realtime room from
+    // this id, and now the host relays over the bridge instead.
     driveItemId?: string
     // The per-document mode store. The native runtime doesn't yet
     // consume modeStore directly — the WebView's command layer reads
@@ -67,14 +63,21 @@ export interface UseDocumentEditorOptions {
     onSuggestionMessage?: (kind: string, payload: unknown) => void
 }
 
-// useDocumentEditor (native) — Phase 4. The WebView contains a full
-// TipTap+Yjs editor. We hand it credentials (auth token, room id,
-// user identity) via the message-bus init payload, and the WebView
-// opens its own realtime room connection. The native-side Y.Doc /
-// Awareness (passed via options) are NOT bound to this editor — they
-// belong to the native-side useTextRoom handle, which surfaces
-// serverHello / serverSlot to other native UI (save status indicator,
-// readOnly flag).
+// useDocumentEditor (native). The WebView contains a full TipTap+Yjs
+// editor, bound to the room's Y.Doc and Awareness by relaying over the
+// bridge on the host's existing socket.
+//
+// It did not always work that way. The page used to open a SECOND
+// WebSocket of its own, which meant handing a live auth token into a
+// WebView and — because that connection carried its own awareness
+// identity — showing one human as two peers: two avatars in
+// PresenceAvatars, two carets, and a slot the host's presence teardown
+// could never clean up. The Y.Doc / Awareness from options were passed
+// in but ignored.
+//
+// Now they are the editor's actual document. The host owns the one
+// connection, no credential enters the page, and the local user is one
+// peer. See @tinycld/core/lib/editor/rich/awareness-webview-host.
 //
 // We register the full set of per-feature TenTap bridges (not just
 // CoreBridge). Each bridge's extendEditorInstance hook attaches its
@@ -96,18 +99,58 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const userName = user?.name ?? ''
     const userColor = userId ? colorForUser(userId) : '#999'
 
-    const initPayload = useMemo(
-        () => ({
-            baseURL: String(PB_SERVER_ADDR),
-            roomKind: 'text-doc',
-            roomId: options.driveItemId ?? '',
-            token: pb.authStore.token,
+    // Constructed before the WebView exists, so the relays post through an
+    // indirection rather than holding the poster itself. `postMessageRef` below
+    // is assigned once useWebViewEditor has returned.
+    const posterRef = useRef<((message: EditorMessage) => boolean) | null>(null)
+
+    // The relays onto the room's LIVE Y.Doc and Awareness — the ones
+    // `useTextRoom` already opened and this hook previously ignored. Rebuilt
+    // only when their identity changes (a different document, a reconnected
+    // room), because they subscribe to those objects.
+    const yjsHost = useMemo(
+        () =>
+            new YjsWebViewHost({
+                doc: options.yDoc,
+                postMessage: message => posterRef.current?.(message) ?? false,
+            }),
+        [options.yDoc]
+    )
+    useEffect(() => () => yjsHost.destroy(), [yjsHost])
+
+    const awarenessHost = useMemo(
+        () =>
+            new AwarenessWebViewHost({
+                awareness: options.awareness,
+                postMessage: message => posterRef.current?.(message) ?? false,
+            }),
+        [options.awareness]
+    )
+    useEffect(() => () => awarenessHost.destroy(), [awarenessHost])
+
+    const initPayload = useMemo(() => {
+        const peersAtHandshake = awarenessHost.encodePeers()
+        return {
             user: { id: userId, name: userName, color: userColor },
             editable: options.editable ?? true,
             placeholder: options.placeholder,
-        }),
-        [options.driveItemId, options.editable, options.placeholder, userId, userName, userColor]
-    )
+            documentId: options.driveItemId ?? '',
+            // Snapshotted at handshake time. Anything that arrives between now
+            // and the page mounting comes through as a normal relayed update, so
+            // a slightly stale seed is not a lost edit.
+            initialState: yjsHost.encodeState(),
+            ...(peersAtHandshake ? { peers: peersAtHandshake } : {}),
+        }
+    }, [
+        options.editable,
+        options.placeholder,
+        options.driveItemId,
+        userId,
+        userName,
+        userColor,
+        yjsHost,
+        awarenessHost,
+    ])
 
     // Push image-selection events from the WebView into the shared
     // store the bottom sheet subscribes to. Every other 'ui' message
@@ -202,6 +245,16 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         dispatchFindReplaceMessage(msg)
     }, [])
 
+    // Document updates and collaborator carets from the page. Everything else
+    // falls through to the handlers below.
+    const relayMessage = useCallback(
+        (message: EditorMessage) => {
+            if (awarenessHost.handleMessage(message)) return
+            yjsHost.handleMessage(message)
+        },
+        [yjsHost, awarenessHost]
+    )
+
     const result = useWebViewEditor({
         editorHtml,
         bridgeExtensions: [
@@ -225,7 +278,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         onCommentMessage,
         onFindReplaceMessage,
         onSuggestionMessage: options.onSuggestionMessage,
+        onMessage: relayMessage,
     })
+
+    // Close the loop: the relays were built before the WebView existed, so this
+    // is where they get a real poster. Absent until the bridge is up, which the
+    // relays already treat as "not sent" rather than an error.
+    posterRef.current = result.postMessage ?? null
 
     // postMessage isn't ref-stable (it depends on the bridge identity)
     // but we want the commentBridge to be a stable identity across

@@ -53,26 +53,29 @@ const defaultSlot: TextServerSlot = { saveStatus: 'ok' }
 // The native room's Y.Doc is NOT bound to the WebView editor; the
 // WebView holds the canonical editing Y.Doc.
 //
-// Awareness cleanup: useRealtimeRoom's effect cleanup (see
-// `packages/@tinycld/core/lib/realtime/use-realtime-room.ts`) already
-// calls `awareness.setLocalState(null)` before tearing down the
-// transport on unmount or roomKind/roomID change. That covers logout,
-// route change, and tab close — remote peers see a clean awareness
-// removal frame instead of a frozen ghost cursor. No additional
-// cleanup is needed here.
+// Awareness cleanup: useRealtimeRoom (see
+// `tinycld/core/lib/realtime/use-realtime-room.ts`) publishes
+// `awareness.setLocalState(null)` on blur and on pagehide, and again in
+// its effect cleanup before tearing down the transport. Remote peers see
+// a clean awareness removal frame instead of a frozen ghost cursor. No
+// additional cleanup is needed here.
 //
-// TODO(text-native v1.1): on native, the in-WebView editor opens a
-// SEPARATE realtime connection with its OWN awareness identity. That
-// means the local user appears as TWO collaborators to remote peers
-// (one native client, one WebView client). To dedupe, either:
-//   1. Suppress this native room's awareness slot (don't pass
-//      initialAwareness) and route presence through a message-bus
-//      relay from the WebView to PresenceAvatars.
-//   2. Tag awareness records with a clientGroupId and dedupe in
-//      PresenceAvatars.
-// Option 1 is cleaner but requires touching the PresenceAvatars
-// consumer. Picking the right approach depends on what other native
-// callers need from the native-side room's awareness.
+// The blur/pagehide half is load-bearing, not belt-and-braces: package
+// screens render with `freezeOnBlur`, so navigating to another package
+// leaves this one MOUNTED and the effect cleanup never runs. Keying the
+// leave on unmount alone left a ghost avatar on every peer until
+// y-protocols' 30s reaper cleared it.
+//
+// This room's awareness slot is the ONLY one on the wire, on native as well as
+// web — which is what makes the leave handling above sufficient.
+//
+// It was not always so. The in-WebView editor used to open a SEPARATE realtime
+// connection with its own awareness identity, so the local user appeared as two
+// collaborators and the second slot was one this teardown knew nothing about.
+// The page opens no connection now: the host relays document updates and carets
+// over the message bus (`core/lib/editor/rich/{yjs,awareness}-webview-host.ts`),
+// filtering the local slot out in both directions, so the page's clientID never
+// reaches the wire and the double identity cannot arise.
 export interface UseTextRoomOptions {
     identity: EditorMount['identity']
     realtimeCredential: EditorMount['realtimeCredential']

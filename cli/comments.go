@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,28 @@ import (
 	"tinycld.org/cli/client"
 	"tinycld.org/cli/output"
 )
+
+// anchorAlphabet matches PocketBase's own record-id alphabet, so a generated
+// anchor is indistinguishable in shape from one the app produced.
+const anchorAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// newAnchorID mints a comment_id for a thread with no editor selection behind
+// it. crypto/rand rather than math/rand: these ids are compared for equality
+// across clients, and a seeded PRNG in a short-lived CLI process would repeat
+// across invocations (two runs in the same second colliding would silently
+// merge unrelated threads in the drawer).
+func newAnchorID() string {
+	b := make([]byte, 15)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand does not fail in practice; a time-based fallback keeps
+		// the command working rather than refusing to post a comment.
+		return fmt.Sprintf("cli%d", time.Now().UnixNano())
+	}
+	for i, v := range b {
+		b[i] = anchorAlphabet[int(v)%len(anchorAlphabet)]
+	}
+	return string(b)
+}
 
 // newCommentsCmd is the whole command surface: list a document's comments,
 // add one, reply to one, or resolve a thread.
@@ -207,6 +230,14 @@ func addComment(
 		"author_name": name,
 		"quoted_text": quoted,
 	}
+	// comment_id is the EDITOR ANCHOR — the Tiptap mark's id, not the row id —
+	// and the schema requires it. A comment written from the shell has no mark
+	// to point at, so it gets a fresh anchor that simply matches nothing in the
+	// document; that is what the app already does for a thread with no
+	// selection (see text/lib/suggestions/discussions.ts). Omitting it fails
+	// the create outright, which is what `--add` did on every invocation.
+	payload["comment_id"] = newAnchorID()
+
 	if replyTo != "" {
 		// Replies are one level deep: replying to a reply attaches to its
 		// thread root, matching how the app nests them.
@@ -218,6 +249,11 @@ func addComment(
 			return fmt.Errorf("%s is a comment on a different document", replyTo)
 		}
 		payload["parent_comment"] = threadOf(parent)
+		// A reply shares its thread's anchor so the drawer groups the two
+		// together and a click on the marked text surfaces the whole thread.
+		if parent.CommentID != "" {
+			payload["comment_id"] = parent.CommentID
+		}
 	}
 
 	created, err := client.CreateRecord[comment](ctx, c, commentsCollection, payload)

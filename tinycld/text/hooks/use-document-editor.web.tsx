@@ -4,6 +4,7 @@ import type {
     EditorToolbarState,
 } from '@tinycld/core/lib/editor/types'
 import { captureException } from '@tinycld/core/lib/errors'
+import { log } from '@tinycld/core/lib/logger'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { Extension } from '@tiptap/core'
@@ -480,12 +481,13 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 // ProseMirror would trigger a destructive Yjs replace, blowing
                 // away every peer's state. Seed the Y.Doc on the server side
                 // (e.g. via translate.SeedFromPMJSON) instead.
-                if (__DEV__) {
-                    // biome-ignore lint/suspicious/noConsole: dev-only guard surfacing misuse of a footgun API on collaborative editors
-                    console.warn(
-                        'useDocumentEditor.setContent is a no-op for collaborative editors; seed the Y.Doc instead'
-                    )
-                }
+                //
+                // debug, not warn: reaching here is a developer calling a footgun
+                // API, not a runtime fault worth paging on.
+                log.debug(
+                    'text.document-editor',
+                    'setContent is a no-op for collaborative editors; seed the Y.Doc instead'
+                )
             },
             focus: (position?: 'start' | 'end') => {
                 if (position === 'start') {

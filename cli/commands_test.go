@@ -19,8 +19,14 @@ func docs(t *testing.T) *fakeText {
 
 	open := f.addComment("cmtOpen", "itmPlan", "Needs a rewrite", "Ada")
 	open.QuotedText = "the second paragraph"
+	// The editor anchor. The fixture left this empty for a long time, which is
+	// part of why the missing comment_id on create went unnoticed — a fake
+	// server that never sets a field cannot notice a client that never sends
+	// one.
+	open.CommentID = "anchorOpen"
 	reply := f.addComment("cmtReply", "itmPlan", "Agreed", "Grace")
 	reply.ParentComment = "cmtOpen"
+	reply.CommentID = "anchorOpen"
 
 	done := f.addComment("cmtDone", "itmPlan", "Fixed the typo", "Ada")
 	done.ResolvedAt = "2026-08-01 12:00:00Z"
@@ -202,6 +208,53 @@ func TestAddPostsComment(t *testing.T) {
 	}
 	if got, ok := f.lastCreate["parent_comment"]; ok && got != "" {
 		t.Errorf("a root comment must not carry a parent, got %v", got)
+	}
+	// comment_id is REQUIRED by the schema. The fake server validates nothing,
+	// so its absence here passed every test while every real `--add` failed
+	// with "Failed to create record" — found by the live smoke test, which is
+	// why this assertion is explicit rather than folded into the table above.
+	anchor, _ := f.lastCreate["comment_id"].(string)
+	if anchor == "" {
+		t.Error("create carried no comment_id; the real server rejects that as a required field")
+	}
+}
+
+// Two comments must not share an anchor: the drawer groups by comment_id, so a
+// repeated value would silently merge unrelated threads.
+func TestAddGeneratesADistinctAnchorPerComment(t *testing.T) {
+	f := docs(t)
+	_, c := f.serve()
+
+	if _, _, err := runCmd(t, c, "text", "comments", "/Plan.md", "--add", "First"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := f.lastCreate["comment_id"].(string)
+
+	if _, _, err := runCmd(t, c, "text", "comments", "/Plan.md", "--add", "Second"); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := f.lastCreate["comment_id"].(string)
+
+	if first == "" || second == "" {
+		t.Fatalf("expected an anchor on both comments, got %q and %q", first, second)
+	}
+	if first == second {
+		t.Errorf("both comments share anchor %q — unrelated threads would merge", first)
+	}
+}
+
+// A reply belongs to its thread's anchor, so clicking the marked text in the
+// editor surfaces the whole conversation rather than only the root.
+func TestReplyInheritsTheThreadAnchor(t *testing.T) {
+	f := docs(t)
+	_, c := f.serve()
+
+	if _, _, err := runCmd(t, c, "text", "comments", "/Plan.md",
+		"--reply-to", "cmtOpen", "--add", "Will do"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lastCreate["comment_id"]; got != "anchorOpen" {
+		t.Errorf("comment_id = %v, want the thread's anchor anchorOpen", got)
 	}
 }
 

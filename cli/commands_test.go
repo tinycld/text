@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // docs builds the standard fixture:
@@ -402,5 +403,34 @@ func TestJSONOutputIsStable(t *testing.T) {
 	// The full body survives into --json even though the table one-lines it.
 	if comments[0].Body != "Needs a rewrite" {
 		t.Errorf("--json must carry the full body, got %q", comments[0].Body)
+	}
+}
+
+// truncate slices runes, not bytes: quoted text is arbitrary user prose, and a
+// byte cut through a multi-byte character emits invalid UTF-8.
+func TestTruncateDoesNotSplitRunes(t *testing.T) {
+	// 60 CJK characters — 3 bytes each, so a byte-based cut lands mid-rune.
+	long := strings.Repeat("東", 60)
+	got := truncate(long, 40)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate emitted invalid UTF-8: %q", got)
+	}
+	if strings.ContainsRune(got, utf8.RuneError) {
+		t.Fatalf("truncate cut a rune in half: %q", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 40 {
+		t.Errorf("truncate produced %d runes, want 40", n)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated text must be marked with an ellipsis: %q", got)
+	}
+
+	// Short input is returned untouched, including multi-byte text whose BYTE
+	// length exceeds the limit while its rune count does not.
+	for _, s := range []string{"", "short", strings.Repeat("é", 40)} {
+		if got := truncate(s, 40); got != s {
+			t.Errorf("truncate(%q) = %q, want it unchanged", s, got)
+		}
 	}
 }

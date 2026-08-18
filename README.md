@@ -106,6 +106,47 @@ identity, drive's share rules govern who can open the room, and the
 docx blob attached to the drive_item is the source of truth that
 survives across sessions.
 
+## Automation rules
+
+Text contributes one trigger to the ecosystem-wide automation-rule
+engine, and no actions:
+
+- **`text:comment-added`** — "A comment is added to a document", fired
+  on `text_comments` create. Exposed fields: `body` (labelled
+  "Comment"), `quoted_text`, `author_name` (labelled "Commenter"), and
+  `drive_item` (labelled "Document").
+
+The trigger fires when *anyone* comments on a document the rule owner
+can see — not only when the owner comments. That is a deliberate
+design choice. The trigger declares **no** `ownerField`: an `author`
+field would auto-detect and scope the rule to the commenter ("when I
+comment"), which is backwards. Instead `text/server/automation.go`
+registers a `commentOwnerResolver` that delegates to core's
+`driveshare.ParticipantIDs`, so the rule fires for every participant on
+the document. It delegates rather than re-deriving the sharing rules
+because a second copy would drift, and an over-reporting resolver would
+fire other users' rules on documents they cannot see.
+
+Contrast this with drive's `drive:mentioned-in-comment` trigger, which
+fires only on @-mentions addressed to you and covers documents,
+spreadsheets and files alike. This one is broader: every comment on
+every document you can reach.
+
+**No actions.** Document content is stored as collaborative Yjs edit
+operations rather than as record fields a rule could set, so text
+contributes triggers only. A rule that starts from a comment can still
+use any action another installed package offers.
+
+The catalog is declared with `automation: { definitions: 'automation' }`
+in `manifest.ts` plus a `"./automation"` entry in the `package.json`
+exports map; the definitions live in `tinycld/text/automation.ts` and
+the Go-side registration in `server/automation.go`. The in-app help
+topic is `help/rules.md`.
+
+Docs: [Automation rules](https://tinycld.org/docs/automation-rules)
+(users) · [Automation anatomy](https://tinycld.org/docs/anatomy/automation)
+(package authors).
+
 ## Theory of operations
 
 The short version: every document is a Yjs `Y.Doc` mirrored on the
@@ -393,6 +434,38 @@ text/
 Go module: `tinycld.org/packages/text`. Imports `tinycld.org/core/realtime`
 through the standard go.mod replace directive the app shell installs.
 
+## Command line
+
+Text contributes exactly one command group to the `tinycld` binary:
+
+```sh
+tinycld text comments <path>            # list a document's threads
+tinycld text comments <path> --add "Needs a citation here"
+tinycld text comments <path> --add "Agreed" --reply-to <id>
+tinycld text comments <path> --add "..." --quote "the passage"
+tinycld text comments <path> --resolve <id>
+tinycld text comments <path> --reopen <id>
+tinycld text comments <path> --all      # include resolved threads
+```
+
+`comment` is accepted as an alias. The group requests the `text:read`
+and `text:write` OAuth scopes.
+
+There is deliberately **no `text new` command.** Documents *are*
+`drive_items`, so `tinycld drive put` / `cat` / `get` / `rm` already
+create, read, download and delete them; and a Yjs CRDT body has no safe
+shell write representation. That is why the command line exposes
+comments only.
+
+The `tinycld` binary is a Go CLI the server cross-compiles containing
+exactly its installed package set; users download it from **Settings →
+Personal → About**. This package's group is sourced from `cli/` and
+declared by a `cli` manifest block naming the Go module and the OAuth
+scopes above. The in-app help topic is `help/command-line.md`.
+
+Docs: [Command line tool](https://tinycld.org/docs/command-line-tool) ·
+[CLI reference](https://tinycld.org/docs/reference/cli-reference).
+
 ## Development
 
 ```sh
@@ -443,4 +516,8 @@ the checks — exactly what a developer does locally.
 - `manifest.ts` — single source of truth for capabilities
 - `package.json` — name, exports map, peer deps
 - `tsconfig.json` — typecheck config (lint config lives in the app shell's `biome.json`)
+- `server/` — Go server module, including `server/automation.go` (trigger
+  registration + the participant owner resolver)
+- `cli/` — Go source for this package's `tinycld text` command group
+- `tinycld/text/automation.ts` — the automation trigger catalog
 - `tests/` — vitest unit tests

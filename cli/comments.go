@@ -332,9 +332,13 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// truncate counts RUNES, not bytes: quoted text is arbitrary user prose, and a
+// byte slice through a multi-byte character emits invalid UTF-8 (a replacement
+// glyph mid-word in the table). Mirrors cards' firstLine.
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	return string(r[:max-1]) + "…"
 }

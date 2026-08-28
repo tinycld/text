@@ -11,7 +11,7 @@ test.describe('Text — Document rename', () => {
         const itemId = await uploadDocxAsDriveItem(originalName)
 
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
 
         // The DocumentTitle Pressable carries an accessibilityLabel of
         // `Rename document, currently <name>`; aria-label on web makes
@@ -42,7 +42,7 @@ test.describe('Text — Document rename', () => {
         const itemId = await uploadDocxAsDriveItem(originalName)
 
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
 
         const titleTrigger = page.getByLabel(`Rename document, currently ${originalName}`)
         await expect(titleTrigger).toBeVisible()

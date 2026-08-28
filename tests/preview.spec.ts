@@ -135,7 +135,7 @@ test.describe('Text — Server-rendered preview', () => {
         const docxName = uniqueDocName('preview-ui')
         await uploadDocxAsDriveItem(docxName)
         await login(page)
-        await page.goto(`/drive`)
+        await page.goto(`/a/drive`)
         const tile = page.getByText(docxName).first()
         await tile.waitFor({ state: 'visible' })
         await tile.dblclick()

@@ -48,11 +48,11 @@ test.describe('Text — Activity tab', () => {
             // server's HasOtherWriter audience gate so EditEvents
             // produced by the writer get buffered + flushed.
             await loginAs(writer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await writer.goto(`/text/${itemId}`)
+            await writer.goto(`/a/text/${itemId}`)
             await waitForEditor(writer)
 
             await loginAs(audience, userB.email, userB.password)
-            await audience.goto(`/text/${itemId}`)
+            await audience.goto(`/a/text/${itemId}`)
             await waitForEditor(audience)
 
             // Open the drawer on the writer's page so the Activity

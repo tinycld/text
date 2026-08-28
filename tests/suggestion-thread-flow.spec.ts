@@ -140,7 +140,7 @@ test.describe('Text — Suggestion thread flow', () => {
         try {
             const alicePage = await ctx.newPage()
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/text/${itemId}`)
+            await alicePage.goto(`/a/text/${itemId}`)
             await waitForEditor(alicePage)
 
             // Alice writes a suggestion.

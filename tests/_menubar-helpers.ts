@@ -133,7 +133,7 @@ export async function waitForEditor(page: Page): Promise<void> {
 export async function openTextDocument(page: Page, label: string): Promise<string> {
     const itemId = await uploadDocxAsDriveItem(uniqueDocName(label))
     await login(page)
-    await page.goto(`/text/${itemId}`)
+    await page.goto(`/a/text/${itemId}`)
     await waitForEditor(page)
     // Scope the heading match to the editor: a bare getByText also matches the
     // frozen no-file-panel sibling's "<name>.docx" recent-files label (the app

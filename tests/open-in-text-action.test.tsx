@@ -1,3 +1,4 @@
+import { appHref } from '@tinycld/core/lib/org-routes'
 // The open-in-text-action module exposes two surfaces:
 //   1. `buildOpenInTextAction(orgHref)` — the pure factory consumers
 //      test against; returns a PreviewAction with id/icon/label/predicate
@@ -46,10 +47,10 @@ function makeSource(overrides: Partial<FilePreviewSource>): FilePreviewSource {
 // factory hands to router.push, so the exact return shape needs to
 // match what useOrgHref produces.
 function stubOrgHref(path: string, extra?: Record<string, string>) {
-    // Single-org: core's useOrgHref emits a bare `/${path}` with no
-    // orgSlug segment and no org param.
+    // Single-org: no orgSlug segment and no org param. The app-route prefix
+    // comes from appHref so this stub can't drift from the real helper.
     return {
-        pathname: `/${path}`,
+        pathname: appHref(path),
         params: { ...extra },
     } as unknown as ReturnType<ReturnType<typeof Object>>
 }
@@ -91,7 +92,7 @@ describe('buildOpenInTextAction', () => {
             pathname: string
             params: Record<string, string>
         }
-        expect(navTarget.pathname).toBe('/text/[id]')
+        expect(navTarget.pathname).toBe('/a/text/[id]')
         expect(navTarget.params.id).toBe('drive_item_xyz')
         expect(ctx.close).toHaveBeenCalledTimes(1)
     })

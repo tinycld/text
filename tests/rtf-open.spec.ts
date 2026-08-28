@@ -9,7 +9,7 @@ test.describe('Text — RTF round-trip', () => {
 
         await login(page)
         // Initial doc load is the one allowed goto (SPA is torn down on nav).
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
 
         // The fixture's heading + a unique searchable token must render —

@@ -177,11 +177,11 @@ test.describe('Text — Comments', () => {
             const pageB = await ctxB.newPage()
 
             await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await pageA.goto(`/text/${itemId}`)
+            await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
 
             await loginAs(pageB, userB.email, userB.password)
-            await pageB.goto(`/text/${itemId}`)
+            await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
 
             // A: select-all and post a comment.
@@ -260,7 +260,7 @@ test.describe('Text — Comments', () => {
         try {
             const authorPage = await ctx.newPage()
             await loginAs(authorPage, author.email, author.password)
-            await authorPage.goto(`/text/${itemId}`)
+            await authorPage.goto(`/a/text/${itemId}`)
             await waitForEditor(authorPage)
 
             await editorRoot(authorPage).click()
@@ -300,7 +300,7 @@ test.describe('Text — Comments', () => {
         try {
             const viewer = await viewerCtx.newPage()
             await loginAs(viewer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await viewer.goto(`/text/${itemId}`)
+            await viewer.goto(`/a/text/${itemId}`)
             await waitForEditor(viewer)
             await viewer.getByRole('button', { name: 'Comments', exact: true }).click()
             await expect(viewer.getByText('soon to be orphaned author').last()).toBeVisible()

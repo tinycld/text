@@ -47,12 +47,12 @@ test.describe('Text — Viewer cannot resolve', () => {
             const bobPage = await bobContext.newPage()
 
             await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await alicePage.goto(`/text/${itemId}`)
+            await alicePage.goto(`/a/text/${itemId}`)
             await waitForEditor(alicePage)
             await expect(alicePage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(bobPage, bob.email, bob.password)
-            await bobPage.goto(`/text/${itemId}`)
+            await bobPage.goto(`/a/text/${itemId}`)
             await waitForEditor(bobPage)
             await expect(bobPage.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 

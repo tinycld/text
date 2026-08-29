@@ -39,7 +39,7 @@ test.describe('Text — Table toolbar', () => {
     test('not in a table: popover shows grid picker, no row/col options', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-picker'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -63,7 +63,7 @@ test.describe('Text — Table toolbar', () => {
     test('inserting a 2x2 grid produces a 2x2 table in the doc', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-insert'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
         // The fixture's tables (Simple + Complex) render asynchronously
@@ -106,7 +106,7 @@ test.describe('Text — Table toolbar', () => {
     test('in a table: popover shows row/col options, no grid picker', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-ops'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -144,7 +144,7 @@ test.describe('Text — Table toolbar', () => {
     test('add row below grows the table by one row', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('table-add-row'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -179,7 +179,7 @@ test.describe('Text — Table toolbar', () => {
     test('cell borders button is disabled outside a table and enabled inside', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('borders-disabled'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -202,7 +202,7 @@ test.describe('Text — Table toolbar', () => {
     test('apply "All" border preset writes data-borders to cells', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('borders-apply'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 

@@ -21,7 +21,7 @@ test.describe('Text — Document editor', () => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('feature'))
 
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
 
         await waitForEditor(page)
         // The fixture's H1 should land in the editor after the bootstrap
@@ -32,7 +32,7 @@ test.describe('Text — Document editor', () => {
     test('edit and persist: typed text survives reload', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('persist'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -57,7 +57,7 @@ test.describe('Text — Document editor', () => {
     test('round-trip integrity: bold + heading + bullet list survive reload', async ({ page }) => {
         const itemId = await uploadDocxAsDriveItem(uniqueDocName('roundtrip'))
         await login(page)
-        await page.goto(`/text/${itemId}`)
+        await page.goto(`/a/text/${itemId}`)
         await waitForEditor(page)
         await expect(page.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
@@ -114,11 +114,11 @@ test.describe('Text — Document editor', () => {
             const pageB = await ctxB.newPage()
 
             await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await pageA.goto(`/text/${itemId}`)
+            await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
 
             await loginAs(pageB, userB.email, userB.password)
-            await pageB.goto(`/text/${itemId}`)
+            await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
 
             // Each PresenceAvatars Avatar carries
@@ -146,12 +146,12 @@ test.describe('Text — Document editor', () => {
             const pageB = await ctxB.newPage()
 
             await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-            await pageA.goto(`/text/${itemId}`)
+            await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
             await expect(pageA.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
             await loginAs(pageB, userB.email, userB.password)
-            await pageB.goto(`/text/${itemId}`)
+            await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
             await expect(pageB.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 

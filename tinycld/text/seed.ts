@@ -24,8 +24,14 @@ export default async function seed(pb: PocketBase, ctx: SeedContext): Promise<vo
     const { user } = ctx
     const fileName = 'Feature Test.docx'
 
+    // Scoped to this user: a name-only match skips seeding whenever ANY account
+    // has a file by this name, so after a user-scoped demo reset the sample
+    // never comes back.
     const existing = await pb.collection('drive_items').getList(1, 1, {
-        filter: pb.filter('name = {:name}', { name: fileName }),
+        filter: pb.filter('name = {:name} && created_by = {:uid}', {
+            name: fileName,
+            uid: user.id,
+        }),
     })
     if (existing.items.length > 0) {
         log(`Skipping (already seeded): ${fileName}`)

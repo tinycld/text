@@ -74,10 +74,10 @@ const roomKindText = "text-doc"
 func Register(app *pocketbase.PocketBase) {
 	registerShared(app)
 	// text binds no listener and mounts no protocol server, so this single
-	// entry point serves the single-org app and a multi-org tenant
+	// entry point serves the single-org app and a hosting tenant
 	// identically. If hosted behavior must ever differ (e.g. a listener),
 	// detect it with coreserver.GetTenantContext — never fork registerShared
-	// (see multi-org/docs/FINDING-tenant-composition-gap.md).
+	// (see hosting/docs/FINDING-tenant-composition-gap.md).
 }
 
 // registerShared is the single source of truth for what BOTH compositions run.

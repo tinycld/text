@@ -2,6 +2,7 @@ package text
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -32,15 +33,13 @@ import (
 // The returned closure is safe to call concurrently for different
 // rooms; the SaveCoordinator never re-enters the same room concurrently.
 //
-// PMJSONToDocx wraps WordZero, which has historically panicked on
-// malformed inputs. Concurrent calls from different rooms are
-// serialized inside the translate package via numberingMu — WordZero's
-// NumberingManager is a process-global singleton. The named-return +
-// deferred recover here converts any remaining panic into an error so
-// the SaveCoordinator's retry/backoff path can handle it instead of
-// the broker goroutine going down.
+// PMJSONToDocx builds an omnidoc *docx.Document per call — no
+// process-global state, so concurrent flushes across rooms need no
+// serialization. The named-return + deferred recover here converts any
+// panic into an error so the SaveCoordinator's retry/backoff path can
+// handle it instead of the broker goroutine going down.
 func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
-	return func(driveItemID string, handle realtime.DocHandle) (returnedErr error) {
+	return func(ctx context.Context, driveItemID string, handle realtime.DocHandle) (returnedErr error) {
 		defer func() {
 			if r := recover(); r != nil {
 				app.Logger().Error("text: flush panicked",
@@ -79,7 +78,7 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		suggestionEntries := readSuggestionsMap(doc)
 
 		docxBytes, _, err := translate.PMJSONToDocxWithResolverAndSuggestions(
-			pmJSON, makeDriveImageResolver(app), suggestionEntries,
+			ctx, pmJSON, makeDriveImageResolver(app), suggestionEntries,
 		)
 		if err != nil {
 			return fmt.Errorf("text: PMJSONToDocx for %s: %w", driveItemID, err)
@@ -96,7 +95,7 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		// Preserve the source format on save: a doc opened from .rtf is
 		// written back as RTF, docx stays docx. The editor's model is
 		// docx-shaped, so RTF items convert docx->RTF here.
-		outBytes, ext, err := docxBytesToSource(item.GetString("mime_type"), docxBytes)
+		outBytes, ext, err := docxBytesToSource(ctx, item.GetString("mime_type"), docxBytes)
 		if err != nil {
 			return fmt.Errorf("text: convert output for %s: %w", driveItemID, err)
 		}

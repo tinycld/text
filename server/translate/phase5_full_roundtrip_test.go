@@ -139,7 +139,7 @@ func TestPhase5FullRoundTripAllSuggestionKinds(t *testing.T) {
 		{ID: "s_cell", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, warnings, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, warnings, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestPhase5FullRoundTripAllSuggestionKinds(t *testing.T) {
 	}
 
 	// Round-trip back to PM.
-	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}

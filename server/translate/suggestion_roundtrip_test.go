@@ -42,7 +42,7 @@ func TestPhase2cSmoke_FullRoundTripPreservesSuggestionsAndEntries(t *testing.T) 
 		{ID: "s_carol", AuthorID: "uo_carol", CreatedAt: 1700000003000, Status: "open", Note: "i agree"},
 	}
 
-	docxBytes, warnings, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, warnings, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestPhase2cSmoke_FullRoundTripPreservesSuggestionsAndEntries(t *testing.T) 
 	// 1. Confirm docx round-trip preserves the marks via the new
 	//    DocxToPMJSONWithSuggestions entry point (which also returns
 	//    the parsed entries from the customXml part).
-	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}

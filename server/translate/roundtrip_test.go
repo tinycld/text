@@ -23,7 +23,7 @@ func TestRoundTrip_FeatureTest(t *testing.T) {
 	}
 
 	// Pass 1: docx -> PM
-	pm1JSON, warnings1, err := DocxToPMJSON(fixture)
+	pm1JSON, warnings1, err := DocxToPMJSON(t.Context(), fixture)
 	if err != nil {
 		t.Fatalf("pass 1 DocxToPMJSON: %v", err)
 	}
@@ -32,13 +32,13 @@ func TestRoundTrip_FeatureTest(t *testing.T) {
 	}
 
 	// Pass 2: PM -> docx
-	docxBytes, err := PMJSONToDocx(pm1JSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pm1JSON)
 	if err != nil {
 		t.Fatalf("pass 2 PMJSONToDocx: %v", err)
 	}
 
 	// Pass 3: docx -> PM (the round-trip)
-	pm3JSON, warnings3, err := DocxToPMJSON(docxBytes)
+	pm3JSON, warnings3, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("pass 3 DocxToPMJSON: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestDocxToPMJSON_Corrupted(t *testing.T) {
 	if err != nil {
 		t.Skipf("fixture %s not yet provided; skip", path)
 	}
-	_, _, err = DocxToPMJSON(bytes)
+	_, _, err = DocxToPMJSON(t.Context(), bytes)
 	if err == nil {
 		t.Fatalf("expected non-nil err for corrupted.docx")
 	}
@@ -111,7 +111,7 @@ func expectWarning(t *testing.T, fixtureName string, code WarningCode) {
 	if err != nil {
 		t.Skipf("fixture %s not yet provided; skip", path)
 	}
-	_, warnings, err := DocxToPMJSON(bytes)
+	_, warnings, err := DocxToPMJSON(t.Context(), bytes)
 	if err != nil {
 		t.Fatalf("parse %s: %v", fixtureName, err)
 	}

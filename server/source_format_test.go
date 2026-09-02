@@ -28,7 +28,7 @@ func TestIsEditableMime(t *testing.T) {
 // TestRTFBridge_ImportPath mirrors the bootstrap: RTF bytes are normalized to
 // docx, then the existing docx->PM walk runs and recovers the content.
 func TestRTFBridge_ImportPath(t *testing.T) {
-	docxBytes, err := sourceBytesToDocx(rtfMimeType, []byte(sampleRTF))
+	docxBytes, err := sourceBytesToDocx(t.Context(), rtfMimeType, []byte(sampleRTF))
 	if err != nil {
 		t.Fatalf("sourceBytesToDocx: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestRTFBridge_ImportPath(t *testing.T) {
 		t.Fatal("sourceBytesToDocx produced empty docx")
 	}
 
-	pmJSON, _, _, err := translate.DocxToPMJSONWithSuggestions(docxBytes)
+	pmJSON, _, _, err := translate.DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSONWithSuggestions on bridged docx: %v", err)
 	}
@@ -54,14 +54,14 @@ func TestRTFBridge_ImportPath(t *testing.T) {
 // converted back to RTF for an RTF-sourced item, and the RTF round-trips.
 func TestRTFBridge_ExportPath(t *testing.T) {
 	// Start from the docx the import path would produce.
-	docxBytes, err := sourceBytesToDocx(rtfMimeType, []byte(sampleRTF))
+	docxBytes, err := sourceBytesToDocx(t.Context(), rtfMimeType, []byte(sampleRTF))
 	if err != nil {
 		t.Fatalf("sourceBytesToDocx: %v", err)
 	}
 
-	out, ext, err := docxBytesToSource(rtfMimeType, docxBytes)
+	out, ext, err := docxBytesToSource(t.Context(), rtfMimeType, docxBytes)
 	if err != nil {
-		t.Fatalf("docxBytesToSource(rtf): %v", err)
+		t.Fatalf("docxBytesToSource(t.Context(), rtf): %v", err)
 	}
 	if ext != "rtf" {
 		t.Errorf("ext = %q, want rtf", ext)
@@ -71,9 +71,9 @@ func TestRTFBridge_ExportPath(t *testing.T) {
 	}
 
 	// A docx-sourced item must pass through untouched with a docx extension.
-	same, ext2, err := docxBytesToSource(docxMimeType, docxBytes)
+	same, ext2, err := docxBytesToSource(t.Context(), docxMimeType, docxBytes)
 	if err != nil {
-		t.Fatalf("docxBytesToSource(docx): %v", err)
+		t.Fatalf("docxBytesToSource(t.Context(), docx): %v", err)
 	}
 	if ext2 != "docx" {
 		t.Errorf("docx ext = %q, want docx", ext2)
@@ -87,13 +87,13 @@ func TestRTFBridge_ExportPath(t *testing.T) {
 func TestSourceBytesToDocx_EmptyAndDocx(t *testing.T) {
 	// Empty input is returned as-is regardless of mime (never fed to the
 	// RTF opener, which would error on empty bytes).
-	got, err := sourceBytesToDocx(rtfMimeType, nil)
+	got, err := sourceBytesToDocx(t.Context(), rtfMimeType, nil)
 	if err != nil || got != nil {
 		t.Errorf("empty rtf: got (%v, %v), want (nil, nil)", got, err)
 	}
 	// docx input passes through byte-identical.
 	docx := []byte("PK\x03\x04 not-really-a-zip-but-passthrough")
-	got, err = sourceBytesToDocx(docxMimeType, docx)
+	got, err = sourceBytesToDocx(t.Context(), docxMimeType, docx)
 	if err != nil {
 		t.Fatalf("docx passthrough err: %v", err)
 	}

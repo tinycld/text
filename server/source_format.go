@@ -5,19 +5,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/nathanstitt/doctaculous/pkg/doctaculous"
+	"github.com/nathanstitt/omnidoc/pkg/omnidoc"
 )
 
 // The text editor's model is docx-shaped: import walks a low-level
 // *docx.Document into ProseMirror, and export builds a *docx.Document back.
 // RTF documents are supported by bridging through docx at the byte level —
-// doctaculous converts RTF <-> DOCX losslessly enough for the editor, and
+// omnidoc converts RTF <-> DOCX losslessly enough for the editor, and
 // this keeps the entire ProseMirror pipeline (tracked changes, images,
 // tables) unchanged. The bridge lives here so bootstrap/flush/render share
 // one definition of "which mimes are editable" and how to convert.
 
 // rtfMimeType / rtfMimeTypeAlt are the two MIME types browsers report for
-// .rtf uploads; both map to doctaculous FormatRTF.
+// .rtf uploads; both map to omnidoc FormatRTF.
 const (
 	rtfMimeType    = "application/rtf"
 	rtfMimeTypeAlt = "text/rtf"
@@ -41,18 +41,18 @@ func isRTFMime(mimeType string) bool {
 
 // sourceBytesToDocx normalizes a drive item's stored bytes to docx so the
 // docx-shaped import/render pipeline can consume them. docx passes through
-// untouched; RTF is converted via doctaculous. Any other mime is a caller
+// untouched; RTF is converted via omnidoc. Any other mime is a caller
 // bug — the editable-mime gate should have rejected it upstream.
-func sourceBytesToDocx(mimeType string, data []byte) ([]byte, error) {
+func sourceBytesToDocx(ctx context.Context, mimeType string, data []byte) ([]byte, error) {
 	if len(data) == 0 || !isRTFMime(mimeType) {
 		return data, nil
 	}
-	doc, err := doctaculous.OpenBytesAs(doctaculous.FormatRTF, data)
+	doc, err := omnidoc.OpenBytesAs(omnidoc.FormatRTF, data)
 	if err != nil {
 		return nil, fmt.Errorf("text: open rtf: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := doc.WriteDOCX(context.Background(), &buf, doctaculous.DOCXOptions{}); err != nil {
+	if err := doc.WriteDOCX(ctx, &buf, omnidoc.DOCXOptions{}); err != nil {
 		return nil, fmt.Errorf("text: rtf->docx: %w", err)
 	}
 	return buf.Bytes(), nil
@@ -62,16 +62,16 @@ func sourceBytesToDocx(mimeType string, data []byte) ([]byte, error) {
 // item's original format for saving. docx items keep the docx bytes; RTF items
 // get RTF back so opening a .rtf and saving preserves the format ("own your
 // data"). Returns the bytes plus the filename extension the flush should use.
-func docxBytesToSource(mimeType string, docxBytes []byte) (out []byte, ext string, err error) {
+func docxBytesToSource(ctx context.Context, mimeType string, docxBytes []byte) (out []byte, ext string, err error) {
 	if !isRTFMime(mimeType) {
 		return docxBytes, "docx", nil
 	}
-	doc, err := doctaculous.OpenBytesAs(doctaculous.FormatDOCX, docxBytes)
+	doc, err := omnidoc.OpenBytesAs(omnidoc.FormatDOCX, docxBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("text: reopen docx for rtf save: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := doc.WriteRTF(context.Background(), &buf, doctaculous.RTFOptions{}); err != nil {
+	if err := doc.WriteRTF(ctx, &buf, omnidoc.RTFOptions{}); err != nil {
 		return nil, "", fmt.Errorf("text: docx->rtf: %w", err)
 	}
 	return buf.Bytes(), "rtf", nil

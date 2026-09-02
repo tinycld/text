@@ -7,7 +7,7 @@ import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
-import { exportItemToPdf } from '@tinycld/drive/lib/export-pdf'
+import { exportItem } from '@tinycld/drive/lib/export-pdf'
 import {
     fromTemplateName,
     isTemplateName,
@@ -141,11 +141,11 @@ export function FileMenu(props: MenuBarProps) {
         }
     }
 
-    // Exports the stored .docx blob to PDF on the server (doctaculous). Like
+    // Exports the stored .docx blob to PDF on the server (omnidoc). Like
     // Download (.docx), this reflects the last persisted state, not unflushed
     // live edits — the live room auto-persists on a debounce.
     const downloadPdf = () => {
-        exportItemToPdf(props.documentId, props.documentName)
+        exportItem(props.documentId, props.documentName, 'pdf')
     }
 
     return (

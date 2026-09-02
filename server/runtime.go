@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -57,7 +58,7 @@ type Runtime struct {
 	// drive_items docx and seed it into the doc, so the broker's
 	// first SyncReply already carries populated content. Tests leave
 	// it nil — they construct doc state via ApplyUpdate.
-	bootstrap func(roomID string, doc *ycrdt.Doc) error
+	bootstrap func(ctx context.Context, roomID string, doc *ycrdt.Doc) error
 
 	// mu guards every room-keyed map below. It's an RWMutex because the
 	// hot-path accessors (RoomFor, BufferFor, docFor, handleFor) are
@@ -359,7 +360,7 @@ func (r *Runtime) evictStaleImportWarnings() {
 //
 // A nil hook disables bootstrap (for tests). Passing nil after a hook
 // has been registered clears it.
-func (r *Runtime) SetBootstrap(hook func(roomID string, doc *ycrdt.Doc) error) {
+func (r *Runtime) SetBootstrap(hook func(ctx context.Context, roomID string, doc *ycrdt.Doc) error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.bootstrap = hook
@@ -389,7 +390,7 @@ func (r *Runtime) NewDoc(roomID string) (realtime.DocHandle, error) {
 	r.mu.Unlock()
 
 	if hook != nil {
-		if err := hook(roomID, doc); err != nil {
+		if err := hook(context.Background(), roomID, doc); err != nil {
 			slog.Warn("text: bootstrap hook failed; room continues with empty doc",
 				"roomID", roomID, "err", err)
 		}

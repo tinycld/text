@@ -93,7 +93,7 @@ func TestParseRunProperties_ShdBackgroundColor(t *testing.T) {
 		`<w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/>`,
 		"highlighted",
 	)
-	pmJSON, _, err := DocxToPMJSON(docx)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docx)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestParseRunProperties_ShdAutoFill(t *testing.T) {
 		`<w:shd w:val="clear" w:color="auto" w:fill="auto"/>`,
 		"x",
 	)
-	pmJSON, _, err := DocxToPMJSON(docx)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docx)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestParseRunProperties_HighlightNamedColor(t *testing.T) {
 		`<w:highlight w:val="yellow"/>`,
 		"x",
 	)
-	pmJSON, _, err := DocxToPMJSON(docx)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docx)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestParseRunProperties_HighlightUnknownName(t *testing.T) {
 				`<w:highlight w:val="`+name+`"/>`,
 				"x",
 			)
-			pmJSON, _, err := DocxToPMJSON(docx)
+			pmJSON, _, err := DocxToPMJSON(t.Context(), docx)
 			if err != nil {
 				t.Fatalf("DocxToPMJSON: %v", err)
 			}
@@ -179,7 +179,7 @@ func TestParseRunProperties_ShdWinsOverHighlight(t *testing.T) {
 			`<w:highlight w:val="yellow"/>`,
 		"x",
 	)
-	pmJSON, _, err := DocxToPMJSON(docx)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docx)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -203,11 +203,11 @@ func TestRoundTrip_BackgroundColor(t *testing.T) {
 		]}
 	]}`)
 
-	docxBytes, err := PMJSONToDocx(pmIn)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmIn)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	pmOutJSON, _, err := DocxToPMJSON(docxBytes)
+	pmOutJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -233,11 +233,11 @@ func TestRoundTrip_BackgroundColorWithBoldAndCode(t *testing.T) {
 		]}
 	]}`)
 
-	docxBytes, err := PMJSONToDocx(pmIn)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmIn)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	pmOutJSON, _, err := DocxToPMJSON(docxBytes)
+	pmOutJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

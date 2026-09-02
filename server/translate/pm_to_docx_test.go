@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // readDocxPart reads one part out of a docx (zip) blob, returning the
@@ -60,7 +60,7 @@ func TestPMJSONToDocx_SinglePara(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestPMJSONToDocx_SinglePara(t *testing.T) {
 		t.Fatalf("docx too small (%d bytes); probably empty", len(docxBytes))
 	}
 
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON of our own output: %v", err)
 	}
@@ -195,11 +195,11 @@ func TestPMJSONToDocx_RichRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestPMJSONToDocx_ConcurrentNumbering(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			bs, err := PMJSONToDocx(inputs[idx])
+			bs, err := PMJSONToDocx(t.Context(), inputs[idx])
 			if err != nil {
 				errs[idx] = err
 				return
@@ -454,7 +454,7 @@ func TestPMJSONToDocx_ConcurrentNumbering(t *testing.T) {
 		// Reuse the import-side loader: it returns numId -> first-level
 		// numFmt, which is only populated when numbering.xml is well
 		// formed and every <w:num> resolves to a defined <w:abstractNum>.
-		parsedDoc, oerr := docx.OpenBytes(bs)
+		parsedDoc, oerr := docx.OpenBytes(t.Context(), bs)
 		if oerr != nil {
 			t.Fatalf("worker %d: OpenBytes: %v", i, oerr)
 		}
@@ -544,14 +544,14 @@ func TestPMJSONToDocx_PageBreakRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(jsonBytes)
+	docxBytes, err := PMJSONToDocx(t.Context(), jsonBytes)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
 	if !bytes.Contains(readDocxPart(t, docxBytes, "word/document.xml"), []byte(`<w:br w:type="page"/>`)) {
 		t.Errorf("expected <w:br w:type=\"page\"/> in document.xml")
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestPMJSONToDocx_CommentRoundTrip(t *testing.T) {
 		},
 	}
 	jsonBytes, _ := json.Marshal(original)
-	docxBytes, err := PMJSONToDocx(jsonBytes)
+	docxBytes, err := PMJSONToDocx(t.Context(), jsonBytes)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestPMJSONToDocx_CommentRoundTrip(t *testing.T) {
 	if readDocxPart(t, docxBytes, "word/comments.xml") == nil {
 		t.Errorf("expected word/comments.xml to be present in the zip")
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -661,7 +661,7 @@ func TestPMJSONToDocx_FootnoteRoundTrip(t *testing.T) {
 		},
 	}
 	jsonBytes, _ := json.Marshal(original)
-	docxBytes, err := PMJSONToDocx(jsonBytes)
+	docxBytes, err := PMJSONToDocx(t.Context(), jsonBytes)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestPMJSONToDocx_FootnoteRoundTrip(t *testing.T) {
 	if readDocxPart(t, docxBytes, "word/footnotes.xml") == nil {
 		t.Errorf("expected word/footnotes.xml to be present in the zip")
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -716,7 +716,7 @@ func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
 		},
 	}
 	jsonBytes, _ := json.Marshal(original)
-	docxBytes, err := PMJSONToDocx(jsonBytes)
+	docxBytes, err := PMJSONToDocx(t.Context(), jsonBytes)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -726,7 +726,7 @@ func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
 	if readDocxPart(t, docxBytes, "word/endnotes.xml") == nil {
 		t.Errorf("expected word/endnotes.xml to be present in the zip")
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -752,7 +752,7 @@ func TestPMJSONToDocx_EndnoteRoundTrip(t *testing.T) {
 }
 
 // TestPMJSONToDocx_NestedTableInCell verifies that a table cell containing a
-// nested table now round-trips STRUCTURALLY — the doctaculous model supports
+// nested table now round-trips STRUCTURALLY — the omnidoc model supports
 // nested tables in cells, so nothing is flattened and no warning is raised.
 // (The old wordZero exporter could not represent this and flattened the inner
 // table's text with a WarningCellContentFlattened; this test replaces that
@@ -798,7 +798,7 @@ func TestPMJSONToDocx_NestedTableInCell(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	docxBytes, warnings, err := PMJSONToDocxWithWarnings(originalJSON)
+	docxBytes, warnings, err := PMJSONToDocxWithWarnings(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithWarnings: %v", err)
 	}
@@ -826,7 +826,7 @@ func TestPMJSONToDocx_NestedTableInCell(t *testing.T) {
 	}
 
 	// Round-trip: the nested table reconstructs as a table inside the outer cell.
-	pmJSON, _, err := DocxToPMJSON(docxBytes)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

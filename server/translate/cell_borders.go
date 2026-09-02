@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // cellBorderAttr is the structured shape of the `borders` attribute we attach

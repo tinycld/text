@@ -219,7 +219,7 @@ func TestPMJSONToDocx_AlignmentOOXMLShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -293,11 +293,11 @@ func mustRoundtripParagraph(t *testing.T, original PMNode) PMNode {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

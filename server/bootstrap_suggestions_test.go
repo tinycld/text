@@ -37,7 +37,7 @@ func TestBootstrapPopulatesSuggestionsMapFromDocx(t *testing.T) {
 			Status:    "open",
 		},
 	}
-	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestBootstrapPopulatesSuggestionsMapWithResolvedEntry(t *testing.T) {
 			Note:       "lgtm",
 		},
 	}
-	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestBootstrapDocxWithoutSuggestionsLeavesMapEmpty(t *testing.T) {
 			"content": [{"type": "text", "text": "no suggestions here"}]
 		}]
 	}`)
-	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(pmJSON, nil)
+	docxBytes, _, err := translate.PMJSONToDocxWithSuggestions(t.Context(), pmJSON, nil)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}

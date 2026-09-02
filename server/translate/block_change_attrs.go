@@ -3,7 +3,7 @@ package translate
 import (
 	"strconv"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // blockChangeSpan tracks one PM suggestedBlockChange node attribute through the

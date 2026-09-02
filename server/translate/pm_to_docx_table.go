@@ -8,7 +8,7 @@ package translate
 import (
 	"fmt"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // emitTable builds a docx.Table sized to the PM rows/cols. Each physical grid

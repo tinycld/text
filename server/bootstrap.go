@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -40,8 +41,8 @@ const MaxDocxBytes = 25 * 1024 * 1024
 // Parser warnings (tracked changes stripped, unsupported nodes coerced,
 // etc.) are stashed on the runtime keyed by roomID for the OnConnect
 // ServerHelloFn to surface to the joining client via MsgServerHello.
-func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *ycrdt.Doc) error {
-	return func(roomID string, doc *ycrdt.Doc) error {
+func makeDocxBootstrap(app core.App, runtime *Runtime) func(ctx context.Context, roomID string, doc *ycrdt.Doc) error {
+	return func(ctx context.Context, roomID string, doc *ycrdt.Doc) error {
 		item, err := app.FindRecordById(driveItemsCollection, roomID)
 		if err != nil {
 			return fmt.Errorf("text: load drive_items %s: %w", roomID, err)
@@ -58,12 +59,12 @@ func makeDocxBootstrap(app core.App, runtime *Runtime) func(roomID string, doc *
 
 		// RTF items are bridged to docx so the docx->PM walk below is
 		// format-agnostic (docx passes through untouched).
-		docxBytes, err := sourceBytesToDocx(item.GetString("mime_type"), rawBytes)
+		docxBytes, err := sourceBytesToDocx(ctx, item.GetString("mime_type"), rawBytes)
 		if err != nil {
 			return fmt.Errorf("text: normalize source for %s: %w", roomID, err)
 		}
 
-		pmJSON, warnings, entries, err := translate.DocxToPMJSONWithSuggestions(docxBytes)
+		pmJSON, warnings, entries, err := translate.DocxToPMJSONWithSuggestions(ctx, docxBytes)
 		if err != nil {
 			return fmt.Errorf("text: parse docx for %s: %w", roomID, err)
 		}

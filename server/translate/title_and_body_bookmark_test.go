@@ -40,7 +40,7 @@ func TestTitleSubtitleMapToHeadings(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.pStyle, func(t *testing.T) {
 			docxBytes := mustBuildMinimalDocxWithStyledParagraph(t, tc.pStyle, "Hello")
-			pmJSON, warnings, err := DocxToPMJSON(docxBytes)
+			pmJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 			if err != nil {
 				t.Fatalf("DocxToPMJSON: %v", err)
 			}
@@ -72,7 +72,7 @@ func TestBodyLevelBookmarkNoWarning(t *testing.T) {
 	body := `<w:bookmarkStart w:id="0" w:name="doc"/>` +
 		`<w:p><w:r><w:t>Body text</w:t></w:r></w:p>` +
 		`<w:bookmarkEnd w:id="0"/>`
-	pmJSON, warnings, err := DocxToPMJSON(mustBuildDocxFromBody(t, body))
+	pmJSON, warnings, err := DocxToPMJSON(t.Context(), mustBuildDocxFromBody(t, body))
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

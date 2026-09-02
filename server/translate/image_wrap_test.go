@@ -51,11 +51,11 @@ func TestPMJSONToDocx_ImageWrapRoundTrip(t *testing.T) {
 				t.Fatalf("marshal: %v", err)
 			}
 
-			docxBytes, err := PMJSONToDocx(originalJSON)
+			docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 			if err != nil {
 				t.Fatalf("PMJSONToDocx: %v", err)
 			}
-			parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+			parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 			if err != nil {
 				t.Fatalf("DocxToPMJSON: %v", err)
 			}

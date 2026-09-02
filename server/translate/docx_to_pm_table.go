@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // walkTable is the model-walk equivalent of parseTable: it walks a parsed table

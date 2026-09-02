@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
-// This file holds the doctaculous-model walk that replaces the hand-rolled
+// This file holds the omnidoc-model walk that replaces the hand-rolled
 // encoding/xml producers. docx.OpenBytes gives a fully-parsed *docx.Document;
 // we walk its Body into the same intermediate PM paragraphs the legacy parser
 // produced, then run the identical PM-tree post-passes (list grouping, vmerge
@@ -36,7 +36,7 @@ func (p *docxParser) walkDocument(doc *docx.Document) PMNode {
 }
 
 // walkBlock dispatches one body/cell block: a paragraph or a table. (SectPr,
-// bookmarks, sdt, etc. are already resolved/unwrapped by doctaculous at parse
+// bookmarks, sdt, etc. are already resolved/unwrapped by omnidoc at parse
 // time, so there is no dispatch for them here.)
 func (p *docxParser) walkBlock(blk docx.Block) *PMNode {
 	switch {
@@ -60,7 +60,7 @@ func (p *docxParser) walkParagraph(para *docx.Paragraph) *PMNode {
 
 // paraPropsFields extracts, from a parsed ParagraphProps, the same values the
 // legacy parseParagraphProperties wrote into its out-params. Justify/indent are
-// re-mapped from doctaculous's typed forms onto the PM string/level encodings.
+// re-mapped from omnidoc's typed forms onto the PM string/level encodings.
 func (p *docxParser) paraPropsFields(props docx.ParagraphProps) (pStyle, numID, ilvl, textAlign string, indentLevel int, dropCapFrame bool, blockChange map[string]any) {
 	pStyle = props.StyleID
 	if props.HasNum {
@@ -82,7 +82,7 @@ func (p *docxParser) paraPropsFields(props docx.ParagraphProps) (pStyle, numID, 
 	return
 }
 
-// justifyToTextAlign maps doctaculous's Justify enum onto the PM textAlign enum.
+// justifyToTextAlign maps omnidoc's Justify enum onto the PM textAlign enum.
 // Mirrors normalizeJustification's output for the equivalent OOXML values.
 func justifyToTextAlign(j docx.Justify) string {
 	switch j {
@@ -167,7 +167,7 @@ func (p *docxParser) flushImage(out *[]PMNode, img PMNode) {
 	*out = append(*out, img)
 }
 
-// walkRun converts a parsed run into PM nodes. doctaculous splits a w:r on an
+// walkRun converts a parsed run into PM nodes. omnidoc splits a w:r on an
 // embedded break, so one Run carries at most one Break plus its text; we emit
 // the text (if any) and then the break node, applying the run's marks via the
 // preserved flushRun.
@@ -277,7 +277,7 @@ func (p *docxParser) mediaSrc(relID string) string {
 	if !ok || rel.Target == "" {
 		return ""
 	}
-	// doctaculous resolves rel targets to full part names (word/media/imageN.png).
+	// omnidoc resolves rel targets to full part names (word/media/imageN.png).
 	target := strings.TrimPrefix(path.Clean(rel.Target), "/")
 	data, ok := p.media[target]
 	if !ok {
@@ -344,7 +344,7 @@ func runPropsToMarks(p *docxParser, rp docx.RunProps) []PMMark {
 		textStyleAttrs["backgroundColor"] = "#" + strings.ToUpper(rgbHex(rp.Shd.Fill))
 	} else if rp.HasHighlight {
 		// Use the original highlight name against text's palette so the output
-		// hex matches the legacy parser (doctaculous's RGBA uses different hexes
+		// hex matches the legacy parser (omnidoc's RGBA uses different hexes
 		// for several names).
 		if hex := highlightNameToHex(rp.HighlightName); hex != "" {
 			textStyleAttrs["backgroundColor"] = hex
@@ -403,8 +403,8 @@ func stripFormatChangeMarks(marks []PMMark) []PMMark {
 	return out
 }
 
-// isAutoColor reports whether an RGBA is the "auto"/unset sentinel doctaculous
-// leaves when w:color val="auto"; doctaculous only sets HasColor for real colors,
+// isAutoColor reports whether an RGBA is the "auto"/unset sentinel omnidoc
+// leaves when w:color val="auto"; omnidoc only sets HasColor for real colors,
 // so this is a defensive no-op guard.
 func isAutoColor(c color.RGBA) bool { return c.A == 0 }
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // TestQueueBlockChangeAttrsProducesOneSpanPerNode confirms the
@@ -319,7 +319,7 @@ func TestPMToDocxEmitsWPPrChangeForAttrOnlyChange(t *testing.T) {
 			"content": [{"type": "text", "text": "Promoted Heading"}]
 		}]
 	}`)
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

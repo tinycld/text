@@ -20,7 +20,7 @@ func TestPMJSONToDocx_DriveImageResolved(t *testing.T) {
 		return pngBytes, nil
 	}
 
-	docxBytes, warnings, err := PMJSONToDocxWithResolver(pmJSON, resolver)
+	docxBytes, warnings, err := PMJSONToDocxWithResolver(t.Context(), pmJSON, resolver)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithResolver: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestPMJSONToDocx_DriveImageNoResolverErrors(t *testing.T) {
 	src := "/api/files/drive_items/abc123/photo.png"
 	pmJSON := buildImageDocJSON(t, src)
 
-	_, err := PMJSONToDocx(pmJSON)
+	_, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err == nil {
 		t.Fatal("expected error for drive src without resolver, got nil")
 	}
@@ -64,7 +64,7 @@ func TestPMJSONToDocx_DriveImageResolverErrorAborts(t *testing.T) {
 	resolver := func(_, _ string) ([]byte, error) {
 		return nil, errFakeResolver
 	}
-	_, _, err := PMJSONToDocxWithResolver(pmJSON, resolver)
+	_, _, err := PMJSONToDocxWithResolver(t.Context(), pmJSON, resolver)
 	if err == nil {
 		t.Fatal("expected resolver error to propagate, got nil")
 	}
@@ -84,7 +84,7 @@ func TestPMJSONToDocx_DriveImageBadExtensionDropped(t *testing.T) {
 		called = true
 		return nil, nil
 	}
-	_, warnings, err := PMJSONToDocxWithResolver(pmJSON, resolver)
+	_, warnings, err := PMJSONToDocxWithResolver(t.Context(), pmJSON, resolver)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

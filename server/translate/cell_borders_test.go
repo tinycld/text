@@ -71,12 +71,12 @@ func TestCellBorders_Roundtrip(t *testing.T) {
 		t.Fatalf("marshal doc: %v", err)
 	}
 
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
 
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -156,11 +156,11 @@ func TestCellBorders_NoneStyle(t *testing.T) {
 		},
 	}
 	pmJSON, _ := json.Marshal(doc)
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

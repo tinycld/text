@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // formatChangeSpan tracks one PM suggestedFormatChange mark instance through

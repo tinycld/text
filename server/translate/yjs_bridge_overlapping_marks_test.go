@@ -242,7 +242,7 @@ func TestPMJSONFromYDoc_DocxRoundTripPreservesHashedMark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PMJSONFromYDoc: %v", err)
 	}
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(roundtripped, nil)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), roundtripped, nil)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithSuggestions: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestPMJSONFromYDoc_DocxRoundTripPreservesHashedMark(t *testing.T) {
 			strings.Count(string(docXML), "<w:del "), string(docXML))
 	}
 
-	rtPM, _, _, err := DocxToPMJSONWithSuggestions(docxBytes)
+	rtPM, _, _, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSONWithSuggestions: %v", err)
 	}

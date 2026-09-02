@@ -51,7 +51,7 @@ func mustBuildDocxFromBody(t *testing.T, bodyXML string) []byte {
 
 func mustParseBody(t *testing.T, bodyXML string) PMNode {
 	t.Helper()
-	pmJSON, _, err := DocxToPMJSON(mustBuildDocxFromBody(t, bodyXML))
+	pmJSON, _, err := DocxToPMJSON(t.Context(), mustBuildDocxFromBody(t, bodyXML))
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestPMJSONToDocx_DropCapFramePrSplit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}

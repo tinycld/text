@@ -8,12 +8,12 @@ import (
 )
 
 // TestCrossEra_WordZeroFixture is the migration safety net for the
-// wordZero -> doctaculous export/import rewrite.
+// wordZero -> omnidoc export/import rewrite.
 //
 // cross-era-wordzero.docx was flushed by the ORIGINAL wordZero exporter
 // (see the migration handoff) and can never be regenerated once wordZero
 // is deleted. cross-era-wordzero.expected.json is how the importer read
-// that file at the time. The new (doctaculous-backed) importer MUST read
+// that file at the time. The new (omnidoc-backed) importer MUST read
 // the old exporter's output identically — this guards real user documents
 // already persisted with wordZero-flushed .docx bodies.
 //
@@ -31,7 +31,7 @@ func TestCrossEra_WordZeroFixture(t *testing.T) {
 		t.Fatalf("read cross-era reference PM: %v", err)
 	}
 
-	gotJSON, warnings, err := DocxToPMJSON(docxBytes)
+	gotJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON on cross-era fixture: %v", err)
 	}

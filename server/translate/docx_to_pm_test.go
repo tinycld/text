@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // TestDocxToPMJSON_FeatureTestFixture parses the user-authored
@@ -24,7 +24,7 @@ func TestDocxToPMJSON_FeatureTestFixture(t *testing.T) {
 	}
 	expected, err := os.ReadFile(expectedPath)
 	if err != nil {
-		actual, _, parseErr := DocxToPMJSON(fixture)
+		actual, _, parseErr := DocxToPMJSON(t.Context(), fixture)
 		if parseErr != nil {
 			t.Fatalf("parse fixture: %v", parseErr)
 		}
@@ -37,7 +37,7 @@ func TestDocxToPMJSON_FeatureTestFixture(t *testing.T) {
 		)
 	}
 
-	actual, warnings, err := DocxToPMJSON(fixture)
+	actual, warnings, err := DocxToPMJSON(t.Context(), fixture)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestDocxToPMJSON_FeatureTestFixture(t *testing.T) {
 // TestDocxToPMJSON_NotADocx returns an error (not a panic) when the
 // bytes aren't a valid ZIP archive.
 func TestDocxToPMJSON_NotADocx(t *testing.T) {
-	_, _, err := DocxToPMJSON([]byte("not a docx file"))
+	_, _, err := DocxToPMJSON(t.Context(), []byte("not a docx file"))
 	if err == nil {
 		t.Errorf("expected error for non-docx bytes, got nil")
 	}

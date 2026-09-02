@@ -118,7 +118,7 @@ func TestPMToDocxEmitsWRPrChange(t *testing.T) {
 		}]
 	}`)
 
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestPMToDocxRPrChangeNestedRPrCarriesBeforeMarks(t *testing.T) {
 		}]
 	}`)
 
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

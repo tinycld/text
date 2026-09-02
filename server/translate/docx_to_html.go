@@ -1,5 +1,7 @@
 package translate
 
+import "context"
+
 // DocxToHTML parses .docx bytes and emits an HTML content fragment in
 // a single in-process pass — no PM JSON intermediate. Used by the
 // `/api/text/render/{id}` endpoint where the bytes never leave the
@@ -20,8 +22,8 @@ package translate
 // (text/server/bootstrap.go) still uses DocxToPMJSON to seed the
 // Y.Doc — that path *wants* a JSON-shaped tree because Y.Doc seeding
 // reads PM JSON. Only the render path skips JSON.
-func DocxToHTML(docx []byte, opts HTMLRenderOpts) (string, []Warning, error) {
-	root, warnings, _, err := parseDocxToPMNode(docx)
+func DocxToHTML(ctx context.Context, docx []byte, opts HTMLRenderOpts) (string, []Warning, error) {
+	root, warnings, _, err := parseDocxToPMNode(ctx, docx)
 	if err != nil {
 		return "", nil, err
 	}

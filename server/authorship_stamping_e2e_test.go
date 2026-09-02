@@ -21,7 +21,7 @@ import (
 // — distinct from authorship_writer_test.go (which tests the writer in
 // isolation), authorship_probe_test.go (which tests clientID extraction),
 // and authorship_cache_test.go (identity comes from conn.AuthID(); the
-// old multi-org DB resolver is gone). All those
+// old hosting DB resolver is gone). All those
 // units are stitched together here by routing real MsgDocUpdate frames
 // through Broker.route() with the same RoomKindOptions text.Register
 // would build, so a refactor that breaks any link in the chain

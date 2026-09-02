@@ -58,7 +58,7 @@ func TestPMJSONToDocx_OversizedImageDropped(t *testing.T) {
 	src := makePNGDataURI(t, MaxImageBytes+1024)
 	pmJSON := buildImageDocJSON(t, src)
 
-	_, warnings, err := PMJSONToDocxWithWarnings(pmJSON)
+	_, warnings, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithWarnings: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestPMJSONToDocx_UnsupportedImageTypeDropped(t *testing.T) {
 	src := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(svg))
 	pmJSON := buildImageDocJSON(t, src)
 
-	_, warnings, err := PMJSONToDocxWithWarnings(pmJSON)
+	_, warnings, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithWarnings: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPMJSONToDocx_NormalImageEmbeds(t *testing.T) {
 	src := makePNGDataURI(t, 100*1024)
 	pmJSON := buildImageDocJSON(t, src)
 
-	bs, warnings, err := PMJSONToDocxWithWarnings(pmJSON)
+	bs, warnings, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocxWithWarnings: %v", err)
 	}

@@ -24,7 +24,7 @@ func TestDocxToHTML_ParityWithTwoStepPath(t *testing.T) {
 	}
 	opts := HTMLRenderOpts{Images: ImageModeURL}
 
-	pmJSON, _, err := DocxToPMJSON(fixture)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), fixture)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestDocxToHTML_ParityWithTwoStepPath(t *testing.T) {
 		t.Fatalf("PMJSONToHTML: %v", err)
 	}
 
-	direct, _, err := DocxToHTML(fixture, opts)
+	direct, _, err := DocxToHTML(t.Context(), fixture, opts)
 	if err != nil {
 		t.Fatalf("DocxToHTML: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestDocxToHTML_ParityWithTwoStepPath(t *testing.T) {
 // than a panic — matches DocxToPMJSON's contract since both share
 // parseDocxToPMNode.
 func TestDocxToHTML_NotADocx(t *testing.T) {
-	_, _, err := DocxToHTML([]byte("not a docx file"), HTMLRenderOpts{Images: ImageModeURL})
+	_, _, err := DocxToHTML(t.Context(), []byte("not a docx file"), HTMLRenderOpts{Images: ImageModeURL})
 	if err == nil {
 		t.Errorf("expected error for non-docx bytes, got nil")
 	}
@@ -66,7 +66,7 @@ func TestDocxToHTML_FixtureShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	html, warnings, err := DocxToHTML(fixture, HTMLRenderOpts{Images: ImageModeURL})
+	html, warnings, err := DocxToHTML(t.Context(), fixture, HTMLRenderOpts{Images: ImageModeURL})
 	if err != nil {
 		t.Fatalf("DocxToHTML: %v", err)
 	}

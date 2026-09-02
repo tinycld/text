@@ -1,13 +1,14 @@
 package translate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // DocxToPMJSON parses .docx bytes into a ProseMirror JSON tree plus a
@@ -23,8 +24,8 @@ import (
 //
 // Hard error if: the bytes don't form a ZIP, or word/document.xml
 // is missing or malformed. Everything else degrades to a Warning.
-func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
-	pmJSON, warnings, _, err := docxToPMJSONShared(docx)
+func DocxToPMJSON(ctx context.Context, docx []byte) ([]byte, []Warning, error) {
+	pmJSON, warnings, _, err := docxToPMJSONShared(ctx, docx)
 	return pmJSON, warnings, err
 }
 
@@ -38,16 +39,16 @@ func DocxToPMJSON(docx []byte) ([]byte, []Warning, error) {
 // (typical for Word-authored docx — the <w:ins>/<w:del> marks still
 // parse via the synthesized-id path; only the lifecycle metadata —
 // status / resolvedBy / note — is absent, and the seed safely no-ops).
-func DocxToPMJSONWithSuggestions(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
-	return docxToPMJSONShared(docx)
+func DocxToPMJSONWithSuggestions(ctx context.Context, docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	return docxToPMJSONShared(ctx, docx)
 }
 
 // docxToPMJSONShared is the common implementation behind DocxToPMJSON
 // and DocxToPMJSONWithSuggestions. It produces the marshaled PM JSON,
 // the parser warnings, and the suggestion entries; the public wrappers
 // drop entries when their signature doesn't expose them.
-func docxToPMJSONShared(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
-	root, warnings, entries, err := parseDocxToPMNode(docx)
+func docxToPMJSONShared(ctx context.Context, docx []byte) ([]byte, []Warning, []SuggestionMapEntry, error) {
+	root, warnings, entries, err := parseDocxToPMNode(ctx, docx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -64,8 +65,8 @@ func docxToPMJSONShared(docx []byte) ([]byte, []Warning, []SuggestionMapEntry, e
 // DocxToPMJSONWithSuggestions (which marshal to JSON for the bootstrap
 // path's Y.Doc seeding) and DocxToHTML (which walks the tree directly
 // to HTML for the render path).
-func parseDocxToPMNode(docxBytes []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
-	doc, err := docx.OpenBytes(docxBytes)
+func parseDocxToPMNode(ctx context.Context, docxBytes []byte) (PMNode, []Warning, []SuggestionMapEntry, error) {
+	doc, err := docx.OpenBytes(ctx, docxBytes)
 	if err != nil {
 		return PMNode{}, nil, nil, fmt.Errorf("translate: open docx: %w", err)
 	}
@@ -111,7 +112,7 @@ func numberingFormatsFromModel(n *docx.Numbering) map[string]string {
 	return out
 }
 
-// numFmtToString maps doctaculous's NumFmt enum back to the OOXML w:numFmt val
+// numFmtToString maps omnidoc's NumFmt enum back to the OOXML w:numFmt val
 // string the (preserved) list-type resolvers compare against.
 func numFmtToString(f docx.NumFmt) string {
 	switch f {

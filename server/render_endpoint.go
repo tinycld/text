@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -123,7 +124,7 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 		authUserID = re.Auth.Id
 	}
 
-	clean, err := RenderItemHTML(app, item, images, authUserID)
+	clean, err := RenderItemHTML(re.Request.Context(), app, item, images, authUserID)
 	if err != nil {
 		return re.InternalServerError("could not render document", err)
 	}
@@ -146,13 +147,13 @@ func writeRenderedItem(app core.App, re *core.RequestEvent, item *core.Record) e
 // user's share access before its bytes are inlined. Pass "" for
 // callers without an authenticated user — embed fetches then fail
 // closed and the images are dropped.
-func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
+func RenderItemHTML(ctx context.Context, app core.App, item *core.Record, images translate.ImageMode, authUserID string) (string, error) {
 	rawBytes, err := readDriveItemBytes(app, item)
 	if err != nil {
 		return "", fmt.Errorf("could not read file: %w", err)
 	}
 	// RTF items are bridged to docx so DocxToHTML below is format-agnostic.
-	docxBytes, err := sourceBytesToDocx(item.GetString("mime_type"), rawBytes)
+	docxBytes, err := sourceBytesToDocx(ctx, item.GetString("mime_type"), rawBytes)
 	if err != nil {
 		return "", fmt.Errorf("could not normalize source: %w", err)
 	}
@@ -173,7 +174,7 @@ func RenderItemHTML(app core.App, item *core.Record, images translate.ImageMode,
 		// no JSON marshal/unmarshal in the render path. Warnings are
 		// discarded here; the bootstrap path captures them on import.
 		var renderErr error
-		fragment, _, renderErr = translate.DocxToHTML(docxBytes, opts)
+		fragment, _, renderErr = translate.DocxToHTML(ctx, docxBytes, opts)
 		if renderErr != nil {
 			return "", renderErr
 		}

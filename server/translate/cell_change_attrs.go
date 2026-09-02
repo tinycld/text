@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // cellChangeSpan tracks one PM suggestedBlockChange node attribute that landed

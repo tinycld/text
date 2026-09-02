@@ -57,7 +57,7 @@ func makeAuthorshipStamper(runtime *Runtime) realtime.OnDocUpdateContentFn {
 		cache := runtime.AuthorshipCache()
 		// Single-org: the author IS the authenticated user on this
 		// connection. No DB lookup, so no memo and no negative cache —
-		// the multi-org resolver that used to map (user, item) through
+		// the hosting resolver that used to map (user, item) through
 		// the user_org junction is gone.
 		userID := conn.AuthID()
 		if userID == "" {

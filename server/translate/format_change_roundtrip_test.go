@@ -38,12 +38,12 @@ func TestFormatChangeRoundTripPreservesMarkAndPayload(t *testing.T) {
 		{ID: "s_fc_alice", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
 
-	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestFormatChangeRoundTripWithBeforeBoldAfterItalic(t *testing.T) {
 		{ID: "s_fc_swap", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestFormatChangeRoundTripWithBeforeBoldAfterItalic(t *testing.T) {
 		t.Errorf("expected rPrChange in document.xml; got:\n%s", docXML)
 	}
 
-	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -232,12 +232,12 @@ func TestFormatChangeRoundTripPreservesTextStyleAttrs(t *testing.T) {
 		{ID: "s_fc_color", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
 
-	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -322,14 +322,14 @@ func TestFormatChangeWordAuthoredSynthesizesId(t *testing.T) {
 		{ID: "s_fc_word", AuthorID: "wordy", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
 
 	stripped := stripCustomXMLPart(t, docxBytes)
 
-	roundtripped, _, err := DocxToPMJSON(stripped)
+	roundtripped, _, err := DocxToPMJSON(t.Context(), stripped)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}

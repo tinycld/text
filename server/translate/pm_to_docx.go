@@ -1,19 +1,20 @@
 package translate
 
-// This file builds a doctaculous *docx.Document directly from a ProseMirror
+// This file builds a omnidoc *docx.Document directly from a ProseMirror
 // JSON tree and serializes it with docx.Bytes. The writer (pkg/docx) owns all
 // OPC packaging — relationships, content types, media parts, numbering,
 // footnotes/endnotes, comments — so there is no post-process / marker-token
 // layer here anymore: every feature maps onto a first-class model field.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"image/color"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // MaxImageBytes caps a single embedded image at 4 MiB. Larger images
@@ -47,8 +48,8 @@ var linkAccentColor = color.RGBA{R: 0x05, G: 0x63, B: 0xC1, A: 0xFF}
 // Soft degradations (e.g. an oversized image dropped) are silently
 // discarded by this wrapper. Callers that want to surface them to the
 // user should use PMJSONToDocxWithWarnings instead.
-func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
-	bs, _, err := PMJSONToDocxWithWarnings(pmJSON)
+func PMJSONToDocx(ctx context.Context, pmJSON []byte) ([]byte, error) {
+	bs, _, err := PMJSONToDocxWithWarnings(ctx, pmJSON)
 	return bs, err
 }
 
@@ -57,16 +58,16 @@ func PMJSONToDocx(pmJSON []byte) ([]byte, error) {
 // /api/files/drive_items/<id>/<file> URLs, not data: URIs) can be
 // fetched and embedded. A nil resolver behaves exactly like
 // PMJSONToDocx — drive URLs are rejected.
-func PMJSONToDocxWithResolver(pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, resolver, nil)
+func PMJSONToDocxWithResolver(ctx context.Context, pmJSON []byte, resolver ImageResolver) ([]byte, []Warning, error) {
+	return pmJSONToDocx(ctx, pmJSON, resolver, nil)
 }
 
 // PMJSONToDocxWithWarnings is the warnings-aware variant of
 // PMJSONToDocx. The returned slice contains every soft-degradation
 // signal the emitter raised (e.g. an oversized image was dropped) —
 // hard errors still come back via the error return.
-func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, nil, nil)
+func PMJSONToDocxWithWarnings(ctx context.Context, pmJSON []byte) ([]byte, []Warning, error) {
+	return pmJSONToDocx(ctx, pmJSON, nil, nil)
 }
 
 // PMJSONToDocxWithSuggestions is PMJSONToDocxWithWarnings plus the
@@ -80,8 +81,8 @@ func PMJSONToDocxWithWarnings(pmJSON []byte) ([]byte, []Warning, error) {
 // round-trip — the emitter will still produce the (w:id → suggestionId)
 // mapping from whatever spans the walk encounters, just without the
 // status/resolvedBy/note metadata.
-func PMJSONToDocxWithSuggestions(pmJSON []byte, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, nil, entries)
+func PMJSONToDocxWithSuggestions(ctx context.Context, pmJSON []byte, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
+	return pmJSONToDocx(ctx, pmJSON, nil, entries)
 }
 
 // PMJSONToDocxWithResolverAndSuggestions combines the resolver and
@@ -89,14 +90,15 @@ func PMJSONToDocxWithSuggestions(pmJSON []byte, entries []SuggestionMapEntry) ([
 // it has both a drive-backed ImageResolver and the runtime-read
 // suggestion entries to thread through.
 func PMJSONToDocxWithResolverAndSuggestions(
+	ctx context.Context,
 	pmJSON []byte,
 	resolver ImageResolver,
 	entries []SuggestionMapEntry,
 ) ([]byte, []Warning, error) {
-	return pmJSONToDocx(pmJSON, resolver, entries)
+	return pmJSONToDocx(ctx, pmJSON, resolver, entries)
 }
 
-func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
+func pmJSONToDocx(ctx context.Context, pmJSON []byte, resolver ImageResolver, entries []SuggestionMapEntry) ([]byte, []Warning, error) {
 	var root PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		return nil, nil, fmt.Errorf("translate: unmarshal pmJSON: %w", err)
@@ -115,7 +117,7 @@ func pmJSONToDocx(pmJSON []byte, resolver ImageResolver, entries []SuggestionMap
 	}
 	b.attachSuggestionsPart()
 
-	bs, err := docx.Bytes(b.doc)
+	bs, err := docx.Bytes(ctx, b.doc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("translate: serialize docx: %w", err)
 	}

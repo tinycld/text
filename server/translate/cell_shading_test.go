@@ -45,11 +45,11 @@ func TestCellShading_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal doc: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -99,11 +99,11 @@ func TestCellShading_NoShading(t *testing.T) {
 		},
 	}
 	pmJSON, _ := json.Marshal(doc)
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -153,11 +153,11 @@ func TestCellShading_MultipleColors(t *testing.T) {
 		},
 	}
 	pmJSON, _ := json.Marshal(doc)
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

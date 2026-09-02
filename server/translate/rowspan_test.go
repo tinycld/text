@@ -141,7 +141,7 @@ func TestRowspan_RoundTrip(t *testing.T) {
 		]
 	}`)
 
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRowspan_RoundTrip(t *testing.T) {
 		t.Errorf("expected <w:vMerge w:val=\"restart\" in emitted docx")
 	}
 
-	pm2JSON, _, err := DocxToPMJSON(docxBytes)
+	pm2JSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestRowspan_MixedWithColspan(t *testing.T) {
 		]
 	}`)
 
-	docxBytes, err := PMJSONToDocx(pmJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestRowspan_MixedWithColspan(t *testing.T) {
 		t.Errorf("expected gridSpan=2 in emitted docx")
 	}
 
-	pm2JSON, _, err := DocxToPMJSON(docxBytes)
+	pm2JSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

@@ -21,7 +21,7 @@ func TestFlush_PersistsToDrive(t *testing.T) {
 	defer func() { _ = handle.Close() }()
 
 	flush := makeProductionFlush(app, runtime)
-	if err := flush(item.Id, handle); err != nil {
+	if err := flush(t.Context(), item.Id, handle); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestFlush_NilHandleReturnsErr(t *testing.T) {
 	app := setupTestApp(t)
 	runtime := NewRuntime()
 	flush := makeProductionFlush(app, runtime)
-	if err := flush("any-id", nil); err == nil {
+	if err := flush(t.Context(), "any-id", nil); err == nil {
 		t.Fatal("expected nil-handle to error")
 	}
 }
@@ -78,7 +78,7 @@ func TestFlush_ClosedHandleReturnsErr(t *testing.T) {
 	}
 
 	flush := makeProductionFlush(app, runtime)
-	if err := flush(item.Id, handle); err == nil {
+	if err := flush(t.Context(), item.Id, handle); err == nil {
 		t.Fatal("expected closed-handle to error")
 	}
 }
@@ -100,7 +100,7 @@ func TestFlush_MissingDriveItemReturnsErr(t *testing.T) {
 	defer func() { _ = handle.Close() }()
 
 	flush := makeProductionFlush(app, runtime)
-	if err := flush("nonexistent-id", handle); err == nil {
+	if err := flush(t.Context(), "nonexistent-id", handle); err == nil {
 		t.Fatal("expected missing-drive-item to error")
 	}
 }

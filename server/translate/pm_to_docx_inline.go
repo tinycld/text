@@ -10,7 +10,7 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // inlineContent converts a paragraph's inline PM children into model children.

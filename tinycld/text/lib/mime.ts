@@ -6,7 +6,7 @@ export const DOCX_MIME_TYPE =
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 // RTF MIME types the text editor also opens. Browsers report either of
-// these for .rtf; both map to doctaculous FormatRTF server-side, and the
+// these for .rtf; both map to omnidoc FormatRTF server-side, and the
 // bootstrap/flush paths bridge RTF ↔ docx around the ProseMirror model.
 export const RTF_MIME_TYPE = 'application/rtf'
 export const RTF_MIME_TYPE_ALT = 'text/rtf'

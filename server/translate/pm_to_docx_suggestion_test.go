@@ -55,7 +55,7 @@ func TestPMToDocxEmitsWIns(t *testing.T) {
 		}]
 	}`)
 
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestPMToDocxEmitsWDel(t *testing.T) {
 		}]
 	}`)
 
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestPMToDocxLayeredSuggestionsProduceNestedWrappers(t *testing.T) {
 		}]
 	}`)
 
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

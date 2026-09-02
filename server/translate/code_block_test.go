@@ -163,7 +163,7 @@ func TestPMJSONToDocx_CodeBlockOOXMLShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestPMJSONToDocx_InlineCodeOOXMLShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestPMJSONToDocx_InlineCodeWithBoldRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestPMJSONToDocx_InlineCodeWithBoldRoundTrip(t *testing.T) {
 		t.Errorf("code-mark marker token leaked into final document.xml:\n%s", docXML)
 	}
 	// Round-trip preserves both marks.
-	pmJSON, _, err := DocxToPMJSON(docxBytes)
+	pmJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestDocxToPM_CodeBlockStyleAliases(t *testing.T) {
 	for _, style := range cases {
 		t.Run(style, func(t *testing.T) {
 			docxBytes := mustBuildMinimalDocxWithStyledParagraph(t, style, "import os")
-			pmJSON, _, err := DocxToPMJSON(docxBytes)
+			pmJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 			if err != nil {
 				t.Fatalf("DocxToPMJSON: %v", err)
 			}

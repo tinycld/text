@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // TestQueueCellChangeAttrsProducesOneSpanPerNode confirms the emitter
@@ -270,7 +270,7 @@ func TestPMToDocxEmitsTcPrChangeForAttrOnlyChange(t *testing.T) {
 			}]
 		}]
 	}`)
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestPMToDocxEmitsCellInsForAddedSubcase(t *testing.T) {
 			}]
 		}]
 	}`)
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestPMToDocxEmitsCellDelForDeletedSubcase(t *testing.T) {
 			}]
 		}]
 	}`)
-	docxBytes, _, err := PMJSONToDocxWithWarnings(pmJSON)
+	docxBytes, _, err := PMJSONToDocxWithWarnings(t.Context(), pmJSON)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

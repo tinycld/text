@@ -30,7 +30,7 @@ func TestPMToDocxIncludesSuggestionsCustomXMLPart(t *testing.T) {
 	entries := []SuggestionMapEntry{
 		{ID: "s1", AuthorID: "uo_a", CreatedAt: 1700000000000, Status: "open"},
 	}
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPMToDocxOmitsCustomXMLPartWhenNoSuggestions(t *testing.T) {
 			"content": [{"type": "text", "text": "plain"}]
 		}]
 	}`)
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, nil)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, nil)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

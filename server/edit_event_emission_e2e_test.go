@@ -217,24 +217,37 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 	// both entries intact.
 	time.Sleep(200 * time.Millisecond)
 
-	serverDoc := runtime.docFor(itemID)
-	if serverDoc == nil {
-		t.Fatalf("runtime has no server doc for %q after routing frames", itemID)
-	}
-	arr := serverDoc.GetArray("editEvents")
-	if arr == nil {
-		t.Fatalf("editEvents root missing from server doc")
-	}
-	if arr.Length != 2 {
-		t.Fatalf("editEvents length = %d after two-client windows, want 2", arr.Length)
+	handle := runtime.handleFor(itemID)
+	if handle == nil {
+		t.Fatalf("runtime has no doc handle for %q after routing frames", itemID)
 	}
 
-	// Build a clientID → authorID map from the array entries to
-	// assert without depending on emission order (the two flush
+	// Read the doc under the handle mutex that publishEditEvent takes.
+	// A per-clientID flush timer can still be in flight here, and
+	// y-crdt's Doc.Get mutates the root map even on a read path, so an
+	// unguarded read races the writer rather than merely observing it.
+	//
+	// Build a clientID → authorID map from the array entries so the
+	// assertions don't depend on emission order (the two flush
 	// goroutines race, so ordering between alice and bob isn't fixed).
+	handle.mu.Lock()
+	arr := handle.doc.GetArray("editEvents")
+	if arr == nil {
+		handle.mu.Unlock()
+		t.Fatalf("editEvents root missing from server doc")
+	}
+	gotLen := arr.Length
 	got := map[uint32]string{}
-	for i := 0; i < arr.Length; i++ {
-		raw := arr.Get(i)
+	entries := make([]any, 0, gotLen)
+	for i := 0; i < gotLen; i++ {
+		entries = append(entries, arr.Get(i))
+	}
+	handle.mu.Unlock()
+
+	if gotLen != 2 {
+		t.Fatalf("editEvents length = %d after two-client windows, want 2", gotLen)
+	}
+	for i, raw := range entries {
 		entry, ok := raw.(map[string]interface{})
 		if !ok {
 			t.Fatalf("editEvents[%d] is not a map: %T", i, raw)

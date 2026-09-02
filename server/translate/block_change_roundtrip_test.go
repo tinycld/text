@@ -31,12 +31,12 @@ func TestBlockChangeRoundTripAttrOnlyChange(t *testing.T) {
 		{ID: "s_bc_align", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
 
-	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, parsedEntries, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestBlockChangeRoundTripTypeSwap(t *testing.T) {
 		{ID: "s_bc_promote", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestBlockChangeRoundTripTypeSwap(t *testing.T) {
 		t.Errorf("expected <w:pPrChange> in document.xml; got:\n%s", docXML)
 	}
 
-	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestBlockChangeRoundTripDeleteSubcase(t *testing.T) {
 		{ID: "s_bc_del", AuthorID: "uo_alice", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestBlockChangeRoundTripDeleteSubcase(t *testing.T) {
 		t.Errorf("expected <w:pPrChange> wrapper from Task 19 block-change; got:\n%s", docXML)
 	}
 
-	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(docxBytes)
+	roundtripped, _, _, err := DocxToPMJSONWithSuggestions(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}
@@ -296,14 +296,14 @@ func TestBlockChangeWordAuthoredSynthesizesId(t *testing.T) {
 		{ID: "s_bc_wordy", AuthorID: "wordy", CreatedAt: 1700000000000, Status: "open"},
 	}
 
-	docxBytes, _, err := PMJSONToDocxWithSuggestions(pmJSON, entries)
+	docxBytes, _, err := PMJSONToDocxWithSuggestions(t.Context(), pmJSON, entries)
 	if err != nil {
 		t.Fatalf("PM→docx: %v", err)
 	}
 
 	stripped := stripCustomXMLPart(t, docxBytes)
 
-	roundtripped, _, err := DocxToPMJSON(stripped)
+	roundtripped, _, err := DocxToPMJSON(t.Context(), stripped)
 	if err != nil {
 		t.Fatalf("docx→PM: %v", err)
 	}

@@ -83,12 +83,12 @@ func TestPMJSONToDocx_ImageDimensionsRoundTrip(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
 
-	parsedJSON, warnings, err := DocxToPMJSON(docxBytes)
+	parsedJSON, warnings, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}
@@ -139,11 +139,11 @@ func TestPMJSONToDocx_ImageWithoutDimensions(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	docxBytes, err := PMJSONToDocx(originalJSON)
+	docxBytes, err := PMJSONToDocx(t.Context(), originalJSON)
 	if err != nil {
 		t.Fatalf("PMJSONToDocx: %v", err)
 	}
-	parsedJSON, _, err := DocxToPMJSON(docxBytes)
+	parsedJSON, _, err := DocxToPMJSON(t.Context(), docxBytes)
 	if err != nil {
 		t.Fatalf("DocxToPMJSON: %v", err)
 	}

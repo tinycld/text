@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/nathanstitt/doctaculous/pkg/docx"
+	"github.com/nathanstitt/omnidoc/pkg/docx"
 )
 
 // emuPerPx is 9525 EMU per CSS pixel (96 dpi), the inverse of the importer's

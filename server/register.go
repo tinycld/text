@@ -10,6 +10,7 @@ import (
 
 	"tinycld.org/core/blankfile"
 	"tinycld.org/core/driveshare"
+	"tinycld.org/core/oauth"
 	"tinycld.org/core/offboard"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
@@ -82,6 +83,10 @@ func Register(app *pocketbase.PocketBase) {
 
 // registerShared is the single source of truth for what BOTH compositions run.
 func registerShared(app *pocketbase.PocketBase) {
+	// What an OAuth token may reach in this package. Core knows nothing about
+	// it until this runs; see oauth.Package for the shape.
+	oauth.RegisterPackage(oauthPackage())
+
 	// Read TINYCLD_EDIT_EVENT_WINDOW_MS once at boot. Lets e2e tests
 	// shorten the 60s edit-event debounce window without per-test
 	// surgery; production leaves the env unset and runs at the default.

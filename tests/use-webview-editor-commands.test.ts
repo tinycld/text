@@ -4,61 +4,37 @@
 // each command's wire shape so a future refactor that breaks the
 // protocol fails here rather than silently no-op'ing on iOS/Android.
 //
-// The hook itself is hard to drive under vitest because the in-WebView
-// editor depends on react-native + tentap's bridge implementation,
-// AND per-file `@vitest-environment` directives don't apply to test
-// files that are reached through a sibling-package symlink (which is
-// every test in this repo). We instead test the pure command-builder
-// that the hook calls — buildWebViewEditorCommands(bridge) — by
-// passing a tiny stub bridge whose webviewRef.current.postMessage is
-// a vi.fn we can assert on.
+// The hook itself is hard to drive under vitest because it renders the
+// native WebView host, AND per-file `@vitest-environment` directives don't
+// apply to test files that are reached through a sibling-package symlink
+// (which is every test in this repo). We instead test the pure
+// command-builder the hook calls — buildWebViewEditorCommands(post) — by
+// passing a recording poster we can assert on.
 
+import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { buildWebViewEditorCommands } from '@tinycld/core/lib/editor/webview-editor-commands'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-type PostMessageSpy = ReturnType<typeof vi.fn>
+type PostMessageSpy = ReturnType<typeof vi.fn<(message: EditorMessage) => boolean>>
 
-// Construct a stub bridge that satisfies the WebViewCommandBridge
-// shape buildWebViewEditorCommands consumes. The native chain calls
-// (toggleBold, undo, ...) are no-op vi.fns; only the postMessage
-// spy is what we assert on for the format-namespace plumbing.
+// A poster that records every message and reports it as delivered.
 function stubBridge(postMessage: PostMessageSpy) {
-    const noop = vi.fn()
-    return {
-        webviewRef: { current: { postMessage } },
-        toggleBold: noop,
-        toggleItalic: noop,
-        toggleUnderline: noop,
-        toggleBulletList: noop,
-        toggleOrderedList: noop,
-        toggleBlockquote: noop,
-        toggleHeading: noop,
-        setLink: noop,
-        undo: noop,
-        redo: noop,
-        // Cast: the helper takes a wider Pick<EditorBridge, ...> than
-        // we type out here, but production code only invokes the
-        // listed members. The cast is local to the test seam so the
-        // surface stays tight in source.
-    } as unknown as Parameters<typeof buildWebViewEditorCommands>[0]
+    return postMessage
 }
 
 let postMessage: PostMessageSpy
 
 beforeEach(() => {
-    postMessage = vi.fn()
+    postMessage = vi.fn(() => true)
 })
 
-// Read the most-recently-posted message off the spy and parse the
-// JSON wire payload back into an object. The wire format the
+// Read the most-recently-posted message off the spy. The wire format the
 // in-WebView dispatcher consumes is `{ namespace, type, payload }`.
 function lastPostedMessage(): { namespace: string; type: string; payload: unknown } {
     expect(postMessage).toHaveBeenCalled()
     const last = postMessage.mock.calls.at(-1)
     expect(last).toBeDefined()
-    const json = last?.[0]
-    expect(typeof json).toBe('string')
-    return JSON.parse(json as string)
+    return last?.[0] as EditorMessage
 }
 
 describe('buildWebViewEditorCommands — Milestone A new commands', () => {
@@ -261,17 +237,10 @@ describe('buildWebViewEditorCommands — Milestone A new commands', () => {
         })
     })
 
-    it('skips posting when the WebView ref is null (e.g. before bridge mount)', () => {
-        // Defensive: production code guards on webview presence so a
-        // command-dispatch during the bridge-mount race doesn't throw.
-        const bridge = stubBridge(postMessage)
-        const detached = {
-            ...bridge,
-            webviewRef: { current: null },
-        } as unknown as Parameters<typeof buildWebViewEditorCommands>[0]
-        const commands = buildWebViewEditorCommands(detached)
-        commands.toggleCode?.()
-        commands.setFontSize?.(14)
-        expect(postMessage).not.toHaveBeenCalled()
+    it('tolerates a poster that reports no page to post to', () => {
+        const absent = vi.fn(() => false)
+        const commands = buildWebViewEditorCommands(absent)
+        expect(() => commands.toggleCode?.()).not.toThrow()
+        expect(absent).toHaveBeenCalledTimes(1)
     })
 })

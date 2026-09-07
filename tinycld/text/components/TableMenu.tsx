@@ -75,7 +75,13 @@ interface TableMenuBodyProps {
     commands: EditorCommands
 }
 
-function TableMenuBody({ isInTable, canMergeCells, canSplitCell, commands }: TableMenuBodyProps) {
+/** The menu's content, also hosted by the toolbar's More submenu once the Table button folds. */
+export function TableMenuBody({
+    isInTable,
+    canMergeCells,
+    canSplitCell,
+    commands,
+}: TableMenuBodyProps) {
     const { close } = usePopoverContext()
     if (isInTable) {
         return (

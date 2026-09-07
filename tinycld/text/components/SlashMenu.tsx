@@ -25,6 +25,7 @@ import { SlashMenuPopover } from './SlashMenuPopover'
 
 interface SlashMenuProps {
     webViewRef: React.RefObject<unknown> | null
+    measureRef?: React.RefObject<unknown> | null
     editor: Editor | null
     yDoc: Y.Doc | null
     // canResolve is part of the prop shape for backward compatibility
@@ -33,12 +34,24 @@ interface SlashMenuProps {
     canResolve: boolean
 }
 
-export function SlashMenu({ webViewRef, editor: _e, yDoc: _y, canResolve: _c }: SlashMenuProps) {
+export function SlashMenu({
+    webViewRef,
+    measureRef,
+    editor: _e,
+    yDoc: _y,
+    canResolve: _c,
+}: SlashMenuProps) {
     const registry = useMemo<AnchoredOverlayRegistry>(
         () => ({ 'slash-menu': SlashMenuPopover }),
         []
     )
 
     if (Platform.OS === 'web') return null
-    return <AnchoredOverlayController webViewRef={webViewRef} registry={registry} />
+    return (
+        <AnchoredOverlayController
+            webViewRef={webViewRef}
+            measureRef={measureRef}
+            registry={registry}
+        />
+    )
 }

@@ -1,10 +1,11 @@
+import { Tooltip } from '@tinycld/core/components/Tooltip'
 import { ColorPickerGrid } from '@tinycld/core/ui/color-picker'
+import { Menu } from '@tinycld/core/ui/menu'
 import { useOpenMenu } from '@tinycld/core/ui/menubar'
-import { Popover } from '@tinycld/core/ui/popover'
+import { Popover, usePopoverContext } from '@tinycld/core/ui/popover'
 import type { ComponentType } from 'react'
 import { forwardRef, useCallback } from 'react'
 import { Platform, Pressable, View } from 'react-native'
-import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface TextColorButtonProps {
     // Lucide-style icon — `<Baseline>` for text color, `<Highlighter>`
@@ -80,6 +81,30 @@ export function TextColorButton({
     )
 }
 
+/**
+ * The same grid as a submenu body, for the toolbar's More menu once the
+ * button folds. Picking closes the whole menu, as choosing a row would.
+ */
+export function TextColorRows({
+    color,
+    onSelect,
+}: Pick<TextColorButtonProps, 'color' | 'onSelect'>) {
+    const { close } = usePopoverContext()
+    return (
+        <Menu.Custom className="p-2">
+            <ColorPickerGrid
+                selected={color}
+                onSelect={value => {
+                    onSelect(value)
+                    close()
+                }}
+                showClear
+                clearLabel="No color"
+            />
+        </Menu.Custom>
+    )
+}
+
 interface ColorTriggerButtonProps {
     icon: ComponentType<{ size: number; color: string }>
     accessibilityLabel: string
@@ -93,7 +118,7 @@ interface ColorTriggerButtonProps {
 
 // forwardRef so the Popover can clone this element with the ref it
 // measures and the onPress that toggles it, while the tooltip still
-// wraps the Pressable from outside (ToolbarTooltip is a Fragment on
+// wraps the Pressable from outside (Tooltip is a Fragment on
 // native and must not sit between the surface and its trigger).
 const ColorTriggerButton = forwardRef<View, ColorTriggerButtonProps>(function ColorTriggerButton(
     { icon: Icon, accessibilityLabel, color, disabled, iconColor, isOpen, onPress },
@@ -114,7 +139,7 @@ const ColorTriggerButton = forwardRef<View, ColorTriggerButtonProps>(function Co
     const underlineColor = color || 'transparent'
 
     return (
-        <ToolbarTooltip label={accessibilityLabel}>
+        <Tooltip label={accessibilityLabel}>
             <Pressable
                 ref={ref}
                 accessibilityRole="button"
@@ -141,6 +166,6 @@ const ColorTriggerButton = forwardRef<View, ColorTriggerButtonProps>(function Co
                     />
                 </View>
             </Pressable>
-        </ToolbarTooltip>
+        </Tooltip>
     )
 })

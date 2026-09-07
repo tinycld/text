@@ -22,11 +22,11 @@ const POPOVER_GAP_PX = 4
 const POPOVER_HEIGHT_ESTIMATE_PX = 320
 const POPOVER_WIDTH_PX = 260
 
-// Minimal duck-typed shape we use off the WebView ref. The TenTap
-// webviewRef points at the underlying react-native-webview instance,
-// which exposes both .measure (a RN View method) and .postMessage
-// (an RN-WebView method). We don't depend on the full type — every
-// callsite narrows on `typeof ... === 'function'` before invoking.
+// Minimal duck-typed shapes we use off the two refs the editor hook hands
+// out: `measureRef` is the plain host View wrapping the WebView (measurable);
+// `webViewRef` is a poster shim keyed on the pooled native instance
+// (postMessage only). We don't depend on the full types — every callsite
+// narrows on `typeof ... === 'function'` before invoking.
 interface WebViewMeasurable {
     measure(
         cb: (
@@ -38,6 +38,7 @@ interface WebViewMeasurable {
             pageY: number
         ) => void
     ): void
+    measureInWindow(cb: (x: number, y: number, width: number, height: number) => void): void
     postMessage(message: string): void
 }
 
@@ -63,40 +64,64 @@ export interface AnchoredOverlayRegistry {
 
 interface AnchoredOverlayControllerProps {
     webViewRef: WebViewRef
+    // The view to MEASURE against. The poster shim in webViewRef has no
+    // measurement methods, so without this every popover would fail closed.
+    measureRef?: WebViewRef
     registry: AnchoredOverlayRegistry
 }
 
-// Promise wrapper around .measure(). Resolves to null when the ref is
-// missing, the current value isn't a measurable, or measure returns
-// without invoking the callback (the RN runtime can drop measure calls
-// when a view isn't laid out yet). On null the controller fails closed —
-// dismisses the request and posts popover-result so the WebView clears
-// its trigger — rather than rendering the popover at (0, 0) with no
-// relationship to the caret.
+// Measure the editor's box in screen space. Resolves to null when the ref is
+// missing, the current value isn't a measurable, or neither method answers
+// (the RN runtime can drop measure calls when a view isn't laid out yet). On
+// null the controller fails closed — dismisses the request and posts
+// popover-result so the WebView clears its trigger — rather than rendering
+// the popover at (0, 0) with no relationship to the caret.
 async function measureWebView(
     ref: WebViewRef
 ): Promise<{ pageX: number; pageY: number; width: number; height: number } | null> {
+    // measureInWindow FIRST: the popover is positioned in screen space, and
+    // only measureInWindow reports screen coordinates. `measure`'s pageX/pageY
+    // are relative to the view's PARENT, which for an editor low on the
+    // screen is a far smaller Y than the caret's real position. `measure`
+    // stays as the fallback: it is the one that answers when the view is not
+    // yet attached to a window.
+    const inWindow = await runMeasure(ref, 'measureInWindow')
+    if (inWindow && inWindow.width > 0) return inWindow
+    return runMeasure(ref, 'measure')
+}
+
+// Run one of the two measurement methods, resolving null if it does not
+// answer. Both are callback-based and neither reports failure, so the timeout
+// is the only way to notice a dropped call.
+function runMeasure(
+    ref: WebViewRef,
+    method: 'measure' | 'measureInWindow'
+): Promise<{ pageX: number; pageY: number; width: number; height: number } | null> {
     const r = ref?.current as Partial<WebViewMeasurable> | null | undefined
-    if (!r || typeof r.measure !== 'function') return null
+    if (!r || typeof r[method] !== 'function') return Promise.resolve(null)
     return new Promise(resolve => {
         let resolved = false
-        const fallback = setTimeout(() => {
-            if (!resolved) {
-                resolved = true
-                resolve(null)
-            }
-        }, 250)
-        try {
-            ;(r as WebViewMeasurable).measure((_x, _y, width, height, pageX, pageY) => {
-                if (resolved) return
-                resolved = true
-                clearTimeout(fallback)
-                resolve({ pageX, pageY, width, height })
-            })
-        } catch {
-            clearTimeout(fallback)
+        const settle = (
+            value: { pageX: number; pageY: number; width: number; height: number } | null
+        ) => {
+            if (resolved) return
             resolved = true
-            resolve(null)
+            clearTimeout(fallback)
+            resolve(value)
+        }
+        const fallback = setTimeout(() => settle(null), 250)
+        try {
+            if (method === 'measureInWindow') {
+                ;(r as WebViewMeasurable).measureInWindow((x, y, width, height) => {
+                    settle({ pageX: x, pageY: y, width, height })
+                })
+            } else {
+                ;(r as WebViewMeasurable).measure((_x, _y, width, height, pageX, pageY) => {
+                    settle({ pageX, pageY, width, height })
+                })
+            }
+        } catch {
+            settle(null)
         }
     })
 }
@@ -127,6 +152,7 @@ function postUiToWebView(ref: WebViewRef, type: string, payload: unknown, reques
 // Modal), which keeps screen-level mounting platform-agnostic.
 export function AnchoredOverlayController({
     webViewRef,
+    measureRef,
     registry,
 }: AnchoredOverlayControllerProps): React.ReactElement | null {
     const [state, dispatch] = useReducer(anchoredOverlayReducer, initialAnchoredOverlayState)
@@ -151,12 +177,11 @@ export function AnchoredOverlayController({
     // don't trigger a remeasure — the anchor is fixed once the popover
     // opens, and an in-flight scroll already dismisses.
     //
-    // webViewRef is intentionally omitted from the dep array: the
-    // useEditorBridge hook returns a stable RefObject whose identity
-    // doesn't change across renders. Including it would invite a
-    // re-measure on a hypothetical ref swap that the surrounding code
-    // doesn't actually perform.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: intentional narrow dep — remeasure only on a fresh requestId (not on popover-update); webViewRef is a stable RefObject (see comment above)
+    // webViewRef / measureRef are intentionally omitted from the dep array:
+    // the editor hook hands out stable ref objects whose identity doesn't
+    // change across renders. Including them would invite a re-measure on a
+    // hypothetical ref swap that the surrounding code doesn't perform.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: intentional narrow dep — remeasure only on a fresh requestId (not on popover-update); the refs are stable (see comment above)
     useEffect(() => {
         if (!state.open) {
             setScreenPos(null)
@@ -165,7 +190,7 @@ export function AnchoredOverlayController({
         let cancelled = false
         const open = state.open
         ;(async () => {
-            const m = await measureWebView(webViewRef)
+            const m = await measureWebView(measureRef ?? webViewRef)
             if (cancelled) return
             if (!m) {
                 // Measure failed (no ref, timed out, threw). Falling

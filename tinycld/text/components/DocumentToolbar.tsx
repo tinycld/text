@@ -1,4 +1,6 @@
 import { HelpSearchButton } from '@tinycld/core/components/help/HelpSearchButton'
+import { ResponsiveToolbar, type ToolbarItem } from '@tinycld/core/components/ResponsiveToolbar'
+import { Tooltip } from '@tinycld/core/components/Tooltip'
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
@@ -21,6 +23,7 @@ import {
     Link2,
     List,
     ListOrdered,
+    type LucideIcon,
     Outdent,
     PaintBucket,
     Quote,
@@ -29,23 +32,21 @@ import {
     Underline,
     Undo2,
 } from 'lucide-react-native'
-import type { ComponentType, ReactNode } from 'react'
 import { forwardRef, useState } from 'react'
-import { Platform, Pressable, ScrollView, View } from 'react-native'
+import { Platform, Pressable, View } from 'react-native'
 import type { EditorModeStore } from '../stores/editor-mode-store'
 import type { ReviewDrawerStore } from '../stores/review-drawer-store'
 import { BorderMenu } from './BorderMenu'
 import { NewCommentButton } from './comments/NewCommentButton'
 import { EditorModeMenu } from './EditorModeMenu'
-import { FontFamilyPicker } from './FontFamilyPicker'
-import { FontSizePicker } from './FontSizePicker'
-import { ImageInsertButton } from './ImageInsertButton'
+import { FontFamilyPicker, FontFamilyRows } from './FontFamilyPicker'
+import { FontSizePicker, FontSizeRows } from './FontSizePicker'
+import { ImageInsertButton, useImageInsert } from './ImageInsertButton'
 import { LinkPopover } from './LinkPopover'
 import { ShadingMenu } from './ShadingMenu'
 import { OpenReviewDrawerButton } from './suggestions/OpenReviewDrawerButton'
-import { TableMenu } from './TableMenu'
-import { TextColorButton } from './TextColorButton'
-import { ToolbarTooltip } from './ToolbarTooltip'
+import { TableMenu, TableMenuBody } from './TableMenu'
+import { TextColorButton, TextColorRows } from './TextColorButton'
 
 interface DocumentToolbarProps {
     commands: EditorCommands
@@ -77,11 +78,13 @@ interface DocumentToolbarProps {
 }
 
 // DocumentToolbar lays out the editor's formatting actions in groups
-// (marks, headings, lists/blockquote, link, table, image, history). The
-// `disabled` prop greys out every button without unmounting them — the
-// read-only state in serverHello drives this, and remounting the
-// toolbar would cause the popovers (link, table) to drop their state
-// every time the room reconnects.
+// (marks, headings, lists/blockquote, link, table, image, history) on the
+// shared ResponsiveToolbar, so what does not fit the width folds into a
+// More menu — the pickers and the table menu as submenus of their own rows.
+// The `disabled` prop greys out every button without unmounting them — the
+// read-only state in serverHello drives this, and remounting the toolbar
+// would cause the popovers (link, table) to drop their state every time the
+// room reconnects.
 export function DocumentToolbar({
     commands,
     state,
@@ -93,350 +96,35 @@ export function DocumentToolbar({
     reviewDrawerStore,
     driveItemId,
 }: DocumentToolbarProps) {
-    const iconColor = useThemeColor('muted-foreground')
-    const activeColor = useThemeColor('primary')
     const [linkOpen, setLinkOpen] = useState(false)
-    const [tableOpen, setTableOpen] = useState(false)
     const [borderOpen, setBorderOpen] = useState(false)
     const [shadingOpen, setShadingOpen] = useState(false)
-    const isInTable = state.isInTable ?? false
+    const items = useFormattingItems({
+        commands,
+        state,
+        disabled,
+        openLink: () => setLinkOpen(true),
+        openBorders: () => setBorderOpen(true),
+        openShading: () => setShadingOpen(true),
+    })
+    const rightItems = useRightItems({
+        disabled,
+        newCommentFlow,
+        modeStore,
+        canEdit,
+        canSuggest,
+        reviewDrawerStore,
+        driveItemId,
+    })
 
     return (
         <View className="border-b border-border overflow-visible">
-            <ToolbarRow>
-                <View className="flex-row items-center gap-0.5 px-2 py-1.5 overflow-visible">
-                    <FontFamilyPicker
-                        currentFamily={state.currentFontFamily ?? null}
-                        commands={commands}
-                        disabled={disabled}
-                    />
-                    <FontSizePicker
-                        currentPx={state.currentFontSize ?? null}
-                        commands={commands}
-                        disabled={disabled}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={Bold}
-                        accessibilityLabel="Bold"
-                        isActive={state.isBoldActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleBold()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Italic}
-                        accessibilityLabel="Italic"
-                        isActive={state.isItalicActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleItalic()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Underline}
-                        accessibilityLabel="Underline"
-                        isActive={state.isUnderlineActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleUnderline()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Code}
-                        accessibilityLabel="Inline code"
-                        isActive={state.isCodeActive ?? false}
-                        disabled={disabled}
-                        onPress={() => commands.toggleCode?.()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Code2}
-                        accessibilityLabel="Code block"
-                        isActive={state.isCodeBlockActive ?? false}
-                        disabled={disabled}
-                        onPress={() => commands.toggleCodeBlock?.()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-
-                    <TextColorButton
-                        icon={Baseline}
-                        accessibilityLabel="Text color"
-                        menuKey="text-color"
-                        color={state.currentTextColor ?? undefined}
-                        disabled={disabled}
-                        iconColor={iconColor}
-                        onSelect={value => {
-                            if (value === '') {
-                                commands.unsetTextColor?.()
-                            } else {
-                                commands.setTextColor?.(value)
-                            }
-                        }}
-                    />
-                    <TextColorButton
-                        icon={Highlighter}
-                        accessibilityLabel="Highlight color"
-                        menuKey="background-color"
-                        color={state.currentBackgroundColor ?? undefined}
-                        disabled={disabled}
-                        iconColor={iconColor}
-                        onSelect={value => {
-                            if (value === '') {
-                                commands.unsetBackgroundColor?.()
-                            } else {
-                                commands.setBackgroundColor?.(value)
-                            }
-                        }}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={Heading1}
-                        accessibilityLabel="Heading 1"
-                        isActive={state.activeHeadingLevel === 1}
-                        disabled={disabled}
-                        onPress={() => commands.toggleHeading(1)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Heading2}
-                        accessibilityLabel="Heading 2"
-                        isActive={state.activeHeadingLevel === 2}
-                        disabled={disabled}
-                        onPress={() => commands.toggleHeading(2)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Heading3}
-                        accessibilityLabel="Heading 3"
-                        isActive={state.activeHeadingLevel === 3}
-                        disabled={disabled}
-                        onPress={() => commands.toggleHeading(3)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={List}
-                        accessibilityLabel="Bullet list"
-                        isActive={state.isBulletListActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleBulletList()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={ListOrdered}
-                        accessibilityLabel="Ordered list"
-                        isActive={state.isOrderedListActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleOrderedList()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Quote}
-                        accessibilityLabel="Blockquote"
-                        isActive={state.isBlockquoteActive}
-                        disabled={disabled}
-                        onPress={() => commands.toggleBlockquote()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={AlignLeft}
-                        accessibilityLabel="Align left"
-                        isActive={state.currentAlign === 'left' || state.currentAlign == null}
-                        disabled={disabled}
-                        onPress={() => commands.setTextAlign?.('left')}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={AlignCenter}
-                        accessibilityLabel="Align center"
-                        isActive={state.currentAlign === 'center'}
-                        disabled={disabled}
-                        onPress={() => commands.setTextAlign?.('center')}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={AlignRight}
-                        accessibilityLabel="Align right"
-                        isActive={state.currentAlign === 'right'}
-                        disabled={disabled}
-                        onPress={() => commands.setTextAlign?.('right')}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={AlignJustify}
-                        accessibilityLabel="Justify"
-                        isActive={state.currentAlign === 'justify'}
-                        disabled={disabled}
-                        onPress={() => commands.setTextAlign?.('justify')}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Outdent}
-                        accessibilityLabel="Decrease indent"
-                        isActive={false}
-                        disabled={disabled || !(state.canOutdent ?? false)}
-                        onPress={() => commands.outdentBlock?.()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Indent}
-                        accessibilityLabel="Increase indent"
-                        isActive={false}
-                        disabled={disabled || !(state.canIndent ?? false)}
-                        onPress={() => commands.indentBlock?.()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={Link2}
-                        accessibilityLabel="Link"
-                        isActive={state.isLinkActive}
-                        disabled={disabled}
-                        onPress={() => setLinkOpen(true)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <TableMenu
-                        isOpen={tableOpen}
-                        onOpenChange={setTableOpen}
-                        isInTable={isInTable}
-                        canMergeCells={state.canMergeCells ?? false}
-                        canSplitCell={state.canSplitCell ?? false}
-                        commands={commands}
-                        trigger={
-                            <FormatButton
-                                icon={TableIcon}
-                                accessibilityLabel="Table"
-                                isActive={isInTable}
-                                disabled={disabled}
-                                onPress={() => undefined}
-                                iconColor={iconColor}
-                                activeColor={activeColor}
-                            />
-                        }
-                    />
-                    <FormatButton
-                        icon={Grid3x3}
-                        accessibilityLabel="Cell borders"
-                        isActive={false}
-                        disabled={disabled || !isInTable}
-                        onPress={() => setBorderOpen(true)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={PaintBucket}
-                        accessibilityLabel="Cell shading"
-                        isActive={false}
-                        disabled={disabled || !isInTable}
-                        onPress={() => setShadingOpen(true)}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <ImageInsertButton
-                        icon={ImageIcon}
-                        disabled={disabled}
-                        onInsert={url => commands.insertImage?.(url)}
-                        iconColor={iconColor}
-                    />
-
-                    <Separator />
-
-                    <FormatButton
-                        icon={Undo2}
-                        accessibilityLabel="Undo"
-                        isActive={false}
-                        disabled={disabled}
-                        onPress={() => commands.undo()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-                    <FormatButton
-                        icon={Redo2}
-                        accessibilityLabel="Redo"
-                        isActive={false}
-                        disabled={disabled}
-                        onPress={() => commands.redo()}
-                        iconColor={iconColor}
-                        activeColor={activeColor}
-                    />
-
-                    <View className="ml-auto flex-row items-center">
-                        {/* Comment + suggestion-review affordances are not */}
-                        {/* shown on read-only mounts. `disabled` already   */}
-                        {/* signals "this is a viewer" via the screen's    */}
-                        {/* hello.readOnly wiring — by the read-only design*/}
-                        {/* decision (see screens/[id].tsx) we now omit    */}
-                        {/* these buttons entirely rather than rendering   */}
-                        {/* them disabled. The mode menu likewise hides    */}
-                        {/* because Viewing is the only meaningful mode.   */}
-                        {newCommentFlow && !disabled ? (
-                            <>
-                                <Separator />
-                                <NewCommentButton
-                                    canStart={newCommentFlow.canStart}
-                                    isOpen={newCommentFlow.isOpen}
-                                    onPress={newCommentFlow.start}
-                                />
-                            </>
-                        ) : null}
-                        {/* The review drawer now works on both platforms — Phase 2c's
-                            useDocumentSuggestionBridge feeds the same anchored/orphaned
-                            shape to the drawer regardless of where the editor lives. */}
-                        {reviewDrawerStore && driveItemId && !disabled ? (
-                            <>
-                                <Separator />
-                                <OpenReviewDrawerButton
-                                    driveItemId={driveItemId}
-                                    store={reviewDrawerStore}
-                                    disabled={disabled}
-                                />
-                            </>
-                        ) : null}
-                        {modeStore ? (
-                            <>
-                                <Separator />
-                                <EditorModeMenu
-                                    modeStore={modeStore}
-                                    canEdit={canEdit}
-                                    canSuggest={canSuggest}
-                                />
-                            </>
-                        ) : null}
-                        <HelpSearchButton />
-                    </View>
-                </View>
-            </ToolbarRow>
-            {/* The Suggesting chip used to render here; the EditorModeMenu */}
-            {/* dropdown now doubles as the mode indicator (primary-color pill */}
-            {/* when not in Editing). */}
+            <ResponsiveToolbar
+                items={items}
+                rightItems={rightItems}
+                height={40}
+                className="px-2 py-1.5"
+            />
 
             <LinkPopover
                 isOpen={linkOpen}
@@ -467,26 +155,366 @@ export function DocumentToolbar({
     )
 }
 
-// On web we render a plain overflow-visible row so hover tooltips
-// (which extend above the row) aren't clipped by react-native-web's
-// ScrollView, which sets overflow-y:hidden on its horizontal scroller.
-// RN-Web's View defaults to overflow:hidden too, so `overflow-visible`
-// is needed even without a ScrollView — same pattern as @tinycld/calc's
-// Toolbar. Native keeps the horizontal ScrollView so the row stays
-// swipeable on narrow widths; there's no hover surface to clip there.
-function ToolbarRow({ children }: { children: ReactNode }) {
-    if (Platform.OS === 'web') {
-        return <View className="overflow-visible">{children}</View>
-    }
-    return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {children}
-        </ScrollView>
-    )
+interface FormattingItemsInput {
+    commands: EditorCommands
+    state: EditorToolbarState
+    disabled: boolean
+    openLink: () => void
+    openBorders: () => void
+    openShading: () => void
 }
 
+const SEPARATOR: ToolbarItem = { type: 'separator' }
+
+function useFormattingItems({
+    commands,
+    state,
+    disabled,
+    openLink,
+    openBorders,
+    openShading,
+}: FormattingItemsInput): ToolbarItem[] {
+    const iconColor = useThemeColor('muted-foreground')
+    const activeColor = useThemeColor('primary')
+    const [tableOpen, setTableOpen] = useState(false)
+    const isInTable = state.isInTable ?? false
+    const insertImage = useImageInsert(url => commands.insertImage?.(url))
+
+    const setTextColor = (value: string) => {
+        if (value === '') {
+            commands.unsetTextColor?.()
+        } else {
+            commands.setTextColor?.(value)
+        }
+    }
+    const setBackgroundColor = (value: string) => {
+        if (value === '') {
+            commands.unsetBackgroundColor?.()
+        } else {
+            commands.setBackgroundColor?.(value)
+        }
+    }
+
+    // One formatting toggle: the button in the row, the same command as a
+    // menu row once it folds.
+    const format = (
+        key: string,
+        icon: FormatIcon,
+        label: string,
+        isActive: boolean,
+        onPress: () => void,
+        isDisabled = disabled
+    ): ToolbarItem => ({
+        type: 'custom',
+        key,
+        element: (
+            <FormatButton
+                icon={icon}
+                accessibilityLabel={label}
+                isActive={isActive}
+                disabled={isDisabled}
+                onPress={onPress}
+                iconColor={iconColor}
+                activeColor={activeColor}
+            />
+        ),
+        overflow: { label, icon, onPress, isDisabled },
+    })
+
+    return [
+        {
+            type: 'custom',
+            key: 'font-family',
+            element: (
+                <FontFamilyPicker
+                    currentFamily={state.currentFontFamily ?? null}
+                    commands={commands}
+                    disabled={disabled}
+                />
+            ),
+            overflow: {
+                label: 'Font family',
+                isDisabled: disabled,
+                children: (
+                    <FontFamilyRows
+                        currentFamily={state.currentFontFamily ?? null}
+                        commands={commands}
+                    />
+                ),
+            },
+        },
+        {
+            type: 'custom',
+            key: 'font-size',
+            element: (
+                <FontSizePicker
+                    currentPx={state.currentFontSize ?? null}
+                    commands={commands}
+                    disabled={disabled}
+                />
+            ),
+            overflow: {
+                label: 'Font size',
+                isDisabled: disabled,
+                children: (
+                    <FontSizeRows currentPx={state.currentFontSize ?? null} commands={commands} />
+                ),
+            },
+        },
+        SEPARATOR,
+        format('bold', Bold, 'Bold', state.isBoldActive, () => commands.toggleBold()),
+        format('italic', Italic, 'Italic', state.isItalicActive, () => commands.toggleItalic()),
+        format('underline', Underline, 'Underline', state.isUnderlineActive, () =>
+            commands.toggleUnderline()
+        ),
+        format('code', Code, 'Inline code', state.isCodeActive ?? false, () =>
+            commands.toggleCode?.()
+        ),
+        format('code-block', Code2, 'Code block', state.isCodeBlockActive ?? false, () =>
+            commands.toggleCodeBlock?.()
+        ),
+        {
+            type: 'custom',
+            key: 'text-color',
+            element: (
+                <TextColorButton
+                    icon={Baseline}
+                    accessibilityLabel="Text color"
+                    menuKey="text-color"
+                    color={state.currentTextColor ?? undefined}
+                    disabled={disabled}
+                    iconColor={iconColor}
+                    onSelect={setTextColor}
+                />
+            ),
+            overflow: {
+                label: 'Text color',
+                icon: Baseline,
+                isDisabled: disabled,
+                children: (
+                    <TextColorRows
+                        color={state.currentTextColor ?? undefined}
+                        onSelect={setTextColor}
+                    />
+                ),
+            },
+        },
+        {
+            type: 'custom',
+            key: 'highlight',
+            element: (
+                <TextColorButton
+                    icon={Highlighter}
+                    accessibilityLabel="Highlight color"
+                    menuKey="background-color"
+                    color={state.currentBackgroundColor ?? undefined}
+                    disabled={disabled}
+                    iconColor={iconColor}
+                    onSelect={setBackgroundColor}
+                />
+            ),
+            overflow: {
+                label: 'Highlight color',
+                icon: Highlighter,
+                isDisabled: disabled,
+                children: (
+                    <TextColorRows
+                        color={state.currentBackgroundColor ?? undefined}
+                        onSelect={setBackgroundColor}
+                    />
+                ),
+            },
+        },
+        SEPARATOR,
+        format('h1', Heading1, 'Heading 1', state.activeHeadingLevel === 1, () =>
+            commands.toggleHeading(1)
+        ),
+        format('h2', Heading2, 'Heading 2', state.activeHeadingLevel === 2, () =>
+            commands.toggleHeading(2)
+        ),
+        format('h3', Heading3, 'Heading 3', state.activeHeadingLevel === 3, () =>
+            commands.toggleHeading(3)
+        ),
+        SEPARATOR,
+        format('bullet', List, 'Bullet list', state.isBulletListActive, () =>
+            commands.toggleBulletList()
+        ),
+        format('ordered', ListOrdered, 'Ordered list', state.isOrderedListActive, () =>
+            commands.toggleOrderedList()
+        ),
+        format('quote', Quote, 'Blockquote', state.isBlockquoteActive, () =>
+            commands.toggleBlockquote()
+        ),
+        SEPARATOR,
+        format(
+            'align-left',
+            AlignLeft,
+            'Align left',
+            state.currentAlign === 'left' || state.currentAlign == null,
+            () => commands.setTextAlign?.('left')
+        ),
+        format('align-center', AlignCenter, 'Align center', state.currentAlign === 'center', () =>
+            commands.setTextAlign?.('center')
+        ),
+        format('align-right', AlignRight, 'Align right', state.currentAlign === 'right', () =>
+            commands.setTextAlign?.('right')
+        ),
+        format('justify', AlignJustify, 'Justify', state.currentAlign === 'justify', () =>
+            commands.setTextAlign?.('justify')
+        ),
+        format(
+            'outdent',
+            Outdent,
+            'Decrease indent',
+            false,
+            () => commands.outdentBlock?.(),
+            disabled || !(state.canOutdent ?? false)
+        ),
+        format(
+            'indent',
+            Indent,
+            'Increase indent',
+            false,
+            () => commands.indentBlock?.(),
+            disabled || !(state.canIndent ?? false)
+        ),
+        SEPARATOR,
+        format('link', Link2, 'Link', state.isLinkActive, openLink),
+        {
+            type: 'custom',
+            key: 'table',
+            element: (
+                <TableMenu
+                    isOpen={tableOpen}
+                    onOpenChange={setTableOpen}
+                    isInTable={isInTable}
+                    canMergeCells={state.canMergeCells ?? false}
+                    canSplitCell={state.canSplitCell ?? false}
+                    commands={commands}
+                    trigger={
+                        <FormatButton
+                            icon={TableIcon}
+                            accessibilityLabel="Table"
+                            isActive={isInTable}
+                            disabled={disabled}
+                            onPress={() => undefined}
+                            iconColor={iconColor}
+                            activeColor={activeColor}
+                        />
+                    }
+                />
+            ),
+            overflow: {
+                label: 'Table',
+                icon: TableIcon,
+                isDisabled: disabled,
+                children: (
+                    <TableMenuBody
+                        isInTable={isInTable}
+                        canMergeCells={state.canMergeCells ?? false}
+                        canSplitCell={state.canSplitCell ?? false}
+                        commands={commands}
+                    />
+                ),
+            },
+        },
+        format('borders', Grid3x3, 'Cell borders', false, openBorders, disabled || !isInTable),
+        format('shading', PaintBucket, 'Cell shading', false, openShading, disabled || !isInTable),
+        {
+            type: 'custom',
+            key: 'image',
+            element: (
+                <ImageInsertButton
+                    icon={ImageIcon}
+                    disabled={disabled}
+                    onInsert={url => commands.insertImage?.(url)}
+                    iconColor={iconColor}
+                />
+            ),
+            overflow: {
+                label: 'Insert image',
+                icon: ImageIcon,
+                onPress: insertImage,
+                isDisabled: disabled,
+            },
+        },
+        SEPARATOR,
+        format('undo', Undo2, 'Undo', false, () => commands.undo()),
+        format('redo', Redo2, 'Redo', false, () => commands.redo()),
+    ]
+}
+
+type RightItemsInput = Pick<
+    DocumentToolbarProps,
+    | 'disabled'
+    | 'newCommentFlow'
+    | 'modeStore'
+    | 'canEdit'
+    | 'canSuggest'
+    | 'reviewDrawerStore'
+    | 'driveItemId'
+>
+
+// Comment + suggestion-review affordances are not shown on read-only mounts.
+// `disabled` already signals "this is a viewer" via the screen's
+// hello.readOnly wiring — by the read-only design decision (see
+// screens/[id].tsx) we omit these buttons entirely rather than rendering them
+// disabled. The mode menu likewise hides because Viewing is the only
+// meaningful mode. Pinned at the right edge: they are the document's chrome,
+// not formatting.
+function useRightItems({
+    disabled,
+    newCommentFlow,
+    modeStore,
+    reviewDrawerStore,
+    driveItemId,
+    canEdit = true,
+    canSuggest = true,
+}: RightItemsInput): ToolbarItem[] {
+    const items: ToolbarItem[] = []
+    if (newCommentFlow && !disabled) {
+        items.push(SEPARATOR, {
+            type: 'custom',
+            key: 'new-comment',
+            element: (
+                <NewCommentButton
+                    canStart={newCommentFlow.canStart}
+                    isOpen={newCommentFlow.isOpen}
+                    onPress={newCommentFlow.start}
+                />
+            ),
+        })
+    }
+    if (reviewDrawerStore && driveItemId && !disabled) {
+        items.push(SEPARATOR, {
+            type: 'custom',
+            key: 'review',
+            element: (
+                <OpenReviewDrawerButton
+                    driveItemId={driveItemId}
+                    store={reviewDrawerStore}
+                    disabled={disabled}
+                />
+            ),
+        })
+    }
+    if (modeStore) {
+        items.push(SEPARATOR, {
+            type: 'custom',
+            key: 'mode',
+            element: (
+                <EditorModeMenu modeStore={modeStore} canEdit={canEdit} canSuggest={canSuggest} />
+            ),
+        })
+    }
+    items.push({ type: 'custom', key: 'help', element: <HelpSearchButton /> })
+    return items
+}
+
+type FormatIcon = LucideIcon
+
 interface FormatButtonProps {
-    icon: ComponentType<{ size: number; color: string }>
+    icon: FormatIcon
     accessibilityLabel: string
     isActive: boolean
     disabled: boolean
@@ -500,7 +528,7 @@ interface FormatButtonProps {
 // placement, and re-injects a composed onPress (the child's own press +
 // the menu-open toggle). FormatButton forwards that ref straight to its
 // Pressable and already drives the Pressable from its onPress prop, so
-// both work. ToolbarTooltip is a Fragment on native, so it must NOT sit
+// both work. Tooltip is a Fragment on native, so it must NOT sit
 // between the Menu and this Pressable — the Menu clones FormatButton (a
 // real component that forwards the ref), not the tooltip, so the nesting
 // here is fine.
@@ -524,7 +552,7 @@ const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
             : {}
     return (
-        <ToolbarTooltip label={accessibilityLabel}>
+        <Tooltip label={accessibilityLabel}>
             <Pressable
                 ref={ref}
                 accessibilityRole="button"
@@ -541,10 +569,6 @@ const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
             >
                 <Icon size={16} color={color} />
             </Pressable>
-        </ToolbarTooltip>
+        </Tooltip>
     )
 })
-
-function Separator() {
-    return <View className="w-px h-5 mx-1 bg-border" />
-}

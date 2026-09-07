@@ -7,26 +7,16 @@ import type { CellBorder, CellBorderPreset } from '../../../lib/cell-borders'
 import '../../../lib/editor/drop-cap'
 
 // Format bridge for the text WebView. Owns the dispatch of host -> WebView
-// command messages that drive TipTap chain calls. Two shapes flow
-// through this listener:
-//
-//   1. TenTap's per-bridge format commands (BoldBridge, ItalicBridge,
-//      HeadingBridge, etc.) emit `{ type, payload }` WITHOUT an explicit
-//      namespace. The bridge accepts these as-is.
-//   2. Our own command messages use `namespace: 'format'` (e.g.
-//      insert-table, set-cell-shading, update-image-attrs, set-font-size).
-//      The bridge accepts these too.
-//
-// Messages from other namespaces ('app', 'comment', 'find-replace')
-// are deliberately ignored — their own dedicated bridges handle them.
+// command messages that drive TipTap chain calls. Every command arrives as
+// one flat `{ namespace: 'format', type, payload }` message from core's
+// `buildWebViewEditorCommands`; messages on any other namespace ('app',
+// 'comment', 'find-replace', 'ui') belong to their own bridges and are
+// ignored here.
 //
 // Payload shape conventions vary across types (some are bare scalars
-// like `set-text-align`'s `'center'`; others are `{value}` envelopes
-// like `set-cell-borders`'s `{preset, border}`). Those are inherited
-// from the host-side messaging in `buildWebViewEditorCommands` and
-// TenTap's per-bridge emit conventions; the bridge preserves them
-// verbatim. A future refactor could normalize the shapes, but that's
-// a breaking change separate from this extraction.
+// like `set-text-align`'s `'center'` or `toggle-heading`'s level; others
+// are `{value}` envelopes like `set-cell-borders`'s `{preset, border}`).
+// The bridge preserves what the host sends verbatim.
 
 interface IncomingMessage {
     namespace?: string
@@ -38,25 +28,6 @@ type PostToNative = (message: unknown) => void
 
 export interface FormatBridge {
     destroy: () => void
-}
-
-// TenTap's native bridges (BoldBridge, HeadingBridge, LinkBridge, ...)
-// don't post their action string at the top level. `sendAction` in
-// TenTap's useEditorBridge wraps every command as
-//   { type: 'action', payload: <the real { type, payload } action> }
-// (see @10play/tentap-editor RichText/useEditorBridge.js). So a Bold tap
-// arrives here as { type: 'action', payload: { type: 'toggle-bold' } },
-// not { type: 'toggle-bold' }. Our own commands (namespace 'format')
-// are already flat and pass through unchanged. Without this unwrap the
-// dispatcher reads the outer 'action' — matching no case — and every
-// native toolbar button (bold/italic/underline/heading/link/undo/redo)
-// silently no-ops.
-function unwrapTenTapAction(parsed: IncomingMessage): IncomingMessage {
-    if (parsed.type !== 'action') return parsed
-    const inner = parsed.payload
-    if (inner === null || typeof inner !== 'object') return parsed
-    if (typeof (inner as IncomingMessage).type !== 'string') return parsed
-    return inner as IncomingMessage
 }
 
 // postToNative is accepted but currently unused — the format bridge is
@@ -317,13 +288,10 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
         } catch {
             return
         }
-        // Init messages handled by parent <Editor />. Comment, find-
-        // replace, and ui have their own dedicated bridges.
-        if (parsed.namespace === 'app') return
-        if (parsed.namespace === 'comment') return
-        if (parsed.namespace === 'find-replace') return
-        if (parsed.namespace === 'ui') return
-        dispatch(unwrapTenTapAction(parsed))
+        // Everything else — init, comment, find-replace, ui — has its own
+        // bridge.
+        if (parsed.namespace !== 'format') return
+        dispatch(parsed)
     }
 
     window.addEventListener('message', onMessage)

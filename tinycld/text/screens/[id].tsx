@@ -4,6 +4,7 @@ import { eq } from '@tanstack/db'
 // component imported from '../components/DocumentTitle').
 import { DocumentTitle as TabTitle } from '@tinycld/core/components/DocumentTitle'
 import { PresenceAvatars } from '@tinycld/core/components/PresenceAvatars'
+import { ResponsiveToolbar, type ToolbarItem } from '@tinycld/core/components/ResponsiveToolbar'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { type EditorMount, EditorMountProvider } from '@tinycld/core/lib/editor/editor-mount'
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
@@ -250,6 +251,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         findReplaceEditor,
         commentBridge,
         webViewRef,
+        measureRef,
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
         modeStore,
@@ -470,34 +472,76 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         return count
     }, [documentComments])
 
+    // The title never leaves the header; the status chrome beside it is
+    // informational and simply drops as the width runs out, and the comments
+    // drawer button stays pinned at the right edge.
+    const headerItems: ToolbarItem[] = [
+        {
+            type: 'custom',
+            key: 'title',
+            minWidth: 160,
+            element: (
+                <DocumentTitle documentId={driveItemId} name={itemName} isReadOnly={isReadOnly} />
+            ),
+        },
+    ]
+    // Read-only viewers don't see peer presence. See the read-only design
+    // decision near isReadOnly.
+    if (showCollaborativeAffordances) {
+        headerItems.push({
+            type: 'custom',
+            key: 'presence',
+            element: <PresenceAvatars awareness={room.awareness} />,
+            overflow: 'hide',
+        })
+    }
+    headerItems.push(
+        {
+            type: 'custom',
+            key: 'save-status',
+            element: <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />,
+            overflow: 'hide',
+        },
+        {
+            type: 'custom',
+            key: 'word-count',
+            element: <WordCountBadge wordCount={toolbarState.wordCount} />,
+            overflow: 'hide',
+        },
+        {
+            type: 'custom',
+            key: 'reconnecting',
+            element: <ReconnectingIndicator isVisible={!room.isConnected} />,
+            overflow: 'hide',
+        }
+    )
+    const headerRightItems: ToolbarItem[] = showCollaborativeAffordances
+        ? [
+              {
+                  type: 'custom',
+                  key: 'comments',
+                  element: (
+                      <OpenCommentsDrawerButton
+                          driveItemId={driveItemId}
+                          openCount={openThreadCount}
+                      />
+                  ),
+              },
+          ]
+        : []
+
     return (
         <FindReplaceEditorContext.Provider value={findReplaceEditor}>
             <TabTitle pkg="Text" title={itemName} />
             <View className="flex-1 bg-background">
                 <View onLayout={e => setHeaderStackHeight(e.nativeEvent.layout.height)}>
-                    <View className="px-4 py-2 border-b border-border flex-row items-center gap-3">
-                        <DocumentTitle
-                            documentId={driveItemId}
-                            name={itemName}
-                            isReadOnly={isReadOnly}
-                        />
-                        {/* Read-only viewers don't see peer presence. */}
-                        {/* See the read-only design decision near isReadOnly. */}
-                        {showCollaborativeAffordances && (
-                            <PresenceAvatars awareness={room.awareness} />
-                        )}
-                        <SaveStatusIndicator status={saveStatus} isConnected={room.isConnected} />
-                        <WordCountBadge wordCount={toolbarState.wordCount} />
-                        <ReconnectingIndicator isVisible={!room.isConnected} />
-                        <View className="ml-auto flex-row items-center gap-1">
-                            {showCollaborativeAffordances && (
-                                <OpenCommentsDrawerButton
-                                    driveItemId={driveItemId}
-                                    openCount={openThreadCount}
-                                />
-                            )}
-                        </View>
-                    </View>
+                    <ResponsiveToolbar
+                        items={headerItems}
+                        rightItems={headerRightItems}
+                        height={44}
+                        gap={12}
+                        className="px-4 border-b border-border"
+                    />
                     <ImportWarningBanner warnings={hello.importWarnings} />
                     <MenuBar
                         documentName={itemName}
@@ -657,6 +701,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 )}
                 <SlashMenu
                     webViewRef={webViewRef ?? null}
+                    measureRef={measureRef ?? null}
                     editor={tiptapEditor ?? null}
                     yDoc={room.doc}
                     canResolve={canResolve}

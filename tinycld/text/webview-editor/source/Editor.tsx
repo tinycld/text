@@ -618,8 +618,8 @@ function EditorMounted({ init }: EditorMountedProps) {
     // fires its onScroll callback, which the native variant uses to
     // dismiss any open anchored popover (slash menu, future popovers).
     //
-    // iOS RN-WebView's own `onScroll` doesn't fire for in-document
-    // scrolling when scrollEnabled=false (which TenTap sets), so the
+    // A WebView's own scroll events don't fire for in-document
+    // scrolling when scrollEnabled=false, so the
     // signal has to come from the WebView's document. Coalesced via
     // rAF so a smooth scroll doesn't flood the message bus.
     useEffect(() => {

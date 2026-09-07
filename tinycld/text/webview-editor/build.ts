@@ -6,8 +6,8 @@ import { bundleWebViewEditor } from '@tinycld/core/lib/editor/webview-bundler/bu
 //   pnpm exec tsx tinycld/text/webview-editor/build.ts
 // from the @tinycld/text repo root. Produces a self-contained HTML
 // string at tinycld/text/webview-editor/build/editorHtml.ts which
-// the native useDocumentEditor imports and hands to TenTap's
-// customSource option.
+// the native useDocumentEditor imports and hands to the native host as
+// the page source.
 
 const here = dirname(fileURLToPath(import.meta.url))
 const sourceDir = resolve(here, 'source')

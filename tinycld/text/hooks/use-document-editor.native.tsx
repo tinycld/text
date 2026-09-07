@@ -163,8 +163,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // WebView scroll closes any open anchored popover. Implemented by
     // publishing a synthetic 'popover-dismiss-on-scroll' message into
     // the ui-message-bus that the controller's reducer reduces to a
-    // dismiss. iOS RN-WebView doesn't surface in-document scrolls via
-    // its `onScroll` when scrollEnabled=false (which TenTap sets), so
+    // dismiss. A WebView doesn't surface in-document scrolls via
+    // its own scroll events when scrollEnabled=false, so
     // the WebView source posts a 'document-scroll' message and we
     // re-emit it on the bus here.
     const onScroll = useCallback(() => {

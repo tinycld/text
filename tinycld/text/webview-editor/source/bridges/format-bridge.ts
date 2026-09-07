@@ -47,8 +47,8 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
             case 'toggle-underline':
                 editor.chain().focus().toggleUnderline().run()
                 break
-            // TenTap's BulletListBridge and OrderedListBridge emit
-            // camelCase action strings ('toggle-bulletList' /
+            // The list types are camelCase on the wire
+            // ('toggle-bulletList' /
             // 'toggle-orderedList'), not kebab-case. We must match
             // the exact emitted literal or the message is dropped.
             case 'toggle-bulletList':
@@ -61,8 +61,8 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
                 editor.chain().focus().toggleBlockquote().run()
                 break
             case 'toggle-heading': {
-                // TenTap's HeadingBridge sends the level number
-                // directly as payload, not wrapped in { level }.
+                // The level travels bare as the payload, not wrapped
+                // in { level }.
                 const level = (parsed.payload as number | undefined) ?? 1
                 editor
                     .chain()
@@ -72,7 +72,7 @@ export function installFormatBridge(editor: Editor, _postToNative: PostToNative)
                 break
             }
             case 'set-link': {
-                // TenTap's LinkBridge sends { type:'set-link', payload: <string|null> }
+                // set-link carries the href bare; '' means remove.
                 const url = parsed.payload as string | null
                 if (url == null) break
                 if (url === '') {

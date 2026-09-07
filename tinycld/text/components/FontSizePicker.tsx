@@ -28,14 +28,6 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
     const muted = useThemeColor('muted-foreground')
     const label = currentPx == null ? DEFAULT_LABEL : `${currentPx}`
 
-    const pick = (px: number | null) => {
-        if (px == null) {
-            commands.unsetFontSize?.()
-            return
-        }
-        commands.setFontSize?.(px)
-    }
-
     // Stop the mousedown from moving DOM focus off ProseMirror — same
     // rationale as DocumentToolbar's FormatButton: the editor's blur
     // handler collapses its selection on focus loss, so a picker that
@@ -72,6 +64,25 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
                 </Pressable>
             }
         >
+            <FontSizeRows currentPx={currentPx} commands={commands} />
+        </Menu>
+    )
+}
+
+/** The size rows alone, for a menu that hosts them itself — the toolbar's More submenu. */
+export function FontSizeRows({
+    currentPx,
+    commands,
+}: Pick<FontSizePickerProps, 'currentPx' | 'commands'>) {
+    const pick = (px: number | null) => {
+        if (px == null) {
+            commands.unsetFontSize?.()
+            return
+        }
+        commands.setFontSize?.(px)
+    }
+    return (
+        <>
             <Menu.Item
                 label={DEFAULT_LABEL}
                 isSelected={currentPx == null}
@@ -85,6 +96,6 @@ export function FontSizePicker({ currentPx, commands, disabled = false }: FontSi
                     onSelect={() => pick(px)}
                 />
             ))}
-        </Menu>
+        </>
     )
 }

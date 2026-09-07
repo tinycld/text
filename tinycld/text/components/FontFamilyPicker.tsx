@@ -35,14 +35,6 @@ export function FontFamilyPicker({
     const triggerLabel = currentFamily ? stripFallback(currentFamily) : DEFAULT_LABEL
     const triggerOpacity = disabled ? 0.4 : 1
 
-    const pick = (option: FontOption | null) => {
-        if (option == null) {
-            commands.unsetFontFamily?.()
-            return
-        }
-        commands.setFontFamily?.(option.name)
-    }
-
     const webProps =
         Platform.OS === 'web'
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
@@ -72,6 +64,25 @@ export function FontFamilyPicker({
                 </Pressable>
             }
         >
+            <FontFamilyRows currentFamily={currentFamily} commands={commands} />
+        </Menu>
+    )
+}
+
+/** The family rows alone, for a menu that hosts them itself — the toolbar's More submenu. */
+export function FontFamilyRows({
+    currentFamily,
+    commands,
+}: Pick<FontFamilyPickerProps, 'currentFamily' | 'commands'>) {
+    const pick = (option: FontOption | null) => {
+        if (option == null) {
+            commands.unsetFontFamily?.()
+            return
+        }
+        commands.setFontFamily?.(option.name)
+    }
+    return (
+        <>
             <Menu.Item
                 label={DEFAULT_LABEL}
                 isSelected={currentFamily == null}
@@ -86,7 +97,7 @@ export function FontFamilyPicker({
                     onSelect={() => pick(option)}
                 />
             ))}
-        </Menu>
+        </>
     )
 }
 

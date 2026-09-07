@@ -24,7 +24,6 @@ const manifest = {
     cli: {
         package: 'cli',
         module: 'tinycld.org/packages/text/cli',
-        scopes: ['text:read', 'text:write'],
     },
     repository: { url: 'https://github.com/tinycld/text' },
     seed: { script: 'seed' },

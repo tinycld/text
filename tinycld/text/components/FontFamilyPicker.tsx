@@ -1,9 +1,9 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Menu } from '@tinycld/core/ui/menubar'
+import { Menu } from '@tinycld/core/ui/menu'
 import { ChevronDown } from 'lucide-react-native'
 import { useState } from 'react'
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { Platform, Pressable, Text } from 'react-native'
 import { cssFamily, FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
 
 export { FONT_FAMILY_OPTIONS, type FontOption } from '../lib/font-options'
@@ -21,18 +21,12 @@ interface FontFamilyPickerProps {
 
 const DEFAULT_LABEL = 'Default'
 
-// Pre-computed map for fast lookup in the trigger label. Falls back to
-// "Default" rendering when the active family isn't in the curated set
-// — that's possible if a Word import carried in an unknown name.
-const _OPTION_BY_NAME = new Map(FONT_FAMILY_OPTIONS.map(o => [o.name, o]))
-
 export function FontFamilyPicker({
     currentFamily,
     commands,
     disabled = false,
 }: FontFamilyPickerProps) {
     const [open, setOpen] = useState(false)
-    const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
 
     // Strip a CSS fallback chain ("Georgia, serif") down to just the head
@@ -42,7 +36,6 @@ export function FontFamilyPicker({
     const triggerOpacity = disabled ? 0.4 : 1
 
     const pick = (option: FontOption | null) => {
-        setOpen(false)
         if (option == null) {
             commands.unsetFontFamily?.()
             return
@@ -56,11 +49,13 @@ export function FontFamilyPicker({
             : {}
 
     return (
-        <Menu isOpen={open} onOpenChange={setOpen}>
-            {/* The Pressable must be Menu.Trigger's DIRECT child: on native
-                Trigger clones it to inject onPress + a ref it measures for
-                popover placement. */}
-            <Menu.Trigger>
+        <Menu
+            isOpen={open}
+            onOpenChange={setOpen}
+            placement="bottom-start"
+            width={220}
+            title="Font family"
+            trigger={
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Font family"
@@ -75,31 +70,38 @@ export function FontFamilyPicker({
                     </Text>
                     <ChevronDown size={12} color={muted} />
                 </Pressable>
-            </Menu.Trigger>
-            <Menu.Portal>
-                <Menu.Content placement="bottom" align="start">
-                    <View className="w-[220px] max-h-[360px]">
-                        <ScrollView>
-                            <FamilyRow
-                                option={null}
-                                isActive={currentFamily == null}
-                                onPress={() => pick(null)}
-                                color={fg}
-                            />
-                            {FONT_FAMILY_OPTIONS.map(option => (
-                                <FamilyRow
-                                    key={option.name}
-                                    option={option}
-                                    isActive={isOptionActive(option, currentFamily)}
-                                    onPress={() => pick(option)}
-                                    color={fg}
-                                />
-                            ))}
-                        </ScrollView>
-                    </View>
-                </Menu.Content>
-            </Menu.Portal>
+            }
+        >
+            <Menu.Item
+                label={DEFAULT_LABEL}
+                isSelected={currentFamily == null}
+                onSelect={() => pick(null)}
+            />
+            {FONT_FAMILY_OPTIONS.map(option => (
+                <Menu.Item
+                    key={option.name}
+                    label={option.name}
+                    leading={<FontSample option={option} />}
+                    isSelected={isOptionActive(option, currentFamily)}
+                    onSelect={() => pick(option)}
+                />
+            ))}
         </Menu>
+    )
+}
+
+// A glyph pair set in the option's own face, so the row previews the
+// font the way the old self-styled label did. Hidden from assistive
+// tech: the row's accessible name is the family name alone.
+function FontSample({ option }: { option: FontOption }) {
+    return (
+        <Text
+            aria-hidden
+            className="text-sm text-muted-foreground w-6"
+            style={{ fontFamily: cssFamily(option.name, option.fallback) }}
+        >
+            Aa
+        </Text>
     )
 }
 
@@ -118,35 +120,4 @@ function isOptionActive(option: FontOption, current: string | null): boolean {
 function stripFallback(value: string): string {
     const head = value.split(',', 1)[0].trim()
     return head.replace(/^['"]/, '').replace(/['"]$/, '')
-}
-
-interface FamilyRowProps {
-    option: FontOption | null
-    isActive: boolean
-    onPress: () => void
-    color: string
-}
-
-function FamilyRow({ option, isActive, onPress, color }: FamilyRowProps) {
-    const label = option?.name ?? DEFAULT_LABEL
-    const styleFontFamily = option ? cssFamily(option.name, option.fallback) : undefined
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Font ${label}`}
-            accessibilityState={{ selected: isActive }}
-            onPress={onPress}
-            className={`px-3 py-1.5 ${isActive ? 'bg-accent/10' : ''}`}
-        >
-            <Text
-                className="text-sm"
-                style={{
-                    color,
-                    fontFamily: styleFontFamily,
-                }}
-            >
-                {label}
-            </Text>
-        </Pressable>
-    )
 }

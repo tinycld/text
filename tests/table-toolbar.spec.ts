@@ -28,9 +28,8 @@ async function findInsertedTable(page: Page, expectedCells: number) {
     return tables.nth(idx)
 }
 
-// Open the table popover by clicking the "Table" toolbar button. The
-// Menu.Trigger wraps the FormatButton with a measuring <div> that
-// dispatches onClickCapture, so a normal click is enough.
+// Open the table menu by clicking the "Table" toolbar button, which the
+// Menu clones as its trigger.
 async function openTablePopover(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Table', exact: true }).click()
 }
@@ -56,8 +55,8 @@ test.describe('Text — Table toolbar', () => {
         await expect(page.getByText('Hover to choose size')).toBeVisible()
 
         // Row/column actions are hidden when not in a table.
-        await expect(page.getByRole('button', { name: 'Add row above' })).toHaveCount(0)
-        await expect(page.getByRole('button', { name: 'Delete row' })).toHaveCount(0)
+        await expect(page.getByRole('menuitem', { name: 'Add row above' })).toHaveCount(0)
+        await expect(page.getByRole('menuitem', { name: 'Delete row' })).toHaveCount(0)
     })
 
     test('inserting a 2x2 grid produces a 2x2 table in the doc', async ({ page }) => {
@@ -129,13 +128,13 @@ test.describe('Text — Table toolbar', () => {
         await openTablePopover(page)
 
         // Row/column actions now visible.
-        await expect(page.getByRole('button', { name: 'Add row above' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Add row below' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Add column left' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Add column right' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Delete row' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Delete column' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Delete table' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Add row above' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Add row below' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Add column left' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Add column right' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Delete row' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Delete column' })).toBeVisible()
+        await expect(page.getByRole('menuitem', { name: 'Delete table' })).toBeVisible()
 
         // Grid picker hidden.
         await expect(page.getByText('Hover to choose size')).toHaveCount(0)
@@ -170,7 +169,7 @@ test.describe('Text — Table toolbar', () => {
         // Caret is already inside a cell of the new table. Reopen the
         // popover and click "Add row below".
         await openTablePopover(page)
-        await page.getByRole('button', { name: 'Add row below' }).click()
+        await page.getByRole('menuitem', { name: 'Add row below' }).click()
 
         // One more <tr> than we started with.
         await expect(insertedTable.locator('tr')).toHaveCount(initialRowCount + 1)

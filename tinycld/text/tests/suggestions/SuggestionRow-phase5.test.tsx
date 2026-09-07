@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // SuggestionRow resolves the author user_org id to a human name via
@@ -183,35 +183,17 @@ describe('SuggestionRow (Task 4 — focus + header behavior)', () => {
     })
 
     it('wires onFocus to the header Pressable onPress', () => {
-        // React Native's Pressable renders as a `<pressable>` string
-        // element in happy-dom (per the react-native-stub), with
-        // `onPress` passed through as a lowercase `onpress` prop.
-        // testing-library's fireEvent.click doesn't translate to RN's
-        // onPress, so instead of driving a synthetic click we assert
-        // the prop is wired by reading react's internal fiber. The
-        // SuggestionRow contract is just "onFocus is the Pressable's
-        // primary press handler" — verifying the prop wiring covers
-        // it for unit-test purposes; e2e specs exercise the real
-        // click path in a real browser.
+        // The react-native stub answers a DOM click on a Pressable with its
+        // onPress, so a click on the header is the real user path.
         const onFocus = vi.fn()
         const { container } = renderRow(row({}), { onFocus })
         const header = container.querySelector(
             '[accessibilitylabel="Suggestion by uo_alice"]'
         ) as HTMLElement | null
         expect(header).toBeTruthy()
-        // The string-element Pressable's onPress comes through as the
-        // `onpress` attribute on the DOM node when React serializes
-        // unknown props on a host element. Verify it points at our
-        // onFocus callback (React encodes function props as `function`
-        // attributes whose presence we can detect).
-        const propsKey = Object.keys(header ?? {}).find(k => k.startsWith('__reactProps$')) as
-            | keyof HTMLElement
-            | undefined
-        expect(propsKey).toBeTruthy()
-        const reactProps = propsKey
-            ? ((header as unknown as Record<string, { onPress?: () => void }>)[propsKey] ?? null)
-            : null
-        expect(reactProps?.onPress).toBe(onFocus)
+        if (!header) throw new Error('no header')
+        fireEvent.click(header)
+        expect(onFocus).toHaveBeenCalledTimes(1)
     })
 
     it('calls onJump once when isFocused transitions from false to true', () => {

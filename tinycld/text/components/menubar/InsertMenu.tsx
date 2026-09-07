@@ -1,4 +1,4 @@
-import { Menu, MenuBarMenu, MenuShortcut } from '@tinycld/core/ui/menubar'
+import { Menu, MenuBarMenu } from '@tinycld/core/ui/menubar'
 import { useImageInsert } from '../ImageInsertButton'
 import type { MenuBarProps } from './MenuBar'
 
@@ -12,32 +12,27 @@ const TABLE_PRESETS: ReadonlyArray<{ rows: number; cols: number; label: string }
 export function InsertMenu(props: MenuBarProps) {
     const { commands, disabled, onRequestInsertLink, onInsertImage } = props
     const handleImage = useImageInsert(onInsertImage)
+    const tableDisabled = disabled || commands.insertTable == null
 
     return (
         <MenuBarMenu menuId="insert" label="Insert">
-            <Menu.Item onPress={handleImage} isDisabled={disabled}>
-                <Menu.ItemTitle>Image</Menu.ItemTitle>
-            </Menu.Item>
-            <Menu.Sub>
-                <Menu.SubTrigger>
-                    <Menu.ItemTitle>Table</Menu.ItemTitle>
-                </Menu.SubTrigger>
-                <Menu.SubContent>
-                    {TABLE_PRESETS.map(preset => (
-                        <Menu.Item
-                            key={preset.label}
-                            onPress={() => commands.insertTable?.(preset.rows, preset.cols)}
-                            isDisabled={disabled || commands.insertTable == null}
-                        >
-                            <Menu.ItemTitle>{preset.label}</Menu.ItemTitle>
-                        </Menu.Item>
-                    ))}
-                </Menu.SubContent>
+            <Menu.Item label="Image" onSelect={handleImage} isDisabled={disabled} />
+            <Menu.Sub label="Table">
+                {TABLE_PRESETS.map(preset => (
+                    <Menu.Item
+                        key={preset.label}
+                        label={preset.label}
+                        onSelect={() => commands.insertTable?.(preset.rows, preset.cols)}
+                        isDisabled={tableDisabled}
+                    />
+                ))}
             </Menu.Sub>
-            <Menu.Item onPress={onRequestInsertLink} isDisabled={disabled}>
-                <Menu.ItemTitle>Link</Menu.ItemTitle>
-                <MenuShortcut keys="⌘K" />
-            </Menu.Item>
+            <Menu.Item
+                label="Link"
+                shortcut="⌘K"
+                onSelect={onRequestInsertLink}
+                isDisabled={disabled}
+            />
         </MenuBarMenu>
     )
 }

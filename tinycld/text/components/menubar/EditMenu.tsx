@@ -1,5 +1,5 @@
 import { captureException } from '@tinycld/core/lib/errors'
-import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
+import { Menu, MenuBarMenu } from '@tinycld/core/ui/menubar'
 import { useFindReplaceStore } from '../../lib/stores/find-replace-store'
 import type { MenuBarProps } from './MenuBar'
 
@@ -69,43 +69,61 @@ export function EditMenu(props: MenuBarProps) {
 
     return (
         <MenuBarMenu menuId="edit" label="Edit">
-            <Menu.Item onPress={() => commands.undo()} isDisabled={disabled}>
-                <Menu.ItemTitle>Undo</Menu.ItemTitle>
-                <MenuShortcut keys="⌘Z" />
-            </Menu.Item>
-            <Menu.Item onPress={() => commands.redo()} isDisabled={disabled}>
-                <Menu.ItemTitle>Redo</Menu.ItemTitle>
-                <MenuShortcut keys="⌘Y" />
-            </Menu.Item>
-            <Separator />
-            <Menu.Item onPress={() => commands.cut?.()} isDisabled={editDisabled}>
-                <Menu.ItemTitle>Cut</Menu.ItemTitle>
-                <MenuShortcut keys="⌘X" />
-            </Menu.Item>
-            <Menu.Item onPress={() => commands.copy?.()} isDisabled={editDisabled}>
-                <Menu.ItemTitle>Copy</Menu.ItemTitle>
-                <MenuShortcut keys="⌘C" />
-            </Menu.Item>
-            <Menu.Item onPress={() => commands.paste?.()} isDisabled={disabled}>
-                <Menu.ItemTitle>Paste</Menu.ItemTitle>
-                <MenuShortcut keys="⌘V" />
-            </Menu.Item>
-            <Menu.Item onPress={pasteAsMarkdown} isDisabled={disabled || !tiptapEditor}>
-                <Menu.ItemTitle>Paste as Markdown</Menu.ItemTitle>
-            </Menu.Item>
-            <Separator />
-            <Menu.Item onPress={openFindReplace} isDisabled={disabled}>
-                <Menu.ItemTitle>Find…</Menu.ItemTitle>
-                <MenuShortcut keys="⌘F" />
-            </Menu.Item>
-            <Separator />
-            <Menu.Item onPress={() => commands.selectAll?.()} isDisabled={disabled}>
-                <Menu.ItemTitle>Select all</Menu.ItemTitle>
-                <MenuShortcut keys="⌘A" />
-            </Menu.Item>
-            <Menu.Item onPress={() => commands.deleteSelection?.()} isDisabled={editDisabled}>
-                <Menu.ItemTitle>Delete</Menu.ItemTitle>
-            </Menu.Item>
+            <Menu.Item
+                label="Undo"
+                shortcut="⌘Z"
+                onSelect={() => commands.undo()}
+                isDisabled={disabled}
+            />
+            <Menu.Item
+                label="Redo"
+                shortcut="⌘Y"
+                onSelect={() => commands.redo()}
+                isDisabled={disabled}
+            />
+            <Menu.Separator />
+            <Menu.Item
+                label="Cut"
+                shortcut="⌘X"
+                onSelect={() => commands.cut?.()}
+                isDisabled={editDisabled}
+            />
+            <Menu.Item
+                label="Copy"
+                shortcut="⌘C"
+                onSelect={() => commands.copy?.()}
+                isDisabled={editDisabled}
+            />
+            <Menu.Item
+                label="Paste"
+                shortcut="⌘V"
+                onSelect={() => commands.paste?.()}
+                isDisabled={disabled}
+            />
+            <Menu.Item
+                label="Paste as Markdown"
+                onSelect={pasteAsMarkdown}
+                isDisabled={disabled || !tiptapEditor}
+            />
+            <Menu.Separator />
+            <Menu.Item
+                label="Find…"
+                shortcut="⌘F"
+                onSelect={openFindReplace}
+                isDisabled={disabled}
+            />
+            <Menu.Separator />
+            <Menu.Item
+                label="Select all"
+                shortcut="⌘A"
+                onSelect={() => commands.selectAll?.()}
+                isDisabled={disabled}
+            />
+            <Menu.Item
+                label="Delete"
+                onSelect={() => commands.deleteSelection?.()}
+                isDisabled={editDisabled}
+            />
         </MenuBarMenu>
     )
 }

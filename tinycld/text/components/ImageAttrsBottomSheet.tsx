@@ -1,7 +1,5 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { BottomDrawer } from '@tinycld/core/ui/bottom-drawer'
-import { X } from 'lucide-react-native'
+import { Sheet } from '@tinycld/core/ui/sheet'
 import { Platform, Pressable, Text, View } from 'react-native'
 import { IMAGE_MAX_WIDTH } from '../lib/image-resize'
 import {
@@ -17,7 +15,7 @@ import { useImageSelectionStore } from '../lib/stores/image-selection-store'
 // a NodeView overlay (ImageNodeView.web.tsx) for the same wrap-mode +
 // size operations; on native the WebView renders bare <img>s with no
 // place to anchor in-document chrome, so we surface the controls as
-// a BottomDrawer anchored to the screen bottom.
+// a Sheet anchored to the screen bottom.
 //
 // Flow:
 //   - WebView's Editor.tsx broadcasts ui.selection-changed whenever
@@ -80,9 +78,8 @@ function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands })
     }
 
     return (
-        <BottomDrawer isOpen={isOpen} onClose={clearSelection}>
-            <View className="w-full gap-4 px-4 py-3">
-                <Header onClose={clearSelection} />
+        <Sheet isOpen={isOpen} onClose={clearSelection} title="Image">
+            <Sheet.Body contentClassName="px-4 pb-4 gap-4">
                 <Section label="Wrap">
                     <View className="flex-row flex-wrap gap-2">
                         {IMAGE_WRAP_MODES.map(mode => (
@@ -110,26 +107,8 @@ function NativeImageAttrsBottomSheet({ commands }: { commands: EditorCommands })
                         ))}
                     </View>
                 </Section>
-            </View>
-        </BottomDrawer>
-    )
-}
-
-function Header({ onClose }: { onClose: () => void }) {
-    const mutedColor = useThemeColor('muted-foreground')
-    return (
-        <View className="flex-row items-center justify-between">
-            <Text className="text-base font-semibold text-foreground">Image</Text>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close image options"
-                onPress={onClose}
-                hitSlop={8}
-                className="p-1 rounded-md"
-            >
-                <X size={20} color={mutedColor} />
-            </Pressable>
-        </View>
+            </Sheet.Body>
+        </Sheet>
     )
 }
 

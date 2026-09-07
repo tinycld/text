@@ -495,15 +495,15 @@ interface FormatButtonProps {
     activeColor: string
 }
 
-// forwardRef so a FormatButton can serve as a Menu.Trigger child (the
-// Table button): Menu.Trigger clones its direct child to forward a ref
-// it measures for native popover placement, and re-injects a composed
-// onPress (the child's own press + the menu-open toggle). FormatButton
-// forwards that ref straight to its Pressable and already drives the
-// Pressable from its onPress prop, so both work. ToolbarTooltip is a
-// Fragment on native, so it must NOT sit between Menu.Trigger and this
-// Pressable — Trigger clones FormatButton (a real component that forwards
-// the ref), not the tooltip, so the nesting here is fine.
+// forwardRef so a FormatButton can serve as a Menu `trigger` (the Table
+// button): the Menu clones its trigger to forward a ref it measures for
+// placement, and re-injects a composed onPress (the child's own press +
+// the menu-open toggle). FormatButton forwards that ref straight to its
+// Pressable and already drives the Pressable from its onPress prop, so
+// both work. ToolbarTooltip is a Fragment on native, so it must NOT sit
+// between the Menu and this Pressable — the Menu clones FormatButton (a
+// real component that forwards the ref), not the tooltip, so the nesting
+// here is fine.
 const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
     { icon: Icon, accessibilityLabel, isActive, disabled, onPress, iconColor, activeColor },
     ref

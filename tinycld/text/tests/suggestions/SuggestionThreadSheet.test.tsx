@@ -18,15 +18,17 @@ vi.mock('react-native', async () => {
     }
 })
 
-// @tinycld/core/ui/bottom-drawer pulls in react-native-reanimated,
+// @tinycld/core/ui/sheet pulls in react-native-reanimated,
 // react-native-gesture-handler and react-native-safe-area-context, none of
 // which load in this happy-dom unit env. Stub it down to a plain View that
 // honors isOpen so the sheet's open/closed contract is still observable
 // through findThread() below.
-vi.mock('@tinycld/core/ui/bottom-drawer', () => ({
-    BottomDrawer: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) =>
-        isOpen ? <View>{children}</View> : null,
-}))
+vi.mock('@tinycld/core/ui/sheet', () => {
+    const SheetRoot = ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) =>
+        isOpen ? <View>{children}</View> : null
+    const Passthrough = ({ children }: { children?: ReactNode }) => <View>{children}</View>
+    return { Sheet: Object.assign(SheetRoot, { Body: Passthrough, Footer: Passthrough }) }
+})
 
 // The sheet renders <SuggestionThread />, which mounts <SuggestionThread
 // />'s composer + reply list. Those subcomponents pull from
@@ -92,7 +94,7 @@ function renderSheet(opts: {
     )
 }
 
-// The BottomDrawer (mocked above) mounts its content tree only when
+// The Sheet (mocked above) mounts its content tree only when
 // isOpen is true. So "the sheet is open" is observable by checking
 // whether the SuggestionThread testid is in the DOM; "the sheet is
 // closed" is the absence of that testid.
@@ -110,7 +112,7 @@ describe('SuggestionThreadSheet', () => {
             store,
             anchored: [sampleSuggestion()],
         })
-        // The sheet's BottomDrawer has isOpen=false → no thread mounted.
+        // The Sheet has isOpen=false → no thread mounted.
         expect(findThread(container)).toBeNull()
     })
 
@@ -146,14 +148,14 @@ describe('SuggestionThreadSheet', () => {
     })
 
     it('clears focusedSuggestionId via store.focusSuggestion(null) when the sheet dismisses', () => {
-        // Dismissing the sheet (backdrop, swipe-down, or the header X)
+        // Dismissing the sheet (backdrop, swipe-down, or the close button)
         // routes through the same handleClose → store.focusSuggestion(null)
         // path. We don't have a way to simulate a real gesture in
         // happy-dom, so drive the store-level state machine directly:
         // call focusSuggestion(null) and verify the sheet unmounts.
         // This pins the contract "the sheet is bound to the store, so
         // any path that clears focusedSuggestionId unmounts the sheet"
-        // without relying on a gluestack-internal event.
+        // without relying on a Sheet-internal gesture.
         const store = createReviewDrawerStore()
         store.getState().open('di_test')
         store.getState().focusSuggestion('s1')

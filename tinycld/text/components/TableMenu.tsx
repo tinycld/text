@@ -1,6 +1,7 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Menu, Separator } from '@tinycld/core/ui/menu'
+import { Menu } from '@tinycld/core/ui/menu'
+import { usePopoverContext } from '@tinycld/core/ui/popover'
 import { useState } from 'react'
 import { type GestureResponderEvent, Platform, Pressable, Text, View } from 'react-native'
 import {
@@ -19,20 +20,17 @@ interface TableMenuProps {
     canMergeCells: boolean
     canSplitCell: boolean
     commands: EditorCommands
-    // The popover anchors to the wrapped trigger element. The
-    // <Menu.Trigger> child receives a press handler that toggles the
-    // popover; the trigger button's measurement drives the popover's
-    // x/y placement. Must be a single ReactElement (not arbitrary
-    // ReactNode) because Menu.Trigger clones it to inject onPress + ref.
+    // The menu anchors to this element and clones it with the onPress
+    // that toggles the menu plus the ref it measures, so it must be a
+    // single element that forwards both to a Pressable.
     trigger: React.ReactElement
 }
 
 const CELL_SIZE = 18
 const CELL_GAP = 2
 
-// TableMenu renders as a portaled popover anchored under the toolbar
-// "Table" button (Menu.Content placement="bottom" align="start"). The
-// content depends on caret position:
+// TableMenu is anchored under the toolbar "Table" button. The content
+// depends on caret position:
 //   - Caret NOT in a table → interactive grid picker for inserting
 //     a new table. Row/column ops would no-op so we hide them.
 //   - Caret IS in a table  → row/column add/delete operations. The
@@ -53,19 +51,19 @@ export function TableMenu({
     trigger,
 }: TableMenuProps) {
     return (
-        <Menu isOpen={isOpen} onOpenChange={onOpenChange}>
-            <Menu.Trigger>{trigger}</Menu.Trigger>
-            <Menu.Portal>
-                <Menu.Content placement="bottom" align="start">
-                    <TableMenuBody
-                        isInTable={isInTable}
-                        canMergeCells={canMergeCells}
-                        canSplitCell={canSplitCell}
-                        commands={commands}
-                        onClose={() => onOpenChange(false)}
-                    />
-                </Menu.Content>
-            </Menu.Portal>
+        <Menu
+            isOpen={isOpen}
+            onOpenChange={onOpenChange}
+            trigger={trigger}
+            placement="bottom-start"
+            title="Table"
+        >
+            <TableMenuBody
+                isInTable={isInTable}
+                canMergeCells={canMergeCells}
+                canSplitCell={canSplitCell}
+                commands={commands}
+            />
         </Menu>
     )
 }
@@ -75,103 +73,46 @@ interface TableMenuBodyProps {
     canMergeCells: boolean
     canSplitCell: boolean
     commands: EditorCommands
-    onClose: () => void
 }
 
-function TableMenuBody({
-    isInTable,
-    canMergeCells,
-    canSplitCell,
-    commands,
-    onClose,
-}: TableMenuBodyProps) {
+function TableMenuBody({ isInTable, canMergeCells, canSplitCell, commands }: TableMenuBodyProps) {
+    const { close } = usePopoverContext()
     if (isInTable) {
         return (
-            <View className="min-w-[200px] p-1">
-                <Text className="text-xs font-semibold text-foreground px-3 pt-1.5 pb-1">
-                    Table
-                </Text>
-                <MenuRow
-                    label="Add row above"
-                    onPress={() => {
-                        commands.addRowBefore?.()
-                        onClose()
-                    }}
-                />
-                <MenuRow
-                    label="Add row below"
-                    onPress={() => {
-                        commands.addRowAfter?.()
-                        onClose()
-                    }}
-                />
-                <MenuRow
-                    label="Add column left"
-                    onPress={() => {
-                        commands.addColumnBefore?.()
-                        onClose()
-                    }}
-                />
-                <MenuRow
-                    label="Add column right"
-                    onPress={() => {
-                        commands.addColumnAfter?.()
-                        onClose()
-                    }}
-                />
-                <Separator />
-                <MenuRow
+            <Menu.Section label="Table">
+                <Menu.Item label="Add row above" onSelect={() => commands.addRowBefore?.()} />
+                <Menu.Item label="Add row below" onSelect={() => commands.addRowAfter?.()} />
+                <Menu.Item label="Add column left" onSelect={() => commands.addColumnBefore?.()} />
+                <Menu.Item label="Add column right" onSelect={() => commands.addColumnAfter?.()} />
+                <Menu.Separator />
+                <Menu.Item
                     label="Merge cells"
                     isDisabled={!canMergeCells}
-                    onPress={() => {
-                        commands.mergeCells?.()
-                        onClose()
-                    }}
+                    onSelect={() => commands.mergeCells?.()}
                 />
-                <MenuRow
+                <Menu.Item
                     label="Split cell"
                     isDisabled={!canSplitCell}
-                    onPress={() => {
-                        commands.splitCell?.()
-                        onClose()
-                    }}
+                    onSelect={() => commands.splitCell?.()}
                 />
-                <Separator />
-                <MenuRow
-                    label="Delete row"
-                    onPress={() => {
-                        commands.deleteRow?.()
-                        onClose()
-                    }}
-                />
-                <MenuRow
-                    label="Delete column"
-                    onPress={() => {
-                        commands.deleteColumn?.()
-                        onClose()
-                    }}
-                />
-                <MenuRow
-                    label="Delete table"
-                    onPress={() => {
-                        commands.deleteTable?.()
-                        onClose()
-                    }}
-                />
-            </View>
+                <Menu.Separator />
+                <Menu.Item label="Delete row" onSelect={() => commands.deleteRow?.()} />
+                <Menu.Item label="Delete column" onSelect={() => commands.deleteColumn?.()} />
+                <Menu.Item label="Delete table" onSelect={() => commands.deleteTable?.()} />
+            </Menu.Section>
         )
     }
 
     return (
-        <View className="p-3 gap-2">
+        <Menu.Custom className="p-3 gap-2">
             <Text className="text-xs font-semibold text-foreground">Insert table</Text>
             <TableGridPicker
                 onInsert={cell => {
                     commands.insertTable?.(cell.row, cell.col)
-                    onClose()
+                    close()
                 }}
             />
-        </View>
+        </Menu.Custom>
     )
 }
 
@@ -257,31 +198,5 @@ function TableGridPicker({
                 {hovered ? `${hovered.row} × ${hovered.col}` : 'Hover to choose size'}
             </Text>
         </View>
-    )
-}
-
-function MenuRow({
-    label,
-    onPress,
-    isDisabled,
-}: {
-    label: string
-    onPress: () => void
-    isDisabled?: boolean
-}) {
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: isDisabled }}
-            disabled={isDisabled}
-            onPress={onPress}
-            className={`px-3 py-2 rounded-md ${
-                isDisabled ? 'opacity-40' : 'hover:bg-surface-secondary'
-            }`}
-            hitSlop={Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }}
-        >
-            <Text className="text-sm text-foreground">{label}</Text>
-        </Pressable>
     )
 }

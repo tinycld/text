@@ -1,7 +1,8 @@
-import { COLOR_PICKER_GRID_WIDTH, ColorPickerGrid } from '@tinycld/core/ui/color-picker'
-import { Menu, useOpenMenu } from '@tinycld/core/ui/menubar'
-import type { ComponentType, ReactNode } from 'react'
-import { useCallback } from 'react'
+import { ColorPickerGrid } from '@tinycld/core/ui/color-picker'
+import { useOpenMenu } from '@tinycld/core/ui/menubar'
+import { Popover } from '@tinycld/core/ui/popover'
+import type { ComponentType } from 'react'
+import { forwardRef, useCallback } from 'react'
 import { Platform, Pressable, View } from 'react-native'
 import { ToolbarTooltip } from './ToolbarTooltip'
 
@@ -30,8 +31,11 @@ interface TextColorButtonProps {
 // same accent underline bar under the icon. Differs only in the
 // trigger button shape, which mirrors DocumentToolbar's FormatButton
 // instead of calc's ToolbarButton.
+//
+// A Popover rather than a Menu: the grid is a widget, not a list of
+// command rows.
 export function TextColorButton({
-    icon: Icon,
+    icon,
     accessibilityLabel,
     menuKey,
     color,
@@ -49,6 +53,52 @@ export function TextColorButton({
         [onSelect, setIsOpen]
     )
 
+    return (
+        <Popover
+            isOpen={isOpen}
+            onOpenChange={setIsOpen}
+            placement="bottom-start"
+            title={accessibilityLabel}
+            trigger={
+                <ColorTriggerButton
+                    icon={icon}
+                    accessibilityLabel={accessibilityLabel}
+                    color={color}
+                    disabled={disabled}
+                    iconColor={iconColor}
+                    isOpen={isOpen}
+                />
+            }
+        >
+            <ColorPickerGrid
+                selected={color}
+                onSelect={handleSelect}
+                showClear
+                clearLabel="No color"
+            />
+        </Popover>
+    )
+}
+
+interface ColorTriggerButtonProps {
+    icon: ComponentType<{ size: number; color: string }>
+    accessibilityLabel: string
+    color: string | undefined
+    disabled: boolean
+    iconColor: string
+    isOpen: boolean
+    /** Injected by the Popover that clones this trigger. */
+    onPress?: () => void
+}
+
+// forwardRef so the Popover can clone this element with the ref it
+// measures and the onPress that toggles it, while the tooltip still
+// wraps the Pressable from outside (ToolbarTooltip is a Fragment on
+// native and must not sit between the surface and its trigger).
+const ColorTriggerButton = forwardRef<View, ColorTriggerButtonProps>(function ColorTriggerButton(
+    { icon: Icon, accessibilityLabel, color, disabled, iconColor, isOpen, onPress },
+    ref
+) {
     // Stop the mousedown from moving DOM focus off the ProseMirror
     // editor — same rationale as FormatButton in DocumentToolbar.tsx.
     const webProps =
@@ -64,75 +114,33 @@ export function TextColorButton({
     const underlineColor = color || 'transparent'
 
     return (
-        <Menu isOpen={isOpen} onOpenChange={setIsOpen}>
-            {/* The Pressable must be Menu.Trigger's DIRECT child: on native
-                Trigger clones that child to inject onPress + a ref it
-                measures for popover placement. Anything in between — a
-                Fragment-on-native ToolbarTooltip, or a plain View — swallows
-                both and the color pane never opens. So the tooltip and the
-                web-only `data-tinycld-menu` positioning wrapper both sit
-                OUTSIDE Menu.Trigger; on native ToolbarTooltip is a passthrough
-                and the wrapper View is omitted. */}
-            <ToolbarTooltip label={accessibilityLabel}>
-                <MenuTriggerWrapper>
-                    <Menu.Trigger>
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={accessibilityLabel}
-                            accessibilityState={{ disabled, expanded: isOpen }}
-                            disabled={disabled}
-                            {...webProps}
-                            className="rounded-md p-1.5"
-                            style={{ opacity: disabled ? 0.4 : 1 }}
-                            hitSlop={
-                                Platform.OS === 'web'
-                                    ? undefined
-                                    : { top: 6, bottom: 6, left: 4, right: 4 }
-                            }
-                        >
-                            <View className="items-center justify-center" style={{ gap: 1 }}>
-                                <Icon size={16} color={iconColor} />
-                                <View
-                                    style={{
-                                        height: 3,
-                                        width: 16,
-                                        backgroundColor: underlineColor,
-                                        borderRadius: 1,
-                                    }}
-                                />
-                            </View>
-                        </Pressable>
-                    </Menu.Trigger>
-                </MenuTriggerWrapper>
-            </ToolbarTooltip>
-            <Menu.Portal>
-                <Menu.Content placement="bottom" align="start">
+        <ToolbarTooltip label={accessibilityLabel}>
+            <Pressable
+                ref={ref}
+                accessibilityRole="button"
+                accessibilityLabel={accessibilityLabel}
+                accessibilityState={{ disabled, expanded: isOpen }}
+                disabled={disabled}
+                onPress={onPress}
+                {...webProps}
+                className="rounded-md p-1.5"
+                style={{ opacity: disabled ? 0.4 : 1 }}
+                hitSlop={
+                    Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
+                }
+            >
+                <View className="items-center justify-center" style={{ gap: 1 }}>
+                    <Icon size={16} color={iconColor} />
                     <View
-                        style={{ width: COLOR_PICKER_GRID_WIDTH }}
-                        {...(typeof document !== 'undefined'
-                            ? { 'data-tinycld-menu': 'content' }
-                            : {})}
-                    >
-                        <ColorPickerGrid
-                            selected={color}
-                            onSelect={handleSelect}
-                            showClear
-                            clearLabel="No color"
-                        />
-                    </View>
-                </Menu.Content>
-            </Menu.Portal>
-        </Menu>
+                        style={{
+                            height: 3,
+                            width: 16,
+                            backgroundColor: underlineColor,
+                            borderRadius: 1,
+                        }}
+                    />
+                </View>
+            </Pressable>
+        </ToolbarTooltip>
     )
-}
-
-// On web, wrap the trigger in a View tagged data-tinycld-menu="trigger" so
-// the outside-click detector (use-open-menu-outside-click) treats a click
-// on the trigger as "inside" via target.closest('[data-tinycld-menu]'). On
-// native there's no outside-click DOM handler and an extra View here would
-// sit between Menu.Trigger and its Pressable — breaking Trigger's clone —
-// so we render the child directly.
-function MenuTriggerWrapper({ children }: { children: ReactNode }) {
-    if (Platform.OS !== 'web') return <>{children}</>
-    return <View {...{ 'data-tinycld-menu': 'trigger' }}>{children}</View>
-}
+})

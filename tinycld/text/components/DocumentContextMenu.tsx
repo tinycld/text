@@ -1,8 +1,6 @@
 import { ContextMenu } from '@tinycld/core/components/ContextMenu'
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Kbd } from '@tinycld/core/ui/Kbd'
-import { Menu, Separator } from '@tinycld/core/ui/menu'
+import { Menu } from '@tinycld/core/ui/menu'
 import type { LucideIcon } from 'lucide-react-native'
 import {
     ClipboardPaste,
@@ -19,7 +17,7 @@ import {
     Trash2,
 } from 'lucide-react-native'
 import { Fragment, type ReactNode } from 'react'
-import { Platform, View } from 'react-native'
+import { Platform } from 'react-native'
 import { buildDocumentContextMenu, type ContextMenuItemId } from './document-context-menu-items'
 
 interface DocumentContextMenuProps {
@@ -89,7 +87,6 @@ function MenuContent({
     onRequestAddComment,
     canAddComment,
 }: MenuContentProps) {
-    const mutedColor = useThemeColor('muted-foreground')
     const groups = buildDocumentContextMenu({
         commands,
         toolbarState,
@@ -103,22 +100,28 @@ function MenuContent({
         <>
             {groups.map((group, groupIndex) => (
                 <Fragment key={group.label ?? `group-${groupIndex}`}>
-                    {groupIndex > 0 ? <Separator className="my-1 mx-2" /> : null}
-                    {group.label != null ? <Menu.Label>{group.label}</Menu.Label> : null}
-                    {group.rows.map(row => (
-                        <Row
-                            key={row.id}
-                            id={row.id}
-                            label={row.label}
-                            isDisabled={row.isDisabled}
-                            onPress={row.invoke}
-                            mutedColor={mutedColor}
-                        />
-                    ))}
+                    {groupIndex > 0 ? <Menu.Separator /> : null}
+                    <Group label={group.label}>
+                        {group.rows.map(row => (
+                            <Row
+                                key={row.id}
+                                id={row.id}
+                                label={row.label}
+                                isDisabled={row.isDisabled}
+                                onSelect={row.invoke}
+                            />
+                        ))}
+                    </Group>
                 </Fragment>
             ))}
         </>
     )
+}
+
+// A labelled group is a Menu.Section; an unlabelled one is just its rows.
+function Group({ label, children }: { label?: string; children: ReactNode }) {
+    if (label == null) return <>{children}</>
+    return <Menu.Section label={label}>{children}</Menu.Section>
 }
 
 interface IconMeta {
@@ -130,12 +133,12 @@ interface IconMeta {
 // pure helper means a designer-driven icon swap is a one-file edit and
 // the unit test doesn't need to care about LucideIcon types.
 const ITEM_META: Record<ContextMenuItemId, IconMeta> = {
-    cut: { icon: Scissors, shortcut: '$mod+x' },
-    copy: { icon: Copy, shortcut: '$mod+c' },
-    paste: { icon: ClipboardPaste, shortcut: '$mod+v' },
+    cut: { icon: Scissors, shortcut: '⌘X' },
+    copy: { icon: Copy, shortcut: '⌘C' },
+    paste: { icon: ClipboardPaste, shortcut: '⌘V' },
     delete: { icon: Trash2 },
-    'select-all': { icon: TextSelect, shortcut: '$mod+a' },
-    'insert-link': { icon: LinkIcon, shortcut: '$mod+k' },
+    'select-all': { icon: TextSelect, shortcut: '⌘A' },
+    'insert-link': { icon: LinkIcon, shortcut: '⌘K' },
     'add-comment': { icon: MessageSquarePlus },
     'table-insert-row-above': { icon: Rows },
     'table-insert-row-below': { icon: Rows },
@@ -152,23 +155,20 @@ interface RowProps {
     id: ContextMenuItemId
     label: string
     isDisabled: boolean
-    onPress: () => void
-    mutedColor: string
+    onSelect: () => void
 }
 
-function Row({ id, label, isDisabled, onPress, mutedColor }: RowProps) {
+// Shortcuts are keyboard bindings, which only exist on web.
+function Row({ id, label, isDisabled, onSelect }: RowProps) {
     const meta = ITEM_META[id]
-    const Icon = meta.icon
-    const showShortcut = meta.shortcut != null && Platform.OS === 'web'
+    const shortcut = Platform.OS === 'web' ? meta.shortcut : undefined
     return (
-        <Menu.Item onPress={onPress} isDisabled={isDisabled}>
-            <Icon size={16} color={mutedColor} />
-            <Menu.ItemTitle>{label}</Menu.ItemTitle>
-            {showShortcut ? (
-                <View className="ml-auto pl-4">
-                    <Kbd keys={meta.shortcut as string} />
-                </View>
-            ) : null}
-        </Menu.Item>
+        <Menu.Item
+            label={label}
+            icon={meta.icon}
+            shortcut={shortcut}
+            isDisabled={isDisabled}
+            onSelect={onSelect}
+        />
     )
 }

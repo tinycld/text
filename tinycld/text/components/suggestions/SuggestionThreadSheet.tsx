@@ -1,7 +1,5 @@
-import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { BottomDrawer } from '@tinycld/core/ui/bottom-drawer'
-import { X } from 'lucide-react-native'
-import { Platform, Pressable, Text, View } from 'react-native'
+import { Sheet } from '@tinycld/core/ui/sheet'
+import { Platform } from 'react-native'
 import { useStore } from 'zustand'
 import type { AnchoredSuggestion } from '../../hooks/use-document-suggestions'
 import type { ReviewDrawerStore } from '../../stores/review-drawer-store'
@@ -43,7 +41,7 @@ export interface SuggestionThreadSheetProps {
 // mount the component unconditionally.
 //
 // Dismiss flow: closing the sheet (swipe-down, backdrop tap, or the
-// header X) calls store.focusSuggestion(null) so the row's focus
+// title row's close button) calls store.focusSuggestion(null) so the row's focus
 // state clears in lockstep — leaving the row visually focused while
 // the sheet is closed would be confusing.
 export function SuggestionThreadSheet(props: SuggestionThreadSheetProps) {
@@ -70,7 +68,7 @@ function NativeSuggestionThreadSheet({
     const isOpen = focused != null
 
     // Dismiss handler — also called by the backdrop tap, the drag-down
-    // gesture, and the header X. Clearing the store's focused id is
+    // gesture, and the title row's close button. Clearing the store's focused id is
     // what closes the sheet on the next render; we don't track local
     // open state, so the store is the single source of truth.
     const handleClose = () => {
@@ -80,9 +78,8 @@ function NativeSuggestionThreadSheet({
     if (!isOpen || !focused) return null
 
     return (
-        <BottomDrawer isOpen={isOpen} onClose={handleClose}>
-            <View className="w-full gap-2 px-4 py-2">
-                <Header onClose={handleClose} />
+        <Sheet isOpen={isOpen} onClose={handleClose} title="Suggestion">
+            <Sheet.Body contentClassName="px-4 pb-4 gap-2">
                 <SuggestionThread
                     suggestion={focused}
                     driveItemId={driveItemId}
@@ -91,25 +88,7 @@ function NativeSuggestionThreadSheet({
                     onAccept={() => onAccept(focused.id)}
                     onReject={() => onReject(focused.id)}
                 />
-            </View>
-        </BottomDrawer>
-    )
-}
-
-function Header({ onClose }: { onClose: () => void }) {
-    const mutedColor = useThemeColor('muted-foreground')
-    return (
-        <View className="flex-row items-center justify-between">
-            <Text className="text-base font-semibold text-foreground">Suggestion</Text>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close suggestion thread"
-                onPress={onClose}
-                hitSlop={8}
-                className="p-1 rounded-md"
-            >
-                <X size={20} color={mutedColor} />
-            </Pressable>
-        </View>
+            </Sheet.Body>
+        </Sheet>
     )
 }

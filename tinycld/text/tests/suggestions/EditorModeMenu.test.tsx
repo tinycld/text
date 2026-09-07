@@ -1,29 +1,24 @@
 // @vitest-environment happy-dom
 //
-// EditorModeMenu's interactive surface lives inside @tinycld/core/ui/menu's
-// portaled Content, which in turn renders through @gluestack-ui's Overlay.
-// That stack relies on layout measurement (getBoundingClientRect / measure
-// in window) and a React portal — neither of which behaves identically under
-// happy-dom + the react-native stub used by vitest, where <Pressable> /
-// <View> / <Text> render as bare lowercase HTML tags with no role mapping.
-//
-// What we DO verify here:
+// EditorModeMenu is a core Menu: its rows render through the overlay host
+// (OverlayProvider) once the trigger is pressed, as real `role="menuitem"`
+// elements on web. The tests below cover:
 //   - the pure `getVisibleModes(canEdit, canSuggest)` helper that gates
 //     dropdown rows by permission — the menu's user-visible item set is a
 //     direct render of this list, so locking the helper's contract locks
 //     the menu's contract
 //   - the trigger surfaces the current store mode as visible text (proves
 //     useStore subscription is wired and MODE_LABELS lookup is correct)
-//   - the component import path itself — catches typos in the public
-//     API before Phase 2a's screen wiring hits them at runtime
+//   - opening the menu lists one row per visible mode, and choosing a row
+//     writes the store and closes the menu
 //
-// The full open-menu interaction is exercised by the higher-level e2e
-// suite in tests/playwright (Phase 2a Task 11) which boots the real
-// editor and uses chromium's actual DOM, role mapping, and portal
-// hosting — happy-dom can't truthfully stand in for that.
+// The full in-editor flow (mode switch → decorations) is exercised by the
+// Playwright suite, which boots the real editor.
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render as renderBare, screen } from '@testing-library/react'
+import { OverlayProvider } from '@tinycld/core/ui/overlay'
+import type { ReactElement } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
     EditorModeMenu,
     getVisibleModes,
@@ -35,6 +30,22 @@ import {
     EDITOR_MODE_SUGGESTING,
     EDITOR_MODE_VIEWING,
 } from '~/tinycld/text/stores/editor-mode-store'
+
+// Every surface renders through the overlay host, which the app mounts once.
+const render = (ui: ReactElement) => renderBare(<OverlayProvider>{ui}</OverlayProvider>)
+
+const menuRows = () =>
+    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).map(row =>
+        row.textContent?.trim()
+    )
+
+// The trigger is a Pressable, which the react-native stub renders as a host
+// element carrying its accessibility props verbatim.
+const trigger = () => {
+    const node = document.querySelector<HTMLElement>('[accessibilitylabel="Editor mode"]')
+    if (!node) throw new Error('no Editor mode trigger')
+    return node
+}
 
 describe('getVisibleModes', () => {
     it('always includes Viewing, even when both flags are false', () => {
@@ -85,6 +96,8 @@ describe('MODE_LABELS', () => {
 })
 
 describe('EditorModeMenu render', () => {
+    afterEach(cleanup)
+
     it('renders the current mode label on the trigger', () => {
         const modeStore = createEditorModeStore()
         modeStore.getState().setMode(EDITOR_MODE_EDITING)
@@ -107,5 +120,30 @@ describe('EditorModeMenu render', () => {
         expect(() =>
             render(<EditorModeMenu modeStore={modeStore} canEdit={false} canSuggest={false} />)
         ).not.toThrow()
+    })
+
+    it('opens to one row per visible mode, in order', () => {
+        const modeStore = createEditorModeStore()
+        modeStore.getState().setMode(EDITOR_MODE_SUGGESTING)
+        render(<EditorModeMenu modeStore={modeStore} canEdit canSuggest />)
+        expect(menuRows()).toEqual([])
+
+        fireEvent.click(trigger())
+
+        expect(menuRows()).toEqual(['Editing', 'Suggesting', 'Viewing'])
+    })
+
+    it('hides the gated rows and writes the store when a row is chosen', () => {
+        const modeStore = createEditorModeStore()
+        modeStore.getState().setMode(EDITOR_MODE_EDITING)
+        render(<EditorModeMenu modeStore={modeStore} canEdit canSuggest={false} />)
+
+        fireEvent.click(trigger())
+        expect(menuRows()).toEqual(['Editing', 'Viewing'])
+
+        fireEvent.click(screen.getByText('Viewing'))
+        expect(modeStore.getState().mode).toBe(EDITOR_MODE_VIEWING)
+        // Choosing a row closes the menu.
+        expect(menuRows()).toEqual([])
     })
 })

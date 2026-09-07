@@ -2,7 +2,7 @@ import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
-import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
+import { Menu, MenuBarMenu } from '@tinycld/core/ui/menubar'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
@@ -151,58 +151,44 @@ export function FileMenu(props: MenuBarProps) {
     return (
         <>
             <MenuBarMenu menuId="file" label="File">
-                <Menu.Item onPress={() => router.push(orgHref('text'))}>
-                    <Menu.ItemTitle>New document</Menu.ItemTitle>
-                </Menu.Item>
+                <Menu.Item label="New document" onSelect={() => router.push(orgHref('text'))} />
                 {hasTemplates && (
-                    <Menu.Item onPress={() => setTemplatePickerOpen(true)}>
-                        <Menu.ItemTitle>New from template…</Menu.ItemTitle>
-                    </Menu.Item>
+                    <Menu.Item
+                        label="New from template…"
+                        onSelect={() => setTemplatePickerOpen(true)}
+                    />
                 )}
-                <Menu.Item onPress={() => router.push(orgHref('drive'))}>
-                    <Menu.ItemTitle>Open</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={() => setCopyOpen(true)}>
-                    <Menu.ItemTitle>Make a copy</Menu.ItemTitle>
-                </Menu.Item>
+                <Menu.Item label="Open" onSelect={() => router.push(orgHref('drive'))} />
+                <Menu.Item label="Make a copy" onSelect={() => setCopyOpen(true)} />
                 {!isAlreadyTemplate && (
-                    <Menu.Item onPress={handleExportTemplate}>
-                        <Menu.ItemTitle>Export as template…</Menu.ItemTitle>
-                    </Menu.Item>
+                    <Menu.Item label="Export as template…" onSelect={handleExportTemplate} />
                 )}
                 {capabilities.canUseFileActions && (
-                    <Menu.Item onPress={() => setShareOpen(true)}>
-                        <Menu.ItemTitle>Share</Menu.ItemTitle>
-                    </Menu.Item>
+                    <Menu.Item label="Share" onSelect={() => setShareOpen(true)} />
                 )}
-                <Menu.Item onPress={() => setSaveVersionOpen(true)}>
-                    <Menu.ItemTitle>Save version</Menu.ItemTitle>
-                </Menu.Item>
-                <Separator />
-                <Menu.Item onPress={downloadSource} isDisabled={!props.sourceFile}>
-                    <Menu.ItemTitle>Download (.docx)</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={downloadMarkdown} isDisabled={!props.tiptapEditor}>
-                    <Menu.ItemTitle>Download (.md)</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={downloadPdf} isDisabled={!props.sourceFile}>
-                    <Menu.ItemTitle>Download (.pdf)</Menu.ItemTitle>
-                </Menu.Item>
-                <Separator />
-                <Menu.Item onPress={() => setRenameOpen(true)}>
-                    <Menu.ItemTitle>Rename</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={() => setTrashOpen(true)}>
-                    <Menu.ItemTitle>Move to trash</Menu.ItemTitle>
-                </Menu.Item>
-                <Menu.Item onPress={props.fileActions.openDriveDetails}>
-                    <Menu.ItemTitle>Details</Menu.ItemTitle>
-                </Menu.Item>
-                <Separator />
-                <Menu.Item onPress={props.onPrint}>
-                    <Menu.ItemTitle>Print</Menu.ItemTitle>
-                    <MenuShortcut keys="⌘P" />
-                </Menu.Item>
+                <Menu.Item label="Save version" onSelect={() => setSaveVersionOpen(true)} />
+                <Menu.Separator />
+                <Menu.Item
+                    label="Download (.docx)"
+                    onSelect={downloadSource}
+                    isDisabled={!props.sourceFile}
+                />
+                <Menu.Item
+                    label="Download (.md)"
+                    onSelect={downloadMarkdown}
+                    isDisabled={!props.tiptapEditor}
+                />
+                <Menu.Item
+                    label="Download (.pdf)"
+                    onSelect={downloadPdf}
+                    isDisabled={!props.sourceFile}
+                />
+                <Menu.Separator />
+                <Menu.Item label="Rename" onSelect={() => setRenameOpen(true)} />
+                <Menu.Item label="Move to trash" onSelect={() => setTrashOpen(true)} />
+                <Menu.Item label="Details" onSelect={props.fileActions.openDriveDetails} />
+                <Menu.Separator />
+                <Menu.Item label="Print" shortcut="⌘P" onSelect={props.onPrint} />
             </MenuBarMenu>
             <TemplatePickerDialog
                 open={isTemplatePickerOpen}

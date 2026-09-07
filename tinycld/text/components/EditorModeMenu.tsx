@@ -15,7 +15,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Menu } from '@tinycld/core/ui/menu'
 import { ChevronDown } from 'lucide-react-native'
-import { Platform, Pressable, Text, View } from 'react-native'
+import { Platform, Pressable, Text } from 'react-native'
 import { useStore } from 'zustand'
 import {
     EDITOR_MODE_EDITING,
@@ -95,8 +95,10 @@ export function EditorModeMenu({ modeStore, canEdit, canSuggest }: EditorModeMen
         Platform.OS === 'web' ? ({ 'data-current-mode': mode } as Record<string, string>) : {}
 
     return (
-        <Menu>
-            <Menu.Trigger>
+        <Menu
+            placement="bottom-end"
+            title="Editor mode"
+            trigger={
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Editor mode"
@@ -111,23 +113,16 @@ export function EditorModeMenu({ modeStore, canEdit, canSuggest }: EditorModeMen
                     </Text>
                     <ChevronDown size={14} color={chevronColor} />
                 </Pressable>
-            </Menu.Trigger>
-            <Menu.Portal>
-                <Menu.Overlay />
-                <Menu.Content placement="bottom" align="end">
-                    <View
-                        {...(typeof document !== 'undefined'
-                            ? { 'data-tinycld-menu': 'content' }
-                            : {})}
-                    >
-                        {getVisibleModes(canEdit, canSuggest).map(m => (
-                            <Menu.Item key={m} onPress={() => handleSelect(m)}>
-                                <Menu.ItemTitle>{MODE_LABELS[m]}</Menu.ItemTitle>
-                            </Menu.Item>
-                        ))}
-                    </View>
-                </Menu.Content>
-            </Menu.Portal>
+            }
+        >
+            {getVisibleModes(canEdit, canSuggest).map(m => (
+                <Menu.Item
+                    key={m}
+                    label={MODE_LABELS[m]}
+                    isSelected={m === mode}
+                    onSelect={() => handleSelect(m)}
+                />
+            ))}
         </Menu>
     )
 }

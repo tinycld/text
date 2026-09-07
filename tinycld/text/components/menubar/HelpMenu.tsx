@@ -1,9 +1,12 @@
 import { openHelp, openHelpPackage } from '@tinycld/core/lib/help/open-help'
 import { useHelpSearchStore } from '@tinycld/core/lib/help/search-store'
 import { useReportIssue } from '@tinycld/core/lib/help/use-report-issue'
-import { Menu, MenuBarMenu, MenuShortcut, Separator } from '@tinycld/core/ui/menubar'
+import { Menu, MenuBarMenu } from '@tinycld/core/ui/menubar'
 import { Platform } from 'react-native'
 import type { MenuBarProps } from './MenuBar'
+
+// The search palette's shortcut is bound on web only.
+const SEARCH_SHORTCUT = Platform.OS === 'web' ? '⌘/' : undefined
 
 // The Help menu is glanceable on purpose: one global search entry,
 // one direct link to the highest-traffic reference (keyboard
@@ -15,22 +18,18 @@ export function HelpMenu(_props: MenuBarProps) {
 
     return (
         <MenuBarMenu menuId="help" label="Help">
-            <Menu.Item onPress={() => useHelpSearchStore.getState().open()}>
-                <Menu.ItemTitle>Search help…</Menu.ItemTitle>
-                {Platform.OS === 'web' && <MenuShortcut keys="⌘/" />}
-            </Menu.Item>
-            <Menu.Item onPress={() => openHelp('text:keyboard-shortcuts')}>
-                <Menu.ItemTitle>Keyboard shortcuts</Menu.ItemTitle>
-            </Menu.Item>
-            <Separator />
-            <Menu.Item onPress={() => openHelpPackage('text')}>
-                <Menu.ItemTitle>Browse text help</Menu.ItemTitle>
-            </Menu.Item>
-            {reportIssue && (
-                <Menu.Item onPress={reportIssue}>
-                    <Menu.ItemTitle>Report an issue</Menu.ItemTitle>
-                </Menu.Item>
-            )}
+            <Menu.Item
+                label="Search help…"
+                shortcut={SEARCH_SHORTCUT}
+                onSelect={() => useHelpSearchStore.getState().open()}
+            />
+            <Menu.Item
+                label="Keyboard shortcuts"
+                onSelect={() => openHelp('text:keyboard-shortcuts')}
+            />
+            <Menu.Separator />
+            <Menu.Item label="Browse text help" onSelect={() => openHelpPackage('text')} />
+            {reportIssue && <Menu.Item label="Report an issue" onSelect={reportIssue} />}
         </MenuBarMenu>
     )
 }

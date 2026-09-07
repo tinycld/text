@@ -26,7 +26,7 @@ test.describe('Text — Font size & family', () => {
         await page.keyboard.press('Shift+Home')
 
         await page.getByRole('button', { name: 'Font size', exact: true }).click()
-        await page.getByRole('button', { name: 'Font size 24', exact: true }).click()
+        await page.getByRole('menuitem', { name: '24', exact: true }).click()
 
         // Tiptap's FontSize extension wraps the run in a <span
         // style="font-size: 24px">.
@@ -46,7 +46,7 @@ test.describe('Text — Font size & family', () => {
         await page.keyboard.press('Shift+Home')
 
         await page.getByRole('button', { name: 'Font family', exact: true }).click()
-        await page.getByRole('button', { name: 'Font Georgia', exact: true }).click()
+        await page.getByRole('menuitem', { name: 'Georgia', exact: true }).click()
 
         // The picker stores bare family names ("Georgia") on the textStyle
         // mark — fallback chains are a render-time concern, not stored data,

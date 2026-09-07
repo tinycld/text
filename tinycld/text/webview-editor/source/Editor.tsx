@@ -1,3 +1,9 @@
+import {
+    applyKeyboardInset,
+    focusEditor,
+    readKeyboardInset,
+    reapplyKeyboardInset,
+} from '@tinycld/core/lib/editor/rich/webview/source/host-commands'
 import { Extension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
@@ -258,6 +264,39 @@ function parseBridgeMessage(evt: MessageEvent | Event): EditorMessage | null {
  * user two peers. Outbound is guarded on FROM_HOST so an update we just applied
  * isn't posted back; the host guards the mirror-image case with its own origin.
  */
+// Caret and keyboard instructions from the host, on the 'app' namespace.
+// Shared with core's rich editor page through host-commands: the native host
+// makes the WebView first responder and sends `focus` for the caret; keyboard
+// avoidance arrives as `keyboard-inset` and pads the document.
+function useHostAppMessages(editor: ReturnType<typeof useEditor>) {
+    useEffect(() => {
+        if (!editor) return
+        reapplyKeyboardInset(editor)
+        function onMessage(evt: MessageEvent) {
+            if (typeof evt.data !== 'string' || !editor) return
+            let parsed: IncomingMessage
+            try {
+                parsed = JSON.parse(evt.data) as IncomingMessage
+            } catch {
+                return
+            }
+            if (parsed.namespace !== 'app') return
+            if (parsed.type === 'focus') {
+                focusEditor(editor, parsed.payload)
+            } else if (parsed.type === 'keyboard-inset') {
+                const bottom = readKeyboardInset(parsed.payload)
+                if (bottom !== null) applyKeyboardInset(editor, bottom)
+            }
+        }
+        window.addEventListener('message', onMessage)
+        document.addEventListener('message', onMessage as EventListener)
+        return () => {
+            window.removeEventListener('message', onMessage)
+            document.removeEventListener('message', onMessage as EventListener)
+        }
+    }, [editor])
+}
+
 function useYjsRelay(doc: Y.Doc) {
     useEffect(() => {
         function onLocalUpdate(update: Uint8Array, origin: unknown) {
@@ -354,10 +393,8 @@ function useAwarenessRelay(awareness: Awareness) {
 //      and configures TipTap.
 //
 // We post {type:'editor-ready', payload:undefined} as soon as we
-// mount so the native side knows we're listening. TenTap's CoreBridge
-// (the only bridge we pass to useEditorBridge) treats this as the
-// EditorReady signal that flips bridgeState.isReady = true. That's
-// the gate useWebViewEditor waits on before posting the init payload.
+// mount so the native side knows we're listening. That's the gate
+// useWebViewEditor waits on before posting the init payload.
 export function Editor() {
     const [init, setInit] = useState<InitPayload | null>(null)
 
@@ -434,11 +471,11 @@ function EditorMounted({ init }: EditorMountedProps) {
         }),
     })
 
-    // Stream toolbar state out to native on every transaction. TenTap's
-    // CoreEditorActionType.StateUpdate is the channel useBridgeState
-    // consumes — we mirror its shape so the native side's useBridgeState
-    // picks up our state. The exact wire type string is 'stateUpdate'
-    // (from CoreEditorActionType.StateUpdate).
+    // Stream toolbar state out to native on every transaction. The host
+    // keeps the latest payload verbatim and reads its fields through
+    // deriveToolbarState. The wire type string is 'stateUpdate', bare (no
+    // namespace) — a shape inherited from the bridge library this page once
+    // ran under and kept because nothing is gained by changing it.
     //
     // Coalesced with requestAnimationFrame so a burst of transactions
     // (bulk paste, initial Y.Doc sync, undo of a large change) at most
@@ -538,17 +575,17 @@ function EditorMounted({ init }: EditorMountedProps) {
         }
     }, [editor])
 
-    // Format command messages: TenTap's per-bridge commands (toggle-bold,
-    // toggle-heading, etc.) emit { type, payload } without an explicit
-    // namespace; our own command messages use namespace 'format' (insert-
-    // table, set-cell-shading, update-image-attrs, ...). Both shapes flow
-    // through installFormatBridge — mirrors the install pattern of the
-    // comment and find-replace bridges.
+    // Format command messages — every toolbar command, as one flat
+    // { namespace: 'format', type, payload } — flow through
+    // installFormatBridge, mirroring the install pattern of the comment and
+    // find-replace bridges.
     useEffect(() => {
         if (!editor) return
         const bridge = installFormatBridge(editor, postToNative)
         return () => bridge.destroy()
     }, [editor])
+
+    useHostAppMessages(editor)
 
     useEffect(() => {
         if (!editor) return

@@ -1,3 +1,4 @@
+import { Tooltip } from '@tinycld/core/components/Tooltip'
 import { captureException } from '@tinycld/core/lib/errors'
 import { pb } from '@tinycld/core/lib/pocketbase'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
@@ -5,7 +6,6 @@ import type { ComponentType } from 'react'
 import { useCallback } from 'react'
 import { Platform, Pressable } from 'react-native'
 import { handleImageInsert, type PickedImage } from './image-insert-handler'
-import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface ImageInsertButtonProps {
     icon: ComponentType<{ size: number; color: string }>
@@ -23,7 +23,7 @@ export function ImageInsertButton({
     const handlePress = useImageInsert(onInsert)
 
     return (
-        <ToolbarTooltip label="Insert image">
+        <Tooltip label="Insert image">
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Insert image"
@@ -38,7 +38,7 @@ export function ImageInsertButton({
             >
                 <Icon size={16} color={iconColor} />
             </Pressable>
-        </ToolbarTooltip>
+        </Tooltip>
     )
 }
 

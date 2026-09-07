@@ -1,4 +1,5 @@
 import { HelpSearchButton } from '@tinycld/core/components/help/HelpSearchButton'
+import { Tooltip } from '@tinycld/core/components/Tooltip'
 import type { EditorCommands, EditorToolbarState } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
@@ -45,7 +46,6 @@ import { ShadingMenu } from './ShadingMenu'
 import { OpenReviewDrawerButton } from './suggestions/OpenReviewDrawerButton'
 import { TableMenu } from './TableMenu'
 import { TextColorButton } from './TextColorButton'
-import { ToolbarTooltip } from './ToolbarTooltip'
 
 interface DocumentToolbarProps {
     commands: EditorCommands
@@ -500,7 +500,7 @@ interface FormatButtonProps {
 // placement, and re-injects a composed onPress (the child's own press +
 // the menu-open toggle). FormatButton forwards that ref straight to its
 // Pressable and already drives the Pressable from its onPress prop, so
-// both work. ToolbarTooltip is a Fragment on native, so it must NOT sit
+// both work. Tooltip is a Fragment on native, so it must NOT sit
 // between the Menu and this Pressable — the Menu clones FormatButton (a
 // real component that forwards the ref), not the tooltip, so the nesting
 // here is fine.
@@ -524,7 +524,7 @@ const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
             ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
             : {}
     return (
-        <ToolbarTooltip label={accessibilityLabel}>
+        <Tooltip label={accessibilityLabel}>
             <Pressable
                 ref={ref}
                 accessibilityRole="button"
@@ -541,7 +541,7 @@ const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
             >
                 <Icon size={16} color={color} />
             </Pressable>
-        </ToolbarTooltip>
+        </Tooltip>
     )
 })
 

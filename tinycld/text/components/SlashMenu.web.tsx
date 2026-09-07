@@ -43,6 +43,7 @@ function resolvePosition(anchor: SlashMenuAnchor): { top: number; left: number }
 
 interface SlashMenuProps {
     webViewRef?: React.RefObject<unknown> | null
+    measureRef?: React.RefObject<unknown> | null
     // editor / yDoc / canResolve are part of the prop shape for
     // backward compatibility with the screen's call site; the
     // suggestion popover that consumed them has been deleted

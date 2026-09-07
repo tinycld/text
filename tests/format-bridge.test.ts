@@ -102,59 +102,13 @@ function makeFakeEditor() {
     return { editor, calls, commandsFocusCalls, setEditableCalls }
 }
 
-// --- TenTap action-envelope messages ---------------------------------
-//
-// TenTap's native bridges (BoldBridge, HeadingBridge, ...) don't post
-// their action string at the top level. `sendAction` in TenTap's
-// useEditorBridge wraps it: { type: 'action', payload: <the action> }.
-// So a Bold tap reaches the WebView as
-//   { type: 'action', payload: { type: 'toggle-bold' } }
-// The bridge must unwrap this envelope before dispatching, or every
-// native toolbar button (bold/italic/underline/heading/link/undo/redo)
-// silently no-ops. These tests use the real runtime shape.
+// --- basic formatting commands --------------------------------------
 
-describe('installFormatBridge — TenTap action-envelope messages', () => {
-    it('unwraps { type:"action", payload:{type:"toggle-bold"} } and routes toggleBold', () => {
-        const fake = makeFakeEditor()
-        const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'action', payload: { type: 'toggle-bold' } })
-        expect(fake.calls).toHaveLength(1)
-        const methods = fake.calls[0].methods.map(m => m.name)
-        expect(methods).toEqual(['focus', 'toggleBold'])
-        bridge.destroy()
-    })
-
-    it('unwraps a wrapped toggle-heading, reading the level from the inner payload', () => {
-        const fake = makeFakeEditor()
-        const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'action', payload: { type: 'toggle-heading', payload: 2 } })
-        expect(fake.calls).toHaveLength(1)
-        const headingMethod = fake.calls[0].methods.find(m => m.name === 'toggleHeading')
-        expect(headingMethod?.args).toEqual([{ level: 2 }])
-        bridge.destroy()
-    })
-
-    it('unwraps a wrapped set-link', () => {
-        const fake = makeFakeEditor()
-        const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({
-            type: 'action',
-            payload: { type: 'set-link', payload: 'https://example.com' },
-        })
-        expect(fake.calls).toHaveLength(1)
-        const methods = fake.calls[0].methods.map(m => m.name)
-        expect(methods).toEqual(['focus', 'extendMarkRange', 'setLink'])
-        bridge.destroy()
-    })
-})
-
-// --- TenTap-shape messages (no namespace) ----------------------------
-
-describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
+describe('installFormatBridge — basic formatting commands', () => {
     it('routes toggle-bold to editor.chain().focus().toggleBold().run()', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'toggle-bold', payload: null })
+        postFromHost({ namespace: 'format', type: 'toggle-bold', payload: null })
         expect(fake.calls).toHaveLength(1)
         const methods = fake.calls[0].methods.map(m => m.name)
         expect(methods).toEqual(['focus', 'toggleBold'])
@@ -164,17 +118,17 @@ describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
     it('routes toggle-drop-cap to editor.chain().focus().toggleDropCap().run()', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'toggle-drop-cap', payload: null })
+        postFromHost({ namespace: 'format', type: 'toggle-drop-cap', payload: null })
         expect(fake.calls).toHaveLength(1)
         const methods = fake.calls[0].methods.map(m => m.name)
         expect(methods).toEqual(['focus', 'toggleDropCap'])
         bridge.destroy()
     })
 
-    it('routes toggle-heading with payload as the level (TenTap convention)', () => {
+    it('routes toggle-heading with the bare payload as the level', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'toggle-heading', payload: 2 })
+        postFromHost({ namespace: 'format', type: 'toggle-heading', payload: 2 })
         expect(fake.calls).toHaveLength(1)
         const headingMethod = fake.calls[0].methods.find(m => m.name === 'toggleHeading')
         expect(headingMethod).toBeDefined()
@@ -185,7 +139,7 @@ describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
     it('routes set-link with a non-empty URL to setLink', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'set-link', payload: 'https://example.com' })
+        postFromHost({ namespace: 'format', type: 'set-link', payload: 'https://example.com' })
         expect(fake.calls).toHaveLength(1)
         const methods = fake.calls[0].methods.map(m => m.name)
         expect(methods).toEqual(['focus', 'extendMarkRange', 'setLink'])
@@ -195,7 +149,7 @@ describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
     it('routes set-link with empty string to unsetLink', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'set-link', payload: '' })
+        postFromHost({ namespace: 'format', type: 'set-link', payload: '' })
         expect(fake.calls).toHaveLength(1)
         const methods = fake.calls[0].methods.map(m => m.name)
         expect(methods).toEqual(['focus', 'extendMarkRange', 'unsetLink'])
@@ -205,8 +159,8 @@ describe('installFormatBridge — TenTap-shape (no namespace) messages', () => {
     it('routes set-editable into editor.setEditable directly', () => {
         const fake = makeFakeEditor()
         const bridge = installFormatBridge(fake.editor, () => undefined)
-        postFromHost({ type: 'set-editable', payload: false })
-        postFromHost({ type: 'set-editable', payload: true })
+        postFromHost({ namespace: 'format', type: 'set-editable', payload: false })
+        postFromHost({ namespace: 'format', type: 'set-editable', payload: true })
         expect(fake.setEditableCalls).toEqual([false, true])
         bridge.destroy()
     })
@@ -309,6 +263,16 @@ describe('installFormatBridge — namespace gating', () => {
             payload: { query: 'x' },
         })
         postFromHost({ namespace: 'ui', type: 'document-scroll', payload: null })
+        expect(fake.calls).toHaveLength(0)
+        bridge.destroy()
+    })
+
+    it('ignores a message without a namespace', () => {
+        // Every command carries namespace 'format' now; a bare {type} is not
+        // a command shape the host sends.
+        const fake = makeFakeEditor()
+        const bridge = installFormatBridge(fake.editor, () => undefined)
+        postFromHost({ type: 'toggle-bold', payload: null })
         expect(fake.calls).toHaveLength(0)
         bridge.destroy()
     })

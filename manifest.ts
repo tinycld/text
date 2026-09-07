@@ -27,8 +27,8 @@ const manifest = {
     },
     repository: { url: 'https://github.com/tinycld/text' },
     seed: { script: 'seed' },
-    // The WebView editor (used by native screens via TenTap's
-    // customSource) is bundled from tinycld/text/webview-editor/source/
+    // The WebView editor (the page native screens load into core's
+    // editor-webview host) is bundled from tinycld/text/webview-editor/source/
     // into a single self-contained HTML string at
     // tinycld/text/webview-editor/build/editorHtml.ts. That output is
     // gitignored — the orchestrator in scripts/generate-packages.ts

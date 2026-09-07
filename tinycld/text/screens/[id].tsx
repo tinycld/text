@@ -250,6 +250,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
         findReplaceEditor,
         commentBridge,
         webViewRef,
+        measureRef,
     } = useTextDocument(room, driveItemId, {
         onRequestInsertImage: openSlashMenuImage,
         modeStore,
@@ -657,6 +658,7 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
                 )}
                 <SlashMenu
                     webViewRef={webViewRef ?? null}
+                    measureRef={measureRef ?? null}
                     editor={tiptapEditor ?? null}
                     yDoc={room.doc}
                     canResolve={canResolve}

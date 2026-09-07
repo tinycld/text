@@ -3,13 +3,11 @@
 // importantly the Milestone D.1 wordCount field, which feeds the
 // WordCountBadge on native.
 //
-// The hook itself is hard to drive under vitest because the in-WebView
-// editor depends on react-native + tentap's bridge implementation (see
-// use-webview-editor-commands.test.ts for the same constraint). We
-// instead test the pure derivation helper that the hook delegates to —
-// deriveToolbarState(bridgeState) — by passing synthetic bridgeState
-// objects shaped like what TenTap's useBridgeState would yield after
-// receiving the in-WebView Editor's stateUpdate.
+// The hook itself is hard to drive under vitest because it renders the
+// native WebView host (see use-webview-editor-commands.test.ts for the
+// same constraint). We instead test the pure derivation helper that the
+// hook delegates to — deriveToolbarState(bridgeState) — by passing
+// synthetic payloads shaped like the in-WebView Editor's stateUpdate.
 
 import { deriveToolbarState } from '@tinycld/core/lib/editor/derive-toolbar-state'
 import { describe, expect, it } from 'vitest'

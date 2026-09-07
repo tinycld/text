@@ -1,7 +1,7 @@
 // Unit tests for the native commentBridge — the host-side surface that
 // drives the WebView's 'comment' namespace protocol. The hook itself
-// is hard to instrument under vitest (TenTap bridges + WebView root
-// pull react-native into the test process), so we exercise the pure
+// is hard to instrument under vitest (the native WebView host pulls
+// react-native into the test process), so we exercise the pure
 // helpers extracted from the hook:
 //
 //   createNativeCommentBridgeState — bookkeeping containers

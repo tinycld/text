@@ -60,9 +60,9 @@ export interface UseDocumentEditorOptions {
 // Returns null until the underlying editor (Tiptap on web, WebView on
 // native) is ready. Consumers should check `commentBridge != null`
 // before invoking methods — web waits for Tiptap to mount; native
-// waits for the WebView's TenTap-ready signal (the `isReady` flag on
-// the EditorResult) so a tap that lands in the brief window before
-// the WebView's message listener installs doesn't silently drop the
+// waits for the page's first stateUpdate (the `isReady` flag on the
+// EditorResult) so a tap that lands in the brief window before the
+// WebView's message listener installs doesn't silently drop the
 // request.
 export interface DocumentCommentBridge {
     // Apply the comment mark. When `range` is provided the selection is

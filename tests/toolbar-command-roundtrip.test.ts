@@ -1,21 +1,18 @@
 // End-to-end contract test for the native document toolbar.
 //
 // The bug this guards against: a toolbar button calls a command on the
-// object from buildWebViewEditorCommands (native side); that command
-// either calls a TenTap bridge (bridge.toggleBold()) or posts a
-// 'format'-namespace message. The message crosses into the WebView and
-// is dispatched by installFormatBridge into a TipTap chain. The two
-// halves are unit-tested in isolation elsewhere, but the WIRE FORMAT
-// between them was wrong: TenTap wraps every bridge command in a
-// { type: 'action', payload: <action> } envelope, and installFormatBridge
-// read the outer 'action' — so every TenTap-bridge button silently
-// no-oped on native. Isolated unit tests missed it because each side
-// was tested against a hand-written middle shape.
+// object from buildWebViewEditorCommands (native side); that command posts
+// a 'format'-namespace message, which crosses into the WebView and is
+// dispatched by installFormatBridge into a TipTap chain. The two halves are
+// unit-tested in isolation elsewhere, but the WIRE FORMAT between them has
+// been wrong before (an envelope one side wrote and the other did not read),
+// and isolated unit tests missed it because each side was tested against a
+// hand-written middle shape.
 //
 // This test wires the REAL buildWebViewEditorCommands to the REAL
-// installFormatBridge through a faithful reproduction of TenTap's
-// transport, so a regression on either side (or a drift in TenTap's
-// envelope) fails here. Every button on DocumentToolbar is exercised.
+// installFormatBridge through the host's transport — a message posted as
+// JSON and delivered as a 'message' event — so a regression on either side
+// fails here. Every button on DocumentToolbar is exercised.
 
 import { buildWebViewEditorCommands } from '@tinycld/core/lib/editor/webview-editor-commands'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -48,7 +45,7 @@ let stubWindow: ListenerRegistry
 let stubDocument: ListenerRegistry
 
 // Deliver a JSON string into the WebView's message listeners, exactly
-// as react-native-webview does when the host calls webview.postMessage.
+// as the native host does when the hook posts a message.
 function deliverToWebView(json: string) {
     const evt = { data: json } as unknown as MessageEvent
     for (const fn of stubWindow.listeners.get('message') ?? new Set<EventListener>()) {
@@ -93,45 +90,17 @@ function makeFakeEditor() {
     return { editor, calls }
 }
 
-// --- The native-side bridge the toolbar's commands drive -------------
+// --- The native-side poster the toolbar's commands drive -------------
 //
-// buildWebViewEditorCommands needs a WebViewCommandBridge: the TenTap
-// command methods (toggleBold, setLink, ...) plus webviewRef for the
-// sendFormatMessage path. We reproduce TenTap's transport exactly:
-//
-//   - sendAction wraps the action in { type: 'action', payload } and
-//     posts it (matches @10play/tentap-editor useEditorBridge.js
-//     sendAction). Each TenTap command method calls sendAction with the
-//     literal action string that bridge emits (matches each bridge's
-//     extendEditorInstance in @10play/tentap-editor/bridges/*.js).
-//   - webviewRef.current.postMessage is the raw poster the
-//     sendFormatMessage path uses; TenTap uses the same one for
-//     sendAction, so both land in the WebView identically.
+// buildWebViewEditorCommands takes one poster. The host serializes each
+// message to JSON and the native view dispatches it as a 'message' event
+// in the page; this reproduces that transport.
 
-function makeNativeBridge() {
-    const post = (message: unknown) => deliverToWebView(JSON.stringify(message))
-    // TenTap's sendAction envelope — reproduced from
-    // @10play/tentap-editor RichText/useEditorBridge.js.
-    const sendAction = (action: { type: string; payload?: unknown }) =>
-        post({ type: 'action', payload: action })
-
-    return {
-        // TenTap bridge command surface. The action strings and payload
-        // shapes mirror each bridge's extendEditorInstance verbatim.
-        toggleBold: () => sendAction({ type: 'toggle-bold' }),
-        toggleItalic: () => sendAction({ type: 'toggle-italic' }),
-        toggleUnderline: () => sendAction({ type: 'toggle-underline' }),
-        toggleBulletList: () => sendAction({ type: 'toggle-bulletList' }),
-        toggleOrderedList: () => sendAction({ type: 'toggle-orderedList' }),
-        toggleBlockquote: () => sendAction({ type: 'toggle-blockquote' }),
-        toggleHeading: (level: 1 | 2 | 3 | 4 | 5 | 6) =>
-            sendAction({ type: 'toggle-heading', payload: level }),
-        setLink: (url: string) => sendAction({ type: 'set-link', payload: url }),
-        undo: () => sendAction({ type: 'undo' }),
-        redo: () => sendAction({ type: 'redo' }),
-        // The sendFormatMessage path posts through here directly.
-        webviewRef: { current: { postMessage: (s: string) => deliverToWebView(s) } },
-    } as unknown as Parameters<typeof buildWebViewEditorCommands>[0]
+function makeNativeBridge(): Parameters<typeof buildWebViewEditorCommands>[0] {
+    return message => {
+        deliverToWebView(JSON.stringify(message))
+        return true
+    }
 }
 
 beforeEach(() => {
@@ -161,7 +130,7 @@ function roundtrip(run: (commands: ReturnType<typeof buildWebViewEditorCommands>
 // A button that produces zero chain calls is a dead button — the exact
 // failure the user reported.
 
-describe('toolbar command round-trip — TenTap-bridge buttons', () => {
+describe('toolbar command round-trip — basic formatting buttons', () => {
     const cases: Array<{
         label: string
         run: (c: ReturnType<typeof buildWebViewEditorCommands>) => void

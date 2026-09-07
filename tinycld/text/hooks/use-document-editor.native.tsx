@@ -1,17 +1,3 @@
-import {
-    BlockquoteBridge,
-    BoldBridge,
-    BulletListBridge,
-    CoreBridge,
-    HardBreakBridge,
-    HeadingBridge,
-    HistoryBridge,
-    ItalicBridge,
-    LinkBridge,
-    OrderedListBridge,
-    PlaceholderBridge,
-    UnderlineBridge,
-} from '@10play/tentap-editor'
 import { useAuth } from '@tinycld/core/lib/auth'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { AwarenessWebViewHost } from '@tinycld/core/lib/editor/rich/awareness-webview-host'
@@ -79,20 +65,10 @@ export interface UseDocumentEditorOptions {
 // connection, no credential enters the page, and the local user is one
 // peer. See @tinycld/core/lib/editor/rich/awareness-webview-host.
 //
-// We register the full set of per-feature TenTap bridges (not just
-// CoreBridge). Each bridge's extendEditorInstance hook attaches its
-// command method (toggleBold, toggleItalic, setLink, ...) to the
-// native-side bridge object. useWebViewEditor's commands call those
-// methods, so without the bridges registered, every format button
-// throws "bridge.toggleBold is not a function" at runtime.
-//
-// The bridges' tiptapExtension fields are unused on the WebView side
-// (customSource means our in-WebView React app owns its own TipTap
-// configuration) — only the native-side message-emit machinery
-// matters here. The emitted action-type strings (e.g. 'toggle-bold')
-// must match the cases handled in webview-editor/source/Editor.tsx;
-// note that TenTap emits camelCase for some list types
-// ('toggle-bulletList', 'toggle-orderedList').
+// Toolbar commands are flat `format` messages from core's
+// buildWebViewEditorCommands; the page's format bridge dispatches them. The
+// type strings (including the camelCase list names) must match the cases in
+// webview-editor/source/bridges/format-bridge.ts.
 export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult {
     const { user } = useAuth()
     const userId = user?.id ?? ''
@@ -187,8 +163,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // WebView scroll closes any open anchored popover. Implemented by
     // publishing a synthetic 'popover-dismiss-on-scroll' message into
     // the ui-message-bus that the controller's reducer reduces to a
-    // dismiss. iOS RN-WebView doesn't surface in-document scrolls via
-    // its `onScroll` when scrollEnabled=false (which TenTap sets), so
+    // dismiss. A WebView doesn't surface in-document scrolls via
+    // its own scroll events when scrollEnabled=false, so
     // the WebView source posts a 'document-scroll' message and we
     // re-emit it on the bus here.
     const onScroll = useCallback(() => {
@@ -257,20 +233,6 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
 
     const result = useWebViewEditor({
         editorHtml,
-        bridgeExtensions: [
-            CoreBridge,
-            BoldBridge,
-            ItalicBridge,
-            UnderlineBridge,
-            HeadingBridge,
-            BulletListBridge,
-            OrderedListBridge,
-            BlockquoteBridge,
-            LinkBridge,
-            HistoryBridge,
-            HardBreakBridge,
-            PlaceholderBridge,
-        ],
         initPayload,
         editable: options.editable ?? true,
         onUiMessage,
@@ -282,27 +244,22 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     })
 
     // Close the loop: the relays were built before the WebView existed, so this
-    // is where they get a real poster. Absent until the bridge is up, which the
-    // relays already treat as "not sent" rather than an error.
+    // is where they get a real poster. It reports "not sent" until a pooled
+    // page exists, which the relays already treat as such rather than an error.
     posterRef.current = result.postMessage ?? null
 
-    // postMessage isn't ref-stable (it depends on the bridge identity)
-    // but we want the commentBridge to be a stable identity across
-    // renders. Pin the latest poster behind a ref and read through it
-    // inside the bridge methods. Consumers (TextCommentDrawer, the
-    // new-comment flow) put the bridge in effect dep arrays — a fresh
-    // identity each render would re-subscribe their handlers needlessly.
+    // The poster is stable for the hook's life, but the comment bridge and the
+    // find-replace controller below are memoized once and read it through a
+    // ref anyway, so neither depends on that guarantee.
     const postMessageRef = useRef(result.postMessage)
     postMessageRef.current = result.postMessage
 
-    // Gate the comment bridge on the WebView's TenTap-ready signal.
-    // Before isReady flips true the WebView's postMessage either no-ops
-    // (no .current ref yet) or its on-message listener inside the
-    // WebView hasn't installed — either way, a tap on "+comment" in
-    // that window would silently drop the request. Returning null here
-    // lets call sites (TextCommentDrawer, the new-comment flow) check
-    // `commentBridge != null` and skip / disable the action instead of
-    // awaiting a Promise that never resolves.
+    // Gate the comment bridge on the page's first stateUpdate (`isReady`).
+    // Before that the page has no editor and its message listeners aren't
+    // installed — a tap on "+comment" in that window would silently drop the
+    // request. Returning null here lets call sites (TextCommentDrawer, the
+    // new-comment flow) check `commentBridge != null` and skip / disable the
+    // action instead of awaiting a Promise that never resolves.
     const commentBridge = useMemo(() => {
         if (!result.isReady) return null
         return createNativeCommentBridge({

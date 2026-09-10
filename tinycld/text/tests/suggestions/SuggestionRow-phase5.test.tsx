@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// SuggestionRow resolves the author user_org id to a human name via
+// SuggestionRow resolves the author user id to a human name via
 // useAuthorName (pbtsdb live-query). The hook needs the react-provider
 // tree wrapped via createReactProvider, which unit renders don't set
 // up — stub it so the component falls back to rendering the raw
@@ -12,7 +12,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
 }))
 
 // The focused-state body renders <SuggestionThread />, whose composer
-// pulls the current user_org id from useEditorMount. Stub it so
+// pulls the current user id from useEditorMount. Stub it so
 // standalone renders work without an EditorMount provider.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
     useEditorMount: () => ({ identity: { userId: 'user_me' } }),

@@ -11,7 +11,7 @@ vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
 }))
 
 // The focused-state thread mounts <SuggestionThread />, whose composer
-// pulls the current user_org id from useEditorMount and renders a
+// pulls the current user id from useEditorMount and renders a
 // shared CommentComposer; stub both so the drawer can render without
 // an EditorMount provider or a live TipTap mount.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({

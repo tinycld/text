@@ -3,13 +3,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // useAuthorName issues a pbtsdb live-query that needs the react-provider
-// wrapper. Stub it so rows fall back to the raw user_org id and the
+// wrapper. Stub it so rows fall back to the raw user id and the
 // assertions can pin against that.
 vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
     useAuthorName: () => null,
 }))
 
-// The composer pulls the current user_org id from useEditorMount;
+// The composer pulls the current user id from useEditorMount;
 // stub it so the standalone render works without an EditorMount
 // provider.
 vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({

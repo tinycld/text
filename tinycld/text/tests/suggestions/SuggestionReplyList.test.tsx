@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // useAuthorName makes a pbtsdb live-query call that needs the
 // createReactProvider wrapper. Stub it so the row falls back to
-// rendering the raw user_org id. Each test then pins assertions
+// rendering the raw user id. Each test then pins assertions
 // against those raw ids — keeps the test free of provider setup.
 vi.mock('~/tinycld/text/hooks/use-author-name', () => ({
     useAuthorName: () => null,

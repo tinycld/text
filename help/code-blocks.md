@@ -13,7 +13,7 @@ Use this for short snippets that sit inline with regular prose — variable name
 2. Either:
    - Click the **inline code** button in the toolbar (the `<>` icon),
    - Open **Format → Text → Inline code**,
-   - Or press **⌘`** (Cmd/Ctrl + backtick).
+   - Or press **⌘`**.
 
 The text renders in a monospace font with a muted background.
 
@@ -24,7 +24,7 @@ Use this for multi-line examples — code listings, command output, configuratio
 There are three ways to start one:
 
 - **Toolbar / menu** — place the caret on an empty line, then click the **code block** button or pick **Format → Text → Code block**.
-- **Keyboard shortcut** — **⌘⇧`** (Cmd/Ctrl + Shift + backtick).
+- **Keyboard shortcut** — **⌘⇧`**.
 - **Markdown shortcut** — type three backticks `` ``` `` at the start of a line and press **Enter**. The line becomes a code block.
 
 A code block is a single paragraph rendered as a monospace box. Press **Enter** at the end to leave the block and return to normal paragraphs.

@@ -32,6 +32,10 @@ Copy the URL and send it however you like. You can revoke or change the role any
 
 Each collaborator is listed below the input with their current role. Switch their role with the dropdown, or remove their access — the change takes effect immediately and the document disappears from their **Shared with me**.
 
+## Who can see and post comments
+
+Everyone with access to the document can read its comments, and the document's creator can always see and post comments even if they hold no share of their own. Suspended accounts are excluded from every comment operation, regardless of any share they were given while active.
+
 ## See also
 
 - [Sharing files in Drive](help://drive:sharing)

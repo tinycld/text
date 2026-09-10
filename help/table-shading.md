@@ -8,7 +8,7 @@ order: 70
 ## To shade a table cell
 
 1. Click inside the cell you want to color. (The cell-related toolbar buttons enable only when the caret is in a table.)
-2. Click the **Cell shading** button in the table toolbar — the paint-bucket icon next to the borders button.
+2. Click the **Cell shading** button in the table toolbar — the paint-bucket icon next to the borders button. On a narrow window it may sit under the toolbar's **More** menu instead.
 3. Pick a color from the swatch grid:
    - **None** — clears any existing shading.
    - **Yellow**, **Light Yellow**, **Light Green**, **Light Blue**, **Light Red**, **Light Purple**, **Light Orange** — soft highlight tones that stay readable on both light and dark themes.

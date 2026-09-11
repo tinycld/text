@@ -8,7 +8,7 @@ order: 40
 ## To change the font size
 
 1. Select the text you want to resize (or place the caret where you'll type next).
-2. Click the **size dropdown** at the left of the toolbar. It shows the current size or **Default**.
+2. Click the **size dropdown** at the left of the toolbar. It shows the current size or **Default**. On a narrow window the toolbar folds what doesn't fit into a **More** menu at its right end — look for **Font size** there.
 3. Pick one of the listed sizes (8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72, 96 px).
 
 Pick **Default** to clear the size — the text falls back to whatever the surrounding style provides (headings stay big, body text stays normal).
@@ -16,7 +16,7 @@ Pick **Default** to clear the size — the text falls back to whatever the surro
 ## To change the font family
 
 1. Select the text.
-2. Click the **family dropdown** to the left of the size picker. Each row previews its own font.
+2. Click the **family dropdown** to the left of the size picker (or **Font family** under the toolbar's **More** menu on a narrow window). Each row previews its own font.
 3. Pick from the curated list — sans-serif (Arial, Calibri, Helvetica, Tahoma, Verdana), serif (Cambria, Georgia, Times New Roman), or monospace (Consolas, Courier New, Menlo, Monaco).
 
 Pick **Default** to clear the family.

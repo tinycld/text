@@ -35,4 +35,4 @@ The desktop editor has both a wrap toolbar that appears next to a selected image
 
 ## Related mobile capabilities
 
-The live **word count** displays in the document footer on mobile, the same as on the web. **Comments** work end-to-end on mobile — see [Comments on mobile](help://text:comments-on-mobile). **Find and replace** is reachable from the document menu — see [Find and replace](help://text:find-and-replace).
+The live **word count** displays in the document header on mobile, the same as on the web. On very narrow screens it hides along with the other status chrome (presence, save status) to leave room for the title. **Comments** work end-to-end on mobile — see [Comments on mobile](help://text:comments-on-mobile). **Find and replace** is reachable from the document menu — see [Find and replace](help://text:find-and-replace).

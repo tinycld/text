@@ -258,7 +258,7 @@ describe('useSuggestionDiscussion', () => {
 
         const row = textCommentsInsert.mock.calls[0][0] as Record<string, unknown>
         // The display name flows through unchanged so the comment-row
-        // surface attribution survives the user's user_org being
+        // surface attribution survives the user's account being
         // deleted later (mirrors the regular comment-mutation path).
         expect(row.author_name).toBe('Alice Owner')
     })

@@ -9,13 +9,19 @@ Feature package for the [tinycld](https://tinycld.org/) ecosystem. Lives as a st
 Stores documents as `.docx` files in `@tinycld/drive` and edits them
 collaboratively. Documents open from the drive UI (text registers a docx
 preview + an "Open in Text" file action) or from the dedicated
-`/text` index. The editor is a ProseMirror instance (hosted in a
-WebView on native, inline on web) backed by a Yjs document.
+`/a/text` index. The editor is a ProseMirror instance (hosted in core's
+pooled editor WebView on native, inline on web) backed by a Yjs document.
 
 Editing features:
 
 - Rich-text formatting (bold / italic / underline / strike, headings,
   alignment, indent, code, lists)
+- Responsive toolbar (`DocumentToolbar` on core's `ResponsiveToolbar`)
+  — on both platforms, whatever doesn't fit the width folds into a
+  **More** menu; the pickers and the table menu become submenus there
+- Collapsing document header — the title and the comments-drawer
+  button always stay; presence avatars, save status, word count, and
+  the reconnecting indicator drop one by one as width runs out
 - Font family and font size pickers; text color and highlight
 - Tables with cell shading and per-edge borders, plus a `TableMenu`
   for structural ops
@@ -23,7 +29,7 @@ Editing features:
   text-wrap modes (inline, left, right, break)
 - Threaded comments anchored to selections (`NewCommentModal`,
   `TextCommentDrawer`, `useDocumentComments`)
-- @-mentions of org members (`useMentionSuggestions`)
+- @-mentions of other users on the server (`useMentionSuggestions`)
 - Slash menu (`SlashMenu`) for block-level insertions; link popover
   (`LinkPopover`) for inline link editing
 - New from template — picks a Drive docx template and copies its bytes
@@ -33,6 +39,10 @@ Editing features:
   clipboard as Markdown and inserts structured content; **File →
   Download (.md)** saves the document as Markdown alongside the
   canonical `.docx` (`lib/markdown/`)
+- PDF export — **File → Download (.pdf)** renders the stored `.docx`
+  to PDF on the server through drive's `exportItem` (`FileMenu`); like
+  **Download (.docx)** it reflects the last flushed state, not
+  unflushed keystrokes
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
   state can be restored later. Each row stores both the canonical
@@ -223,10 +233,13 @@ Text registers itself as a `realtime.RoomKind` named `"text-doc"` (see
 `server/register.go`). For each `drive_item.id` clients reach via
 `useRealtimeRoom({ roomKind: 'text-doc', roomID: driveItemID, … })`:
 
-1. **Authorize** — the room rejects clients without a `drive_shares`
-   row linking them to the item. The role on that row also drives the
-   `readOnly` flag in `MsgServerHello` (viewer ⇒ read-only; missing /
-   unresolvable role ⇒ fail closed).
+1. **Authorize** — `makeAuthorize` in `server/register.go` delegates
+   to core's `driveshare.CheckRead`: a signed-in user may join iff
+   they can read the item (its creator, or the holder of any
+   `drive_shares` row). Anonymous share-link visitors are admitted
+   through `sharelink.AuthorizeAnonRoom`. The resolved role drives
+   the `readOnly` flag in `MsgServerHello` (viewer ⇒ read-only;
+   missing / unresolvable role ⇒ fail closed).
 2. **Bootstrap** — on first open, `Runtime.NewDoc` invokes the
    bootstrap hook, which loads `drive_items.file`, parses the docx
    via `translate.DocxToPMJSON`, and seeds the `Y.Doc` with
@@ -338,7 +351,8 @@ Comments are not in the `Y.Doc`. They live in a regular PocketBase
 collection, `text_comments`, one row per thread root or reply. The
 editor subscribes via `useDocumentComments` with `useOrgLiveQuery`;
 mutations go through `useMutation`. Mentions resolve through
-`useMentionSuggestions` against the org's user list.
+`useMentionSuggestions` against the server's `users` collection (the
+current user is excluded; guests can't enumerate the roster).
 
 ## Platform support
 
@@ -362,14 +376,23 @@ mutations go through `useMutation`. Mentions resolve through
 | Word count                         | ✅  | ✅                      |
 | Suggesting mode (track changes)    | ✅  | ✅                      |
 | Review drawer (suggestions tab)    | ✅  | ✅                      |
-| Activity tab (edit timeline)       | ✅  | ✅                      |
-| Authorship coloring                | ✅  | ✅                      |
+| Activity tab (edit timeline)       | ✅  | not yet [^web-only-tabs] |
+| Authorship coloring                | ✅  | not yet [^web-only-tabs] |
 | Print                              | browser print | iOS print sheet |
 
-The native editor runs inside a WebView hosting the same ProseMirror
-build under `webview-editor/`. The Yjs document and WebSocket live in
-the native (RN) layer; bridge messages keep the editor view and the
-doc in sync.
+The native editor runs inside core's pooled `editor-webview` host
+(`@tinycld/core/lib/editor/use-webview-editor`), which loads the same
+ProseMirror build under `webview-editor/`. The Yjs document, awareness,
+and the realtime WebSocket all live in the native (RN) layer; the page
+opens no socket of its own. Doc updates and carets are relayed over
+the WebView bridge using the vocabulary in
+`webview-editor/source/relay-protocol.ts`, so the WebView is never
+handed a credential and one human never shows up as two peers.
+
+[^web-only-tabs]: `ReviewDrawer` shows the Activity and Authorship
+    tabs only on web (`Platform.OS === 'web' && yDoc != null`) — the
+    edit-events pipeline and the authorship walker aren't wired through
+    the WebView bridge yet, so the native drawer is Suggestions-only.
 
 [^image-mobile]: Native uses a bottom-sheet anchored to the selected
     image (wrap mode chips + S / M / L / Original size presets) rather
@@ -388,7 +411,7 @@ text/
         runtime.go          per-room ycrdt.Doc registry + janitor
         bootstrap.go        docx → Y.Doc on first open
         flush.go            Y.Doc → docx → drive_items.file
-        authorize.go        drive_shares-based access
+        oauth_scopes.go     text:read / text:write scope registration
         suggestions_authz.go            per-frame validator: reject
                                         client writes to server-owned
                                         authorship roots
@@ -423,9 +446,12 @@ text/
                             session-grouping, suggestions-map
             authorship/     aggregate-contributors, decoration plugin glue
             markdown/       md-to-pm, pm-to-md
-        webview-editor/     ProseMirror build hosted by the native editor
-                            (includes suggested-* extensions + authorship
-                             decoration plugin)
+        webview-editor/     ProseMirror build hosted by core's editor-webview
+                            on native (includes suggested-* extensions +
+                            authorship decoration plugin)
+            source/relay-protocol.ts  message vocabulary for relaying Yjs
+                                      updates + carets over the bridge (the
+                                      page opens no socket of its own)
         collections.ts, types.ts
         tests/              vitest unit tests (including suggestions/)
 ```
@@ -448,7 +474,10 @@ tinycld text comments <path> --all      # include resolved threads
 ```
 
 `comment` is accepted as an alias. The group requests the `text:read`
-and `text:write` OAuth scopes.
+and `text:write` OAuth scopes, which the Go server registers with
+core through `oauth.RegisterPackage` (`server/oauth_scopes.go`) —
+they cover `text_comments` only; the documents themselves are
+governed by drive's scopes.
 
 There is deliberately **no `text new` command.** Documents *are*
 `drive_items`, so `tinycld drive put` / `cat` / `get` / `rm` already
@@ -459,8 +488,10 @@ comments only.
 The `tinycld` binary is a Go CLI the server cross-compiles containing
 exactly its installed package set; users download it from **Settings →
 Personal → About**. This package's group is sourced from `cli/` and
-declared by a `cli` manifest block naming the Go module and the OAuth
-scopes above. The in-app help topic is `help/command-line.md`.
+declared by a `cli` manifest block naming only the Go package and
+module (`{ package: 'cli', module: 'tinycld.org/packages/text/cli' }`);
+the manifest declares no scopes. The in-app help topic is
+`help/command-line.md`.
 
 Docs: [Command line tool](https://tinycld.org/docs/command-line-tool) ·
 [CLI reference](https://tinycld.org/docs/reference/cli-reference).

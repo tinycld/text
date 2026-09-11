@@ -29,6 +29,16 @@ import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-mu
 
 test.describe('Text — Activity tab', () => {
     test('edits → 1s idle → activity row appears (with audience present)', async ({ browser }) => {
+        // Triples the 30s default budget. This is the most expensive setup in
+        // the suite — two browser contexts, two logins and two loads of the
+        // 505-word feature-test.docx — and only THEN does it wait out the
+        // edit-event debounce window. Measured at ~26s of setup before the
+        // first assertion when it draws a worker's cold Metro compile (it runs
+        // first in the suite), against sibling two-context specs that finish in
+        // 13-15s warm. The default leaves no room for the window on top, so the
+        // test died in setup without ever reaching the row assertion.
+        test.slow()
+
         // Upload the doc + share with a second user up front, before
         // any browser context exists. shareDriveItemWith grants the
         // second user explicit access to the drive item so they can
@@ -75,12 +85,13 @@ test.describe('Text — Activity tab', () => {
             await writer.keyboard.type(marker, { delay: 25 })
             await expect(writer.getByText(marker).first()).toBeVisible()
 
-            // Wait past the shortened window so the buffer's per-
-            // clientID timer fires and writes an EditEvent into
-            // editEvents Y.Array. 2.5s covers the 1000ms window +
-            // scheduler/network/observer slack.
-            await writer.waitForTimeout(2_500)
-
+            // The buffer's per-clientID timer fires TINYCLD_EDIT_EVENT_WINDOW_MS
+            // (1s under e2e) after the last keystroke and writes an EditEvent
+            // into the editEvents Y.Array, which useEditEvents observes to
+            // render the row. Let the assertion poll for that rather than
+            // sleeping a fixed 2.5s — the sleep paid full price even when the
+            // flush landed early, and this test has the least headroom in the
+            // suite (see test.slow() above).
             await expect(writer.getByText(/made \d+ edits?/i).first()).toBeVisible()
         } finally {
             await writerCtx.close()

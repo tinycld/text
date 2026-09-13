@@ -14,7 +14,7 @@ export function registerCollections(
     coreStores: CoreStores
 ) {
     // Hoisted rather than inlined: an inline `collectionOptions` object literal
-    // defeats inference of `alwaysExpand` against `relations` in pbtsdb 0.8.0,
+    // defeats inference of `alwaysFetchRelations` against `relations` in pbtsdb,
     // typing every expand path as `never`. See core/lib/pocketbase.ts, which
     // hoists the same shape as `indexing`.
     const indexing = {
@@ -25,7 +25,6 @@ export function registerCollections(
     const text_comments = newCollection('text_comments', {
         omitOnInsert: ['created', 'updated'] as const,
         relations: { author: coreStores.users },
-        alwaysExpand: ['author'],
         collectionOptions: indexing,
     })
     return { text_comments }

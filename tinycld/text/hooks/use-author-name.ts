@@ -1,6 +1,6 @@
 import { eq } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
 import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 
 // useAuthorName resolves the display name for a users id. Reads the
 // user record directly so we render the human-readable name, falling
@@ -25,7 +25,7 @@ import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 // practice.
 export function useAuthorName(authorId: string | null): string | null {
     const [usersCollection] = useStore('users')
-    const { data: rows } = useOrgLiveQuery(
+    const { data: rows } = useLiveQuery(
         query =>
             query
                 .from({ u: usersCollection })

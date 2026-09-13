@@ -1,6 +1,6 @@
 // useTextDocuments + useCreateBlankTextDocument compose the duplicated
 // query+create block out of screens/index.tsx and sidebar.tsx. Their
-// internals (useOrgLiveQuery, useCreateDriveItem, pbtsdb stores) are
+// internals (useMyLiveQuery, useCreateDriveItem, pbtsdb stores) are
 // fully reactive React hooks that need a mounted React tree to
 // exercise honestly — the existing in-repo tests demonstrate that's
 // not how this codebase tests data hooks; see use-print-document.test.tsx
@@ -72,7 +72,7 @@ describe('useCreateBlankTextDocument contract', () => {
     })
 })
 
-// useTextDocuments wraps useOrgLiveQuery with the docx-mime filter.
+// useTextDocuments wraps useMyLiveQuery with the docx-mime filter.
 // We document the query shape here so a future refactor that
 // accidentally drops the `is_folder=false` clause (and surfaces
 // folders alongside docs) fails this test.

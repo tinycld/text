@@ -4,14 +4,14 @@
 // surfaces text_comments rows tagged with a suggestion_id and writes
 // new reply rows on submit. The hook composes three primitives:
 //   1. `useStore('text_comments', 'comment_mentions')` for collections
-//   2. `useOrgLiveQuery` for the read subscription
+//   2. `useMyLiveQuery` for the read subscription
 //   3. `useMutation` for the write path
 //
 // We mock all three so the tests don't need a live PocketBase. The
 // mocks expose the spies the assertions read; happy-dom is set so
 // renderHook from @testing-library/react can mount the hook.
 //
-// The mocked `useOrgLiveQuery` lets each test inject the rows it
+// The mocked `useMyLiveQuery` lets each test inject the rows it
 // wants the hook to see. The mocked `useStore` returns spy
 // `.insert()` methods so we can verify what addReply writes.
 
@@ -58,8 +58,8 @@ vi.mock('@tinycld/core/lib/pocketbase', () => ({
 // text_comments and `.from({ mention: ... })` for comment_mentions.
 // We don't actually execute the chain; we return the pre-staged data
 // based on the key the call site uses (probed via a fake `from`).
-vi.mock('@tinycld/core/lib/use-org-live-query', () => ({
-    useOrgLiveQuery: (queryFn: (q: unknown) => unknown | null) => {
+vi.mock('@tanstack/react-db', () => ({
+    useLiveQuery: (queryFn: (q: unknown) => unknown | null) => {
         let resolvedKind: 'comment' | 'mention' | null = null
         const fakeQuery = {
             from: (table: Record<string, unknown>) => {

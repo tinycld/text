@@ -1,4 +1,5 @@
 import { eq } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
 // DocumentTitle (core) sets the browser tab title; aliased to TabTitle here
 // to avoid collision with text's own DocumentTitle (the in-editor title bar
 // component imported from '../components/DocumentTitle').
@@ -12,7 +13,6 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useCommentsDrawerStore } from '@tinycld/core/lib/stores/comments-drawer-store'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { CopyToFolderDialog } from '@tinycld/drive/components/CopyToFolderDialog'
 import type { Editor as TiptapEditor } from '@tiptap/react'
 import { router, useLocalSearchParams } from 'expo-router'
@@ -103,7 +103,7 @@ export default function TextDetail() {
     const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
     const orgHref = useOrgHref()
 
-    const { data: items = [], isLoading: isItemLoading } = useOrgLiveQuery(
+    const { data: items = [], isLoading: isItemLoading } = useLiveQuery(
         query =>
             query.from({ item: driveItemsCollection }).where(({ item }) => eq(item.id, id ?? '')),
         [id]

@@ -1,4 +1,5 @@
 import { eq } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
 import {
     type BaseCommentRow,
     buildThreads,
@@ -6,7 +7,6 @@ import {
     type Thread,
 } from '@tinycld/core/lib/comments'
 import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { useEffect, useMemo, useState } from 'react'
 import type { TextComments } from '../types'
 import type { DocumentCommentBridge } from './use-document-editor'
@@ -49,7 +49,7 @@ export interface DocumentCommentsResult {
 // pre-built map so each <CommentMarker /> render is O(1).
 //
 // Wired at the screen level so all marks share one subscription.
-// Wrap with useOrgLiveQuery for the bootstrap-gating side effect:
+// Wrap with useMyLiveQuery for the bootstrap-gating side effect:
 // queries stay disabled until org context loads, preventing a
 // cross-org flash while the user navigates between documents in
 // different orgs. The query body itself doesn't filter by org —
@@ -62,12 +62,12 @@ export function useDocumentComments(
 ): DocumentCommentsResult {
     const disabled = options?.disabled === true
     const [textCommentsCollection] = useStore('text_comments')
-    // useOrgLiveQuery accepts `null` to short-circuit subscription —
+    // useMyLiveQuery accepts `null` to short-circuit subscription —
     // returning EMPTY here keeps the read-only design decision intact:
     // viewers don't fetch text_comments rows so a viewer never sees
     // comments existed on the doc. See screens/[id].tsx for the
     // design-decision comment.
-    const { data: rows = [] } = useOrgLiveQuery(
+    const { data: rows = [] } = useLiveQuery(
         query =>
             disabled
                 ? null

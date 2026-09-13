@@ -1,9 +1,9 @@
 import { and, eq, isNull } from '@tanstack/db'
 import type { Transaction } from '@tanstack/react-db'
+import { useLiveQuery } from '@tanstack/react-db'
 import { parseMentions } from '@tinycld/core/lib/comments'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { newRecordId } from 'pbtsdb/core'
 import { useCallback, useMemo } from 'react'
 
@@ -96,7 +96,7 @@ export function useSuggestionDiscussion(
     // extracted from the reply body's `[[@userId]]` tokens via
     // parseMentions — the composer writes those tokens directly, so
     // the body text IS the canonical mention list per row.
-    const { data: commentRows = [], isLoading: commentsLoading } = useOrgLiveQuery(
+    const { data: commentRows = [], isLoading: commentsLoading } = useLiveQuery(
         query =>
             suggestionId
                 ? query

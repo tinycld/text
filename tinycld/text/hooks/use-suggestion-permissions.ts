@@ -1,6 +1,6 @@
 import { and, eq } from '@tanstack/db'
 import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
+import { useMyLiveQuery } from '@tinycld/core/lib/use-my-live-query'
 
 export interface SuggestionPermissions {
     canEdit: boolean
@@ -39,7 +39,7 @@ export interface SuggestionPermissions {
 export function useSuggestionPermissions(driveItemId: string): SuggestionPermissions {
     const [sharesCollection] = useStore('drive_shares')
 
-    const { data: shareRows } = useOrgLiveQuery(
+    const { data: shareRows } = useMyLiveQuery(
         (query, { userId }) =>
             query
                 .from({ s: sharesCollection })

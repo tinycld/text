@@ -1,7 +1,7 @@
 import { and, eq } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useStore } from '@tinycld/core/lib/pocketbase'
-import { useOrgLiveQuery } from '@tinycld/core/lib/use-org-live-query'
 import { useCreateBlankDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import { useCallback } from 'react'
 import { createBlankTextDocument } from '../lib/create-blank-text-document'
@@ -13,7 +13,7 @@ import { DOCX_MIME_TYPE } from '../lib/mime'
 // can't drift on filter ordering / where clauses.
 export function useTextDocuments() {
     const [driveItemsCollection] = useStore('drive_items')
-    return useOrgLiveQuery(query =>
+    return useLiveQuery(query =>
         query
             .from({ item: driveItemsCollection })
             .where(({ item }) => and(eq(item.mime_type, DOCX_MIME_TYPE), eq(item.is_folder, false)))

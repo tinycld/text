@@ -78,10 +78,12 @@ Change tracking (Google-Docs-style):
   edits.
 - **Suggesting marks** — inline inserts (`SuggestedInsert`), deletes
   (`SuggestedDelete`), block-level changes (`SuggestedBlockChange`),
-  format changes (`SuggestedFormatChange`), and a `SuggestedTable`
-  family that captures cell additions, removals, and reshapes. Each
-  suggestion carries an `authorId` and `ts` so the renderer can
-  per-author-color and attribute it.
+  and format changes (`SuggestedFormatChange`). Table changes (cell
+  additions, removals, and reshapes) are a `TableChange` type
+  (`lib/suggestions/table-change-utils.ts`) that rides on
+  `SuggestedBlockChange` node attributes. Each suggestion carries an
+  `authorId` and `ts` so the renderer can per-author-color and
+  attribute it.
 - **Review drawer** (`ReviewDrawer`, `OpenReviewDrawerButton`) — opens
   alongside the editor with three tabs:
     - **Suggestions** — anchored and orphaned suggestions, per-row
@@ -268,7 +270,7 @@ Text registers itself as a `realtime.RoomKind` named `"text-doc"` (see
 ### How core's WAL provides durability
 
 The journal is core's, not text's. Core exports a `Journal` interface
-(`core/realtime/journal.go`) with three operations:
+(`core/server/realtime/journal.go`) with three operations:
 
 ```go
 type Journal interface {
@@ -279,7 +281,7 @@ type Journal interface {
 ```
 
 Text uses the production implementation, `PocketBaseJournal`
-(`core/realtime/journal_pocketbase.go`), which stores each update as a
+(`core/server/realtime/journal_pocketbase.go`), which stores each update as a
 row in the `realtime_doc_updates` PocketBase collection — created by a
 core migration. The collection lives in the same SQLite database as
 the rest of the app, so writes are durable against SIGKILL via
@@ -349,8 +351,9 @@ cleanup runs.
 
 Comments are not in the `Y.Doc`. They live in a regular PocketBase
 collection, `text_comments`, one row per thread root or reply. The
-editor subscribes via `useDocumentComments` with `useOrgLiveQuery`;
-mutations go through `useMutation`. Mentions resolve through
+editor subscribes via `useDocumentComments` with `useLiveQuery`
+(`useMyLiveQuery` gates it until the user is known); mutations go
+through `useMutation`. Mentions resolve through
 `useMentionSuggestions` against the server's `users` collection (the
 current user is excluded; guests can't enumerate the roster).
 
@@ -412,6 +415,8 @@ text/
         bootstrap.go        docx → Y.Doc on first open
         flush.go            Y.Doc → docx → drive_items.file
         oauth_scopes.go     text:read / text:write scope registration
+        version_hooks.go    drive VersionHook: manual version snapshots
+                            capture / restore the live Yjs state
         suggestions_authz.go            per-frame validator: reject
                                         client writes to server-owned
                                         authorship roots
@@ -421,9 +426,12 @@ text/
                             suggestion_marks, format_change_marks,
                             suggestions_part — full round-trip of
                             <w:ins>/<w:del>/tracked block changes
+        render/             sanitize.go — text's HTML sanitizer allowlist
+                            + RendererVersion for the preview endpoint
         wal_e2e_test.go     end-to-end WAL replay / truncate / cleanup
     tinycld/text/           TypeScript source
-        provider.tsx        registers DocumentPreview + drive actions
+        provider.tsx        registers TextPreview (registerPreview +
+                            registerShareEditor) + drive actions
         screens/            index + [id]
         components/         toolbar, menubar, popovers, dialogs
             menubar/        File/Edit/Format/Insert/Help menus
@@ -499,20 +507,16 @@ Docs: [Command line tool](https://tinycld.org/docs/command-line-tool) ·
 ## Development
 
 ```sh
-# Clone the app shell and this package as siblings
-cd ~/code/tinycld
-git clone git@github.com:tinycld/tinycld.git
-git clone git@github.com:tinycld/text.git
+# Assemble a workspace with the app shell, this package, and its
+# dependency @tinycld/drive as sibling checkouts
+mkdir ~/code/tinycld && cd ~/code/tinycld
+npx @tinycld/bootstrap@latest --assemble-only --with drive --with text
 
-# Install deps in the app shell
-cd tinycld
+# Install at the workspace root (links members + runs the generator)
 pnpm install
 
-# Link this package (and its dependency, @tinycld/drive) into the app shell
-pnpm run packages:link ../drive
-pnpm run packages:link ../text
-
 # Run the full stack
+cd tinycld
 pnpm run dev
 ```
 
@@ -526,20 +530,24 @@ config lives in `tinycld/biome.json` and applies to every linked package
 (there is no `biome.json` in this repo).
 
 ```sh
-cd ../tinycld
-pnpm run packages:link ../text    # only needed once per checkout
-pnpm run lint                     # scans this package via the app's biome rules
-pnpm run typecheck                # full app-shell tsc
-pnpm run test:unit                # vitest, including this package's tests/
-pnpm run test:go                  # go test on this package's server/
+cd text
+pnpm exec tinycld-pkg check       # biome + tsc + vitest, scoped to this package
+pnpm exec tinycld-pkg test        # vitest only
+pnpm exec tinycld-pkg test:e2e    # playwright (this package only)
+cd server && go test ./...        # Go tests for this package's server/
 ```
 
 ## CI
 
-`.github/workflows/ci.yml` runs lint, typecheck, and vitest on every push to
-`main` and every PR. It clones `tinycld/tinycld@main` into a sibling
-directory, installs the app shell's deps, links this package in, and runs
-the checks — exactly what a developer does locally.
+`.github/workflows/ci.yml` runs three jobs on every push to `main` and
+every PR: **Typecheck & Unit** (`pnpm exec tinycld-pkg check`), **E2E**
+(Playwright via `tinycld-pkg test:e2e`), and **Go tests** (`go test ./...`
+in `server/`). Each job checks this repo out into its member slot and
+assembles the workspace around it with `@tinycld/bootstrap --assemble-only`,
+resolving the `tinycld` and `drive` siblings to a branch matching the PR's
+branch name when one exists (falling back to their default branch), then
+runs `pnpm install` at the workspace root — exactly what a developer does
+locally.
 
 ## Package anatomy
 

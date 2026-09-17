@@ -45,9 +45,12 @@ Editing features:
   unflushed keystrokes
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
-  state can be restored later. Each row stores both the canonical
-  `.docx` blob and the raw Yjs snapshot, so a restore round-trips
-  suggestions and authorship metadata losslessly.
+  state can be restored later. When the room is live the row stores
+  both the canonical `.docx` blob and the raw Yjs snapshot, so a
+  restore round-trips suggestions and authorship metadata. Snapshot and
+  restore both no-op gracefully on a dormant room — no `yjs_state` is
+  written, and the protected roots (authorship, edit events) are not
+  recovered.
 - Find and replace (`FindReplaceBar`) — open via ⌘F on web or via
   **Edit → Find…** on iOS / Android (the bar is wired on every platform;
   the ⌘F shortcut binding is web-only)
@@ -368,7 +371,8 @@ current user is excluded; guests can't enumerate the roster).
 | Inline images (insert)             | ✅  | ✅                      |
 | Inline images (wrap / resize)      | ✅  | ✅ [^image-mobile]      |
 | Comments                           | ✅  | ✅                      |
-| Mentions                           | ✅  | not yet                |
+| Mentions (in comment composer)     | ✅  | ✅                     |
+| Mentions (in-editor autocomplete)  | ✅  | not yet                |
 | Templates                          | ✅  | ✅                      |
 | Alignment + indent / outdent       | ✅  | ✅                      |
 | Font family / font size            | ✅  | ✅                      |
@@ -558,4 +562,4 @@ locally.
   registration + the participant owner resolver)
 - `cli/` — Go source for this package's `tinycld text` command group
 - `tinycld/text/automation.ts` — the automation trigger catalog
-- `tests/` — vitest unit tests
+- `tests/` — vitest unit tests (`*.test.ts(x)`) and Playwright e2e specs (`*.spec.ts`); `playwright.config.ts` points its `testDir` here too

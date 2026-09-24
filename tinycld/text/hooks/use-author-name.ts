@@ -25,14 +25,15 @@ import { useStore } from '@tinycld/core/lib/pocketbase'
 // practice.
 export function useAuthorName(authorId: string | null): string | null {
     const [usersCollection] = useStore('users')
-    const { data: rows } = useLiveQuery(
-        query =>
-            query
-                .from({ u: usersCollection })
-                .where(({ u }) => eq(u.id, authorId ?? ''))
-                .select(({ u }) => ({ name: u.name, email: u.email })),
-        [authorId]
-    )
+    const { data: rows } = useLiveQuery({
+        query: query =>
+            authorId === null
+                ? null
+                : query
+                      .from({ u: usersCollection })
+                      .where(({ u }) => eq(u.id, authorId))
+                      .select(({ u }) => ({ name: u.name, email: u.email })),
+    })
     if (authorId === null) return null
     const row = rows?.[0] as { name: string | null; email: string | null } | undefined
     if (!row) return null

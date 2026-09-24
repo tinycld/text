@@ -96,8 +96,8 @@ export function useSuggestionDiscussion(
     // extracted from the reply body's `[[@userId]]` tokens via
     // parseMentions — the composer writes those tokens directly, so
     // the body text IS the canonical mention list per row.
-    const { data: commentRows = [], isLoading: commentsLoading } = useLiveQuery(
-        query =>
+    const { data: commentRows = [], isLoading: commentsLoading } = useLiveQuery({
+        query: query =>
             suggestionId
                 ? query
                       .from({ comment: textCommentsCollection })
@@ -106,8 +106,7 @@ export function useSuggestionDiscussion(
                       )
                       .orderBy(({ comment }) => comment.created, 'asc')
                 : null,
-        [suggestionId]
-    )
+    })
 
     const replies = useMemo<SuggestionReply[]>(() => {
         if (!suggestionId) return EMPTY_REPLIES

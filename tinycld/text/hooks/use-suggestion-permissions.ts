@@ -39,12 +39,10 @@ export interface SuggestionPermissions {
 export function useSuggestionPermissions(driveItemId: string): SuggestionPermissions {
     const [sharesCollection] = useStore('drive_shares')
 
-    const { data: shareRows } = useMyLiveQuery(
-        (query, { userId }) =>
-            query
-                .from({ s: sharesCollection })
-                .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user, userId))),
-        [driveItemId]
+    const { data: shareRows } = useMyLiveQuery((query, { userId }) =>
+        query
+            .from({ s: sharesCollection })
+            .where(({ s }) => and(eq(s.item, driveItemId), eq(s.user, userId)))
     )
 
     // driveshare.ResolveRole on the server picks the highest-priority role

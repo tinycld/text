@@ -103,11 +103,10 @@ export default function TextDetail() {
     const clearLastPackageHref = useWorkspaceStore(s => s.clearLastPackageHref)
     const orgHref = useOrgHref()
 
-    const { data: items = [], isLoading: isItemLoading } = useLiveQuery(
-        query =>
+    const { data: items = [], isLoading: isItemLoading } = useLiveQuery({
+        query: query =>
             query.from({ item: driveItemsCollection }).where(({ item }) => eq(item.id, id ?? '')),
-        [id]
-    )
+    })
 
     const item = items[0]
 

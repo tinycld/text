@@ -59,7 +59,7 @@ vi.mock('@tinycld/core/lib/pocketbase', () => ({
 // We don't actually execute the chain; we return the pre-staged data
 // based on the key the call site uses (probed via a fake `from`).
 vi.mock('@tanstack/react-db', () => ({
-    useLiveQuery: (queryFn: (q: unknown) => unknown | null) => {
+    useLiveQuery: ({ query: queryFn }: { query: (q: unknown) => unknown | null }) => {
         let resolvedKind: 'comment' | 'mention' | null = null
         const fakeQuery = {
             from: (table: Record<string, unknown>) => {

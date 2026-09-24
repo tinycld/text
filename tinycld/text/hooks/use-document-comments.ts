@@ -67,15 +67,14 @@ export function useDocumentComments(
     // viewers don't fetch text_comments rows so a viewer never sees
     // comments existed on the doc. See screens/[id].tsx for the
     // design-decision comment.
-    const { data: rows = [] } = useLiveQuery(
-        query =>
+    const { data: rows = [] } = useLiveQuery({
+        query: query =>
             disabled
                 ? null
                 : query
                       .from({ comment: textCommentsCollection })
                       .where(({ comment }) => eq(comment.drive_item, driveItemId)),
-        [driveItemId, disabled]
-    )
+    })
 
     const [orphanedCommentIds, setOrphanedCommentIds] = useState<Set<string>>(() => new Set())
 

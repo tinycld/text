@@ -72,6 +72,8 @@ func setupTextCommentsRLSApp(t *testing.T) *textCommentsEnv {
 		t.Fatalf("add users.disabled: %v", err)
 	}
 
+	stubGroupsCollection(t, app)
+
 	// The whole collection graph — drive's items/shares/versions and text's
 	// comments, schema and access rules alike — comes from the two packages'
 	// real migrations. drive's run first: text's version migrations alter

@@ -11,8 +11,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // value setter, so fireEvent.change can't drive the field anyway.
 //
 // What we DO verify here:
-//   - the wrapper pulls the current user id off useEditorMount and
-//     pipes it into useMentionSuggestions (the @-picker pool)
+//   - the wrapper hands useMentionSuggestions down to the composer AS
+//     a hook, so the composer can call it with the live `@…` query its
+//     MentionInput reports. The hook reads the current user and the
+//     mention capability from useEditorMount itself, so the wrapper
+//     binds no arguments — the identity of the function it passes is
+//     what matters, and it must be the module-level hook.
 //   - the wrapper installs a handler that, when CommentComposer's
 //     onSubmit fires, parses out `[[@userId]]` tokens and forwards
 //     `(body, mentions[])` to the parent's onSubmit
@@ -26,16 +30,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // crucially, call the inner onSubmit directly to drive the parse+
 // forward path.
 
-const editorMountMock = vi.fn(() => ({
-    identity: { userId: 'user_me' },
-}))
-const mentionSuggestionsMock = vi.fn((_id: string) => [] as unknown[])
+const useMentionSuggestionsStub = vi.fn((_query: string) => [] as unknown[])
 
-vi.mock('@tinycld/core/lib/editor/editor-mount', () => ({
-    useEditorMount: () => editorMountMock(),
-}))
 vi.mock('~/tinycld/text/hooks/use-mention-suggestions', () => ({
-    useMentionSuggestions: (id: string) => mentionSuggestionsMock(id),
+    useMentionSuggestions: (query: string) => useMentionSuggestionsStub(query),
 }))
 
 // Capture the props the composer received so the tests can probe
@@ -44,7 +42,7 @@ let capturedProps: {
     onSubmit?: (body: string) => void
     isPending?: boolean
     placeholder?: string
-    mentionSuggestions?: unknown[]
+    useMentionSuggestions?: (query: string) => unknown[]
 } = {}
 
 vi.mock('@tinycld/core/ui/comments', () => ({
@@ -52,7 +50,7 @@ vi.mock('@tinycld/core/ui/comments', () => ({
         onSubmit: (body: string) => void
         isPending?: boolean
         placeholder?: string
-        mentionSuggestions?: unknown[]
+        useMentionSuggestions?: (query: string) => unknown[]
     }) => {
         capturedProps = props
         return null
@@ -65,14 +63,17 @@ describe('SuggestionReplyComposer', () => {
     afterEach(() => {
         cleanup()
         capturedProps = {}
-        editorMountMock.mockClear()
-        mentionSuggestionsMock.mockClear()
+        useMentionSuggestionsStub.mockClear()
     })
 
-    it('feeds the current user id from useEditorMount into useMentionSuggestions', () => {
+    it('hands the mention search hook itself to the composer, unbound', () => {
         render(<SuggestionReplyComposer onSubmit={() => {}} />)
-        expect(editorMountMock).toHaveBeenCalled()
-        expect(mentionSuggestionsMock).toHaveBeenCalledWith('user_me')
+        // Not a new closure per render: the composer calls this at its
+        // own top level, so a fresh function each render would shift
+        // the hook at that position.
+        expect(capturedProps.useMentionSuggestions).toBeTypeOf('function')
+        capturedProps.useMentionSuggestions?.('ali')
+        expect(useMentionSuggestionsStub).toHaveBeenCalledWith('ali')
     })
 
     it('passes the placeholder through to the inner composer (default copy)', () => {

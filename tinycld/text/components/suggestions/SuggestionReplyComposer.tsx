@@ -1,5 +1,4 @@
 import { parseMentions } from '@tinycld/core/lib/comments'
-import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { CommentComposer } from '@tinycld/core/ui/comments'
 import { useCallback, useState } from 'react'
 import { View } from 'react-native'
@@ -26,11 +25,13 @@ export interface SuggestionReplyComposerProps {
 // list and writes one comment_mentions row per id, mirroring the
 // regular comment-thread mutation pipeline.
 //
-// The picker pool comes from useMentionSuggestions, which returns the
-// deployment's users minus the current user. The current user id is
-// pulled from useEditorMount() — the same context that the editor +
-// suggestion bridge run in, so this composer can only mount inside a
-// document screen.
+// The picker pool comes from useMentionSuggestions, handed to the
+// composer as a hook so it can be called with the live `@…` query the
+// composer's MentionInput reports — a server-side search, not a roster
+// read. That hook reads the current user and the mention capability
+// from useEditorMount() — the same context the editor + suggestion
+// bridge run in, so this composer can only mount inside a document
+// screen.
 //
 // Submit-in-flight state is held locally via useState. The composer
 // disables the inner submit button while the parent's onSubmit is
@@ -40,9 +41,6 @@ export function SuggestionReplyComposer({
     onSubmit,
     placeholder = 'Reply or add others with @',
 }: SuggestionReplyComposerProps) {
-    const { identity } = useEditorMount()
-    const currentUserId = identity.userId ?? ''
-    const mentionSuggestions = useMentionSuggestions(currentUserId)
     const [isPending, setIsPending] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -72,7 +70,7 @@ export function SuggestionReplyComposer({
                 isPending={isPending}
                 error={error}
                 onSubmit={handleSubmit}
-                mentionSuggestions={mentionSuggestions}
+                useMentionSuggestions={useMentionSuggestions}
                 submitOnEnter
             />
         </View>

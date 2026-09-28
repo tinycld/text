@@ -35,7 +35,6 @@ export function TextCommentDrawer({
 
     const { user } = useAuth()
     const { reply, editBody, resolve, reopen, remove } = useCommentMutations()
-    const mentionSuggestions = useMentionSuggestions(user.id)
 
     const { threadsByCommentId, orphanedCommentIds } = documentComments
 
@@ -84,7 +83,7 @@ export function TextCommentDrawer({
             onDelete={id => remove.mutate({ id })}
             onResolve={id => resolve.mutate({ id })}
             onReopen={id => reopen.mutate({ id })}
-            mentionSuggestions={mentionSuggestions}
+            useMentionSuggestions={useMentionSuggestions}
         />
     )
 }

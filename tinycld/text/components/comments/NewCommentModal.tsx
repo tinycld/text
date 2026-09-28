@@ -7,7 +7,10 @@ export interface NewCommentModalProps {
     error: string | null
     onCancel: () => void
     onSubmit: (body: string) => void
-    mentionSuggestions: MentionSuggestion[]
+    // The @-mention search hook, passed straight to the composer. It
+    // must be a stable module-level function — see CommentComposer's
+    // `useMentionSuggestions` prop.
+    useMentionSuggestions: (query: string) => MentionSuggestion[]
 }
 
 // Centered modal composer for starting a new comment thread. Owned by
@@ -19,7 +22,7 @@ export function NewCommentModal({
     error,
     onCancel,
     onSubmit,
-    mentionSuggestions,
+    useMentionSuggestions,
 }: NewCommentModalProps) {
     if (!isOpen) return null
     return (
@@ -41,7 +44,7 @@ export function NewCommentModal({
                         autoFocus
                         onCancel={onCancel}
                         onSubmit={onSubmit}
-                        mentionSuggestions={mentionSuggestions}
+                        useMentionSuggestions={useMentionSuggestions}
                     />
                 </Pressable>
             </Pressable>

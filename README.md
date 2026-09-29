@@ -372,7 +372,7 @@ current user is excluded; guests can't enumerate the roster).
 | Inline images (wrap / resize)      | ✅  | ✅ [^image-mobile]      |
 | Comments                           | ✅  | ✅                      |
 | Mentions (in comment composer)     | ✅  | ✅                     |
-| Mentions (in-editor autocomplete)  | ✅  | not yet                |
+| Mentions (in-editor autocomplete)  | not yet | not yet            |
 | Templates                          | ✅  | ✅                      |
 | Alignment + indent / outdent       | ✅  | ✅                      |
 | Font family / font size            | ✅  | ✅                      |

@@ -1,10 +1,10 @@
 module tinycld.org/packages/text
 
-go 1.26.3
+go 1.27.1
 
 require (
 	github.com/nathanstitt/omnidoc v1.0.0
-	github.com/pocketbase/pocketbase v0.39.8
+	github.com/pocketbase/pocketbase v0.40.4
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
 	golang.org/x/image v0.44.0
 	tinycld.org/core v0.0.0

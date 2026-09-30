@@ -354,9 +354,9 @@ cleanup runs.
 
 Comments are not in the `Y.Doc`. They live in a regular PocketBase
 collection, `text_comments`, one row per thread root or reply. The
-editor subscribes via `useDocumentComments` with `useLiveQuery`
-(`useMyLiveQuery` gates it until the user is known); mutations go
-through `useMutation`. Mentions resolve through
+editor subscribes via `useDocumentComments` with `useLiveQuery`;
+mutations go through core's `useBaseCommentMutations`
+(`hooks/use-comment-mutations.ts`). Mentions resolve through
 `useMentionSuggestions` against the server's `users` collection (the
 current user is excluded; guests can't enumerate the roster).
 
@@ -456,11 +456,12 @@ text/
                             block/format/table change utils, bulk-resolve,
                             click-to-focus, discussions, resolve,
                             session-grouping, suggestions-map
-            authorship/     aggregate-contributors, decoration plugin glue
+            authorship/     aggregate-contributors, walk-paragraph-authors
             markdown/       md-to-pm, pm-to-md
         webview-editor/     ProseMirror build hosted by core's editor-webview
                             on native (includes suggested-* extensions +
-                            authorship decoration plugin)
+                            authorship decoration plugin in
+                            source/authorship/, also used on web)
             source/relay-protocol.ts  message vocabulary for relaying Yjs
                                       updates + carets over the bridge (the
                                       page opens no socket of its own)

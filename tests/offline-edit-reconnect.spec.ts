@@ -43,6 +43,10 @@ test.describe('Text — edits typed during an outage', () => {
         await page.reload()
         await waitForEditor(page)
         await expect(page.getByText(marker)).toHaveCount(1)
-        await expect(page.getByText(FEATURE_DOC_HEADING)).toHaveCount(1)
+        // The body mentions the title too; the H1 is what a merged second
+        // incarnation would duplicate.
+        await expect(
+            page.getByRole('heading', { level: 1, name: FEATURE_DOC_HEADING })
+        ).toHaveCount(1)
     })
 })

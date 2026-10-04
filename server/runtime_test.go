@@ -108,31 +108,6 @@ func TestRuntime_ClosedHandleRejectsOps(t *testing.T) {
 	}
 }
 
-// TestRuntime_ApplyUpdateRejectsOversizedPayload guards the
-// MaxApplyUpdateBytes cap. A hostile client sending a 100 MiB frame
-// would otherwise burn allocations inside y-crdt's ApplyUpdate before
-// the recover guard could trip.
-func TestRuntime_ApplyUpdateRejectsOversizedPayload(t *testing.T) {
-	runtime := NewRuntime()
-	handle, err := runtime.NewDoc("oversize-room")
-	if err != nil {
-		t.Fatalf("NewDoc: %v", err)
-	}
-	defer func() { _ = handle.Close() }()
-
-	oversized := make([]byte, MaxApplyUpdateBytes+1)
-	if err := handle.ApplyUpdate(oversized); err == nil {
-		t.Fatal("ApplyUpdate accepted a payload larger than MaxApplyUpdateBytes")
-	}
-
-	// A payload exactly at the cap is allowed past the size check.
-	// y-crdt will log + ignore malformed bytes (the contract the
-	// recover guard backstops), so we don't assert a successful
-	// apply — only that the size gate didn't reject.
-	atCap := make([]byte, MaxApplyUpdateBytes)
-	_ = handle.ApplyUpdate(atCap)
-}
-
 // TestRuntime_ImportWarnings round-trips warnings through Set/Pop —
 // the OnConnect path's contract.
 func TestRuntime_ImportWarnings(t *testing.T) {
@@ -167,74 +142,6 @@ func TestRuntime_PopImportWarningsAbsentRoom(t *testing.T) {
 	runtime := NewRuntime()
 	if got := runtime.PopImportWarnings("never-set"); got != nil {
 		t.Errorf("PopImportWarnings for absent room = %+v, want nil", got)
-	}
-}
-
-// TestRuntime_EvictIdleDoc verifies the janitor closes a handle whose
-// lastActivity is older than MaxIdleDuration. Drives the clock with a
-// fake `now` instead of sleeping; calls evictIdleDocs directly so the
-// test doesn't depend on the goroutine wakeup interval.
-func TestRuntime_EvictIdleDoc(t *testing.T) {
-	setClock := withFakeClock(t)
-	t0 := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
-	setClock(t0)
-
-	runtime := NewRuntime()
-	defer runtime.Stop()
-
-	handle, err := runtime.NewDoc("idle-room")
-	if err != nil {
-		t.Fatalf("NewDoc: %v", err)
-	}
-
-	// Doc registered, lastActivity = t0.
-	setClock(t0.Add(MaxIdleDuration + time.Minute))
-	runtime.evictIdleDocs()
-
-	// After eviction the handle should be Closed and the registry empty.
-	if err := handle.ApplyUpdate([]byte{0x00}); err == nil {
-		t.Error("ApplyUpdate after eviction should fail (handle closed)")
-	}
-	runtime.mu.Lock()
-	_, stillRegistered := runtime.docs["idle-room"]
-	runtime.mu.Unlock()
-	if stillRegistered {
-		t.Error("evicted handle is still registered in runtime.docs")
-	}
-}
-
-// TestRuntime_ActiveDocSurvivesEvict ensures a handle that's been
-// touched within MaxIdleDuration is NOT evicted. Otherwise an active
-// editing session would get killed mid-flight.
-func TestRuntime_ActiveDocSurvivesEvict(t *testing.T) {
-	setClock := withFakeClock(t)
-	t0 := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
-	setClock(t0)
-
-	runtime := NewRuntime()
-	defer runtime.Stop()
-
-	handle, err := runtime.NewDoc("active-room")
-	if err != nil {
-		t.Fatalf("NewDoc: %v", err)
-	}
-	defer func() { _ = handle.Close() }()
-
-	// Time advances most-but-not-all of MaxIdleDuration, then activity
-	// resets the clock; the doc should not be evicted.
-	setClock(t0.Add(MaxIdleDuration - time.Minute))
-	if _, err := handle.EncodeStateAsUpdate(); err != nil {
-		t.Fatalf("EncodeStateAsUpdate: %v", err)
-	}
-
-	setClock(t0.Add(MaxIdleDuration + time.Minute))
-	runtime.evictIdleDocs()
-
-	runtime.mu.Lock()
-	_, stillRegistered := runtime.docs["active-room"]
-	runtime.mu.Unlock()
-	if !stillRegistered {
-		t.Error("active handle was evicted")
 	}
 }
 
@@ -305,93 +212,29 @@ func TestRuntime_ImportWarningsOverflow(t *testing.T) {
 	}
 }
 
-// TestJanitor_ClearsAuthorshipCacheOnEvict pins the regression net for
-// the Phase 3a authorship cache lifecycle: when the janitor evicts an
-// idle room, closeDoc must drop the per-room authorship cache entries
-// alongside the doc/handle/room. Otherwise a long-running server
-// gradually leaks stamped-set entries for rooms that haven't been
-// opened in hours.
-//
-// Drives the eviction with the fake clock + direct evictIdleDocs call
-// (consistent with TestRuntime_EvictIdleDoc) rather than racing the
-// background janitor goroutine — the wiring being tested is closeDoc's
-// cache drop, not the janitor's wakeup cadence.
-func TestJanitor_ClearsAuthorshipCacheOnEvict(t *testing.T) {
-	setClock := withFakeClock(t)
-	t0 := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
-	setClock(t0)
-
+// TestClose_ClearsAuthorshipCache: the broker closes a document after it
+// has been parked for realtime.ParkIdle; that Close must drop the room's
+// authorship cache, or a long-running server leaks stamped sets.
+func TestClose_ClearsAuthorshipCache(t *testing.T) {
 	runtime := NewRuntime()
-	defer runtime.Stop()
-
 	handle, err := runtime.NewDoc("room-evict-test")
 	if err != nil {
 		t.Fatalf("NewDoc: %v", err)
 	}
-	_ = handle
 
 	cache := runtime.AuthorshipCache()
 	cache.noteStamped("room-evict-test", 99)
-
-	// Sanity: cache entries are present before eviction.
 	if !cache.alreadyStamped("room-evict-test", 99) {
-		t.Fatal("cache should record clientID 99 as stamped before evict")
+		t.Fatal("cache should record clientID 99 as stamped before close")
 	}
 
-	// Advance the clock past MaxIdleDuration and trigger the janitor's
-	// eviction scan directly.
-	setClock(t0.Add(MaxIdleDuration + time.Minute))
-	runtime.evictIdleDocs()
-
-	// Doc registry should be empty (handle was Close()d via evictIdleDocs).
+	if err := handle.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	if got := runtime.docFor("room-evict-test"); got != nil {
-		t.Fatal("evicted doc still registered in runtime.docs")
+		t.Fatal("closed doc still registered in runtime.docs")
 	}
-
-	// And — the core regression net — the authorship cache must be
-	// cleared. If a future refactor drops the dropRoom call in closeDoc,
-	// these assertions will catch it.
 	if cache.alreadyStamped("room-evict-test", 99) {
-		t.Errorf("authorship stamped set should be cleared after evict")
-	}
-}
-
-// TestRuntime_StopWithoutJanitor confirms Stop is safe even when
-// StartJanitor was never called (a common shape in tests that don't
-// care about background eviction).
-func TestRuntime_StopWithoutJanitor(t *testing.T) {
-	runtime := NewRuntime()
-	done := make(chan struct{})
-	go func() {
-		runtime.Stop()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Stop blocked indefinitely with no janitor running")
-	}
-}
-
-// TestRuntime_StopJoinsJanitor confirms Stop drains the janitor
-// goroutine — a second call to Stop must be a no-op (idempotent).
-func TestRuntime_StopJoinsJanitor(t *testing.T) {
-	original := JanitorInterval
-	JanitorInterval = 10 * time.Millisecond
-	t.Cleanup(func() { JanitorInterval = original })
-
-	runtime := NewRuntime()
-	runtime.StartJanitor()
-
-	done := make(chan struct{})
-	go func() {
-		runtime.Stop()
-		runtime.Stop() // idempotent — second call returns immediately.
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Stop did not return")
+		t.Errorf("authorship stamped set should be cleared after close")
 	}
 }

@@ -2,6 +2,7 @@ package text
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -25,6 +26,9 @@ func TestBootstrap_LoadsAndSeeds(t *testing.T) {
 		t.Fatalf("NewDoc: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
 
 	state, err := handle.EncodeStateAsUpdate()
 	if err != nil {
@@ -51,6 +55,9 @@ func TestBootstrap_EmptyFileLeavesEmptyDoc(t *testing.T) {
 		t.Fatalf("NewDoc on empty drive_item: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed on empty drive_item: %v", err)
+	}
 
 	state, err := handle.EncodeStateAsUpdate()
 	if err != nil {
@@ -65,10 +72,9 @@ func TestBootstrap_EmptyFileLeavesEmptyDoc(t *testing.T) {
 }
 
 // TestBootstrap_CorruptDocxLogsAndContinues confirms the runtime
-// contract: bootstrap errors are logged but do NOT abort room creation
-// (see Runtime.NewDoc). A non-docx blob causes the parser to error;
-// the room continues with an empty Y.Doc, and a peer-driven SyncRequest
-// path can still recover.
+// contract: a seed error is reported for the broker to log but does NOT
+// make the document unusable. A non-docx blob causes the parser to error;
+// the room continues with an empty Y.Doc.
 func TestBootstrap_CorruptDocxLogsAndContinues(t *testing.T) {
 	app := setupTestApp(t)
 	garbage := []byte("this is not a docx file, just plain text")
@@ -79,9 +85,12 @@ func TestBootstrap_CorruptDocxLogsAndContinues(t *testing.T) {
 
 	handle, err := runtime.NewDoc(item.Id)
 	if err != nil {
-		t.Fatalf("NewDoc on corrupt docx unexpectedly errored: %v", err)
+		t.Fatalf("NewDoc: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
+	if err := runtime.Seed(context.Background(), item.Id, handle); err == nil {
+		t.Fatal("Seed hid the parse failure of a corrupt docx")
+	}
 
 	state, err := handle.EncodeStateAsUpdate()
 	if err != nil {
@@ -112,9 +121,12 @@ func TestBootstrap_MissingDriveItemLogsAndContinues(t *testing.T) {
 
 	handle, err := runtime.NewDoc("nonexistent-drive-item-id")
 	if err != nil {
-		t.Fatalf("NewDoc on missing drive_item unexpectedly errored: %v", err)
+		t.Fatalf("NewDoc: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
+	if err := runtime.Seed(context.Background(), "nonexistent-drive-item-id", handle); err == nil {
+		t.Fatal("Seed hid the missing drive item")
+	}
 
 	state, err := handle.EncodeStateAsUpdate()
 	if err != nil {

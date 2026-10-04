@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +31,9 @@ func TestBootstrap_LoadsRTF(t *testing.T) {
 	handle, err := runtime.NewDoc(item.Id)
 	if err != nil {
 		t.Fatalf("NewDoc on rtf item: %v", err)
+	}
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
 

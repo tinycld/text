@@ -46,7 +46,6 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 	bob := mustCreateUser(t, app, "bob@e2e.test")
 
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Mirror text.Register's RegisterRoomKindWith: RuntimeProvider so the
 	// broker mints a serverDoc; OnRoomCreate so the runtime gets the *Room
@@ -162,7 +161,6 @@ func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
 	itemID := alice.itemID
 
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },

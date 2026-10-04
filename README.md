@@ -194,24 +194,29 @@ bytes back onto the drive_item's `file` field.
 │   core/realtime  broker  (roomKind "text-doc")                       │
 │        │                                                             │
 │        │  every accepted MsgDocUpdate:                               │
-│        │    1. Append(seq, bytes) to Journal  ── WAL row             │
-│        │    2. ApplyUpdate to server-side ycrdt.Doc                  │
-│        │    3. fan out to other peers                                │
+│        │    1. ApplyUpdate to server-side ycrdt.Doc                  │
+│        │    2. fan out to other peers                                │
 │        ▼                                                             │
 │   Runtime  (per-room server-side ycrdt.Doc; same shape as TS)        │
 │        │   ▲                                                         │
-│        │   │  bootstrapHook: on first open, parse docx blob and      │
-│        │   │  seed Y.Doc BEFORE SyncReply; then Replay() folds       │
-│        │   │  any un-truncated WAL rows back on top                  │
+│        │   │  Seed: when the broker has no parked document and no   │
+│        │   │  matching checkpoint, parse the docx blob and seed the │
+│        │   │  Y.Doc BEFORE SyncReply                                │
 │        │   │  ┌────────────────────────────────────────────────┐     │
 │        │   └──┤ drive_items.file  (docx blob in PocketBase)     │    │
+│        │      └────────────────────────────────────────────────┘     │
+│        │   ▲                                                         │
+│        │   │  checkpoint: full Y.Doc state + epoch + fingerprint,    │
+│        │   │  stored at eviction / read-only / drain / terminate     │
+│        │   │  ┌────────────────────────────────────────────────┐     │
+│        │   └──┤ realtime_doc_checkpoints (core collection)      │    │
 │        │      └────────────────────────────────────────────────┘     │
 │        ▼                                                             │
 │   SaveCoordinator  (debounce 3s, ceiling 15s, teardown 30s)          │
 │        │                                                             │
 │        ▼                                                             │
 │   flush: Y.Doc → ProseMirror JSON → omnidoc → .docx bytes →      │
-│          drive_items.file → Journal.Truncate(throughSeq)             │
+│          drive_items.file                                            │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -245,93 +250,63 @@ Text registers itself as a `realtime.RoomKind` named `"text-doc"` (see
    through `sharelink.AuthorizeAnonRoom`. The resolved role drives
    the `readOnly` flag in `MsgServerHello` (viewer ⇒ read-only;
    missing / unresolvable role ⇒ fail closed).
-2. **Bootstrap** — on first open, `Runtime.NewDoc` invokes the
-   bootstrap hook, which loads `drive_items.file`, parses the docx
-   via `translate.DocxToPMJSON`, and seeds the `Y.Doc` with
-   `translate.SeedFromPMJSON` — synchronously, before the broker
-   sends `SyncReply`. Empty / missing files seed nothing; the first
-   edit and subsequent flush materialize a docx from scratch.
-3. **WAL replay** — immediately after bootstrap, the broker calls
-   `Journal.Replay` for this `(text-doc, roomID)` and folds every
-   un-truncated update from the previous server lifetime back into
-   the doc, in seq order. This is what makes edits that arrived
-   between the last successful flush and a server crash survive.
-4. **Updates** — every accepted `MsgDocUpdate` is `Journal.Append`'d
-   under a freshly minted, strictly-monotonic per-room seq, then
-   `ycrdt.ApplyUpdate`'d into the server's doc, then fanned out to
-   other peers. Append precedes apply: if the WAL write fails the
-   update is rejected rather than silently lost.
-5. **Save** — the `SaveCoordinator` watches doc updates and triggers a
+2. **Open** — the broker decides where the document comes from. A
+   document whose room emptied within the last 30 minutes is still in
+   memory (parked) and is reused as is. Otherwise, if a checkpoint is
+   stored for the room and its fingerprint still matches the stored
+   file, the Y.Doc is rebuilt from that state. Only when neither exists
+   does `Runtime.Seed` run the bootstrap hook: load `drive_items.file`,
+   parse the docx via `translate.DocxToPMJSON`, seed the `Y.Doc` with
+   `translate.SeedFromPMJSON` — all before the broker sends
+   `SyncReply`. Empty / missing files seed nothing; the first edit and
+   subsequent flush materialize a docx from scratch.
+3. **Updates** — every accepted `MsgDocUpdate` is `ycrdt.ApplyUpdate`'d
+   into the server's doc, then fanned out to other peers. Nothing is
+   written per edit.
+4. **Save** — the `SaveCoordinator` watches doc updates and triggers a
    flush on a 3-second debounce, a 15-second ceiling, or a 30-second
    teardown when the last client leaves. Failures retry with
-   exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap).
-6. **Truncate** — once a flush completes, the coordinator calls
-   `Journal.Truncate(throughSeq)` with the highest seq it observed at
-   flush start, dropping WAL rows whose state is now reflected in the
-   docx blob.
+   exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap). While the server
+   is read-only a save is deferred, not failed.
+5. **Park** — when the last client leaves, the broker keeps the Y.Doc
+   in memory. A reopen within `realtime.ParkIdle` (30 min) lands on the
+   SAME document, so a client whose connection blipped merges as a
+   no-op and resends only what the server lacks.
+6. **Checkpoint** — the broker stores the full Y.Doc state, the
+   document's epoch and the stored file's name (the fingerprint) in
+   `realtime_doc_checkpoints` when it evicts a parked document, when
+   read-only mode begins, at drain and at terminate. The next open from
+   that row is the same document incarnation.
 
-### How core's WAL provides durability
+### Why the document identity matters
 
-The journal is core's, not text's. Core exports a `Journal` interface
-(`core/server/realtime/journal.go`) with three operations:
+A Y.Doc rebuilt from the docx is a new incarnation: y-crdt mints a fresh
+clientID and the seed order is not stable, so every item gets a new
+identity even though the text is the same. A client that still holds the
+previous incarnation then duplicates the content when it merges, and its
+unsent edits reference items the server never had. The parked document
+and the checkpoint keep the identities. The epoch names the incarnation:
+the broker puts it in every `MsgServerHello`, and core's `useRealtimeRoom`
+discards the local doc only when the epoch it synced under changes — a
+hard crash, or a file replaced outside the room.
 
-```go
-type Journal interface {
-    Append(kind, id string, seq int64, update []byte) error
-    Replay(kind, id string, apply func(seq int64, update []byte) error) error
-    Truncate(kind, id string, throughSeq int64) error
-}
-```
+The fingerprint is the stored file's name. Every save writes the file
+under a fresh random suffix, so an upload, a version restore or any other
+replacement changes it, and the broker then re-seeds from the new file
+instead of trusting a stale document.
 
-Text uses the production implementation, `PocketBaseJournal`
-(`core/server/realtime/journal_pocketbase.go`), which stores each update as a
-row in the `realtime_doc_updates` PocketBase collection — created by a
-core migration. The collection lives in the same SQLite database as
-the rest of the app, so writes are durable against SIGKILL via
-SQLite's WAL journal-mode `fsync`. The `update` column is
-base64-encoded so the raw CRDT bytes survive PocketBase's text-field
-encoding; the `(room_kind, room_id, seq)` index is unique so a
-duplicate-seq write is a programming bug rather than a silent
-overwrite.
-
-The contract is:
-
-- The broker serializes `Append` calls per `(kind, id)` (one
-  goroutine per room route path), so seq monotonicity is the
-  broker's responsibility, not the journal's.
-- A failed `Append` aborts the apply — the in-memory doc and the
-  on-disk WAL never diverge.
-- A failed `Replay` aborts room bootstrap entirely; the alternative
-  (silently dropping rows we can't decode) would let stale state
-  leak back into the doc.
-- `Truncate` with a `throughSeq` ≤ the current floor is a no-op,
-  which keeps the post-flush bookkeeping idempotent under retries.
-
-The cascade hook at the bottom of `Register` (in `server/register.go`)
-calls `Journal.Truncate(roomKind, driveItemID, math.MaxInt64)` when a
-`drive_items` record is deleted, so a deleted document's WAL rows
+The cascade hook at the bottom of `registerRealtime` (in
+`server/register.go`) calls `realtime.DropRoom` when a `drive_items`
+record is deleted, so a deleted document's parked Y.Doc and checkpoint row
 don't linger.
 
 ### Worst-case durability window
 
-During steady-state typing the WAL is the durability surface — every
-keystroke (technically every Y.Doc update bundle) is `fsync`'d before
-the broker acknowledges it. Between flushes, the docx blob in
-`drive_items.file` lags by up to `DefaultCeilingInterval` (15s) of
-continuous editing, but the in-flight WAL has every byte. After a
-server crash, the next client to open the room sees:
-
-1. The bootstrap parses the last-saved docx into the new Y.Doc.
-2. `Replay` folds every un-truncated WAL row on top, in seq order.
-3. The `SyncReply` reflects the union — nothing is lost.
-
-The only window where edits can disappear is a `Journal.Append` write
-that fsync's *but* the corresponding flush completed *and* the
-following `Truncate` partially applied before the crash. The truncate
-contract (delete-where-seq-≤-N as a single SQLite statement) makes
-this effectively impossible at the row level; the worst observed
-recovery state is "some WAL rows the doc has already absorbed get
-replayed again", which Yjs handles as a no-op via CRDT idempotence.
+The docx blob in `drive_items.file` lags by up to `DefaultCeilingInterval`
+(15s) of continuous editing. Every graceful stop (read-only pause, drain,
+terminate) stores the document first and loses nothing. A hard crash
+loses at most that window, and the next open re-seeds from the docx under
+a new epoch, so clients discard their local copy and resync.
 
 ### docx serialization
 
@@ -413,9 +388,9 @@ text/
     manifest.ts             package manifest
     pb-migrations/          text_comments + related schema
     help/                   in-app help topics (markdown + frontmatter)
-    server/                 Go server module — bootstrap, flush, WAL hook
-        register.go         realtime + cascade-truncate registration
-        runtime.go          per-room ycrdt.Doc registry + janitor
+    server/                 Go server module — seed, flush, checkpoint wiring
+        register.go         realtime + cascade-drop registration
+        runtime.go          per-room ycrdt.Doc registry
         bootstrap.go        docx → Y.Doc on first open
         flush.go            Y.Doc → docx → drive_items.file
         oauth_scopes.go     text:read / text:write scope registration
@@ -432,7 +407,7 @@ text/
                             <w:ins>/<w:del>/tracked block changes
         render/             sanitize.go — text's HTML sanitizer allowlist
                             + RendererVersion for the preview endpoint
-        wal_e2e_test.go     end-to-end WAL replay / truncate / cleanup
+        checkpoint_e2e_test.go  end-to-end park / evict / reopen / cleanup
     tinycld/text/           TypeScript source
         provider.tsx        registers TextPreview (registerPreview +
                             registerShareEditor) + drive actions

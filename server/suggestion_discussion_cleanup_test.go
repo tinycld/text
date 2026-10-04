@@ -151,7 +151,6 @@ func TestReadSuggestionKeySetNilDoc(t *testing.T) {
 // becomes the baseline for the next round.
 func TestDiffSuggestionKeysFirstCall(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 	doc := newDocWithSuggestions(t, "s1", "s2")
 
 	deleted := runtime.diffSuggestionKeys("room-1", doc)
@@ -174,7 +173,6 @@ func TestDiffSuggestionKeysFirstCall(t *testing.T) {
 // report that key as deleted and update the snapshot to drop it.
 func TestDiffSuggestionKeysDeletion(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Seed the baseline with s1 + s2.
 	docBefore := newDocWithSuggestions(t, "s1", "s2")
@@ -208,7 +206,6 @@ func TestDiffSuggestionKeysDeletion(t *testing.T) {
 // deleted and the diff must return nothing.
 func TestDiffSuggestionKeysAddition(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Baseline: empty.
 	empty := ycrdt.NewDoc("baseline", false, nil, nil, false)
@@ -230,7 +227,6 @@ func TestDiffSuggestionKeysAddition(t *testing.T) {
 // nothing.
 func TestDiffSuggestionKeysIdempotent(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Baseline carries s1 + s2.
 	before := newDocWithSuggestions(t, "s1", "s2")
@@ -348,7 +344,6 @@ func TestArchiveOrphanedDiscussionsEmptyIDs(t *testing.T) {
 // inbound frame would slip through as "no prior snapshot, skip".
 func TestInitSuggestionKeySnapshotSeedsBaseline(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	doc := newDocWithSuggestions(t, "s1", "s2")
 	runtime.initSuggestionKeySnapshot("room-1", doc)
@@ -368,7 +363,6 @@ func TestInitSuggestionKeySnapshotSeedsBaseline(t *testing.T) {
 // authorship cache + edit buffers.
 func TestCloseDocDropsSuggestionSnapshot(t *testing.T) {
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Stand up a real doc on the runtime via NewDoc so closeDoc has
 	// something to tear down. NewDoc registers in the docs map; closeDoc

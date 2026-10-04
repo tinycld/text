@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"testing"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -51,6 +52,9 @@ func TestBootstrapPopulatesSuggestionsMapFromDocx(t *testing.T) {
 	handle, err := runtime.NewDoc(item.Id)
 	if err != nil {
 		t.Fatalf("NewDoc: %v", err)
+	}
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
 
@@ -123,6 +127,9 @@ func TestBootstrapPopulatesSuggestionsMapWithResolvedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDoc: %v", err)
 	}
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
 	defer func() { _ = handle.Close() }()
 
 	got := readSuggestionsMap(runtimeDoc(runtime, item.Id))
@@ -171,6 +178,9 @@ func TestBootstrapDocxWithoutSuggestionsLeavesMapEmpty(t *testing.T) {
 	handle, err := runtime.NewDoc(item.Id)
 	if err != nil {
 		t.Fatalf("NewDoc: %v", err)
+	}
+	if err := runtime.Seed(context.Background(), item.Id, handle); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 	defer func() { _ = handle.Close() }()
 

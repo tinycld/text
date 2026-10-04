@@ -3,7 +3,7 @@ package text
 import (
 	_ "embed"
 	"encoding/json"
-	"math"
+	"fmt"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -106,7 +106,6 @@ func registerShared(app *pocketbase.PocketBase) {
 
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
-	runtime.StartJanitor()
 
 	// Cross-package version hooks: when drive snapshots or restores a
 	// drive_item_versions row for an item of type "text", call into the
@@ -117,10 +116,29 @@ func registerShared(app *pocketbase.PocketBase) {
 	// first room creation finds the hook in place.
 	versionhooks.Register("text", makeSnapshotVersionHook(runtime))
 
-	journal := realtime.NewPocketBaseJournal(app)
+	registerRealtime(app, runtime)
+
+	// /api/text/render/:id — server-rendered HTML for previews +
+	// print. Lives separately from the realtime registration because
+	// it reads cold drive_item bytes, not live Y.Doc state. Mirrors
+	// calc's registerAPI exactly.
+	registerRenderAPI(app)
+
+}
+
+// registerRealtime plugs the text room kind into the broker. Separate from
+// registerShared so a test can wire it against a test app.
+//
+// The broker owns the document's lifetime: it parks the Y.Doc when the
+// room empties, reuses it on a reopen whose fingerprint still matches the
+// stored file, and stores its full state in realtime_doc_checkpoints at
+// eviction, read-only enter, drain and terminate. The SaveCoordinator
+// still writes the docx on its own schedule.
+func registerRealtime(app core.App, runtime *Runtime) {
+	checkpoints := realtime.NewPocketBaseCheckpointStore(app)
 	flush := makeProductionFlush(app, runtime)
 	saveCoordinator := realtime.NewSaveCoordinator(flush)
-	saveCoordinator.SetJournal(roomKindText, journal)
+	saveCoordinator.SetKind(roomKindText)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize: makeAuthorize(app),
@@ -130,17 +148,19 @@ func registerShared(app *pocketbase.PocketBase) {
 			return authorizeAnonShare(app, claims, roomID)
 		},
 		RuntimeProvider: runtime,
-		Journal:         journal,
+		Checkpoints:     checkpoints,
+		Fingerprint:     driveItemFingerprint(app),
+		FlushDirty:      saveCoordinator.FlushDirty,
 		// Wrap OnRoomCreate so the runtime also gets a handle to the
-		// *realtime.Room reference — the Phase 3a authorship stamper
-		// uses it to broadcast server-originated delta updates back to
-		// peers via Room.PublishDocUpdate.
+		// *realtime.Room reference — the authorship stamper uses it to
+		// broadcast server-originated delta updates back to peers via
+		// Room.PublishDocUpdate.
 		OnRoomCreate: func(roomID string, handle realtime.DocHandle, room *realtime.Room) {
 			runtime.noteRoom(roomID, room)
 			saveCoordinator.OnRoomCreate(roomID, handle, room)
 		},
 		OnDocUpdate: saveCoordinator.OnDocUpdate,
-		// Phase 3a server-side authorship stamping: after each accepted
+		// Server-side authorship stamping: after each accepted
 		// MsgDocUpdate, inspect the payload for writing Yjs clientIDs
 		// and stamp clientAuthors / clientFirstSeen for any ID we
 		// haven't seen yet in this room. The stamper is the orchestration
@@ -163,10 +183,12 @@ func registerShared(app *pocketbase.PocketBase) {
 			makeAuthorshipStamper(runtime),
 			makeSuggestionDiscussionCleanup(app, runtime),
 		),
-		OnDocUpdateSeq: saveCoordinator.NoteSeq,
-		OnEmpty:        saveCoordinator.OnRoomEmpty,
-		ForceFlush:     saveCoordinator.FlushNow,
-		OnConnect:      makeOnConnect(app, runtime),
+		OnEmpty: func(roomID string) {
+			saveCoordinator.OnRoomEmpty(roomID)
+			runtime.forgetRoom(roomID)
+		},
+		ForceFlush: saveCoordinator.FlushNow,
+		OnConnect:  makeOnConnect(app, runtime),
 		// Server-side write gate: drop mutations from read-only
 		// connections (viewer members; anon viewers once admitted). Reads
 		// the flag cached by OnConnect (SetReadOnly) — pure in-memory, no
@@ -184,23 +206,29 @@ func registerShared(app *pocketbase.PocketBase) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	// /api/text/render/:id — server-rendered HTML for previews +
-	// print. Lives separately from the realtime registration because
-	// it reads cold drive_item bytes, not live Y.Doc state. Mirrors
-	// calc's registerAPI exactly.
-	registerRenderAPI(app)
-
-	// Cascade-clean WAL rows when a drive_items record (text doc) is
-	// deleted. Scoped to room_kind = "text-doc"; other kinds (calc)
-	// register their own parallel hook. math.MaxInt64 as the upper
-	// bound effectively truncates every row regardless of seq.
+	// A deleted document leaves nothing behind: its parked Y.Doc is
+	// closed and its checkpoint row removed.
 	app.OnRecordAfterDeleteSuccess("drive_items").BindFunc(func(e *core.RecordEvent) error {
-		if err := journal.Truncate(roomKindText, e.Record.Id, math.MaxInt64); err != nil {
-			app.Logger().Warn("text: WAL cleanup on drive_items delete failed",
+		if err := realtime.DropRoom(roomKindText, e.Record.Id); err != nil {
+			app.Logger().Warn("text: checkpoint cleanup on drive_items delete failed",
 				"itemID", e.Record.Id, "err", err)
 		}
 		return e.Next()
 	})
+}
+
+// driveItemFingerprint identifies the stored file a room is seeded from.
+// Every save writes the file under a fresh random suffix, so the name
+// alone changes whenever the content does — by this package's flush or by
+// anything else (an upload, a version restore).
+func driveItemFingerprint(app core.App) realtime.FingerprintFn {
+	return func(roomID string) (string, error) {
+		item, err := app.FindRecordById(driveItemsCollection, roomID)
+		if err != nil {
+			return "", fmt.Errorf("text: fingerprint of %s: %w", roomID, err)
+		}
+		return item.GetString("file"), nil
+	}
 }
 
 // composeOnDocUpdateContent fans one realtime.OnDocUpdateContentFn slot

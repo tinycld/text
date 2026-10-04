@@ -45,7 +45,6 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 	itemID := alice.itemID
 
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	// Mirror text.Register's wiring: RuntimeProvider mints the
 	// serverDoc, OnRoomCreate registers the *Room + per-room buffer,
@@ -150,7 +149,6 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 	bob := mustCreateUser(t, app, "bob@e2e.test")
 
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
@@ -294,7 +292,6 @@ func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
 	viewer := mustCreateUser(t, app, "viewer@e2e.test")
 
 	runtime := NewRuntime()
-	t.Cleanup(runtime.Stop)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },

@@ -93,6 +93,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         [options.yDoc]
     )
     useEffect(() => () => yjsHost.destroy(), [yjsHost])
+    const generation = useDocGeneration(options.yDoc)
 
     const awarenessHost = useMemo(
         () =>
@@ -107,6 +108,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     const initPayload = useMemo(() => {
         const peersAtHandshake = awarenessHost.encodePeers()
         return {
+            // The page rebuilds its editor and Y.Doc from initialState only
+            // for a HIGHER generation than the one it booted with, so a
+            // room that replaced its doc (the server rebuilt the document
+            // under a new epoch) must bump it or the page keeps relaying the
+            // old document's edits into the new one.
+            generation,
             user: { id: userId, name: userName, color: userColor },
             editable: options.editable ?? true,
             placeholder: options.placeholder,
@@ -118,6 +125,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             ...(peersAtHandshake ? { peers: peersAtHandshake } : {}),
         }
     }, [
+        generation,
         options.editable,
         options.placeholder,
         options.driveItemId,
@@ -290,4 +298,17 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
         findReplaceEditor,
         commentBridge,
     }
+}
+
+// useDocGeneration counts the documents this editor has been handed. It
+// starts at 1 and rises each time the Y.Doc identity changes, which happens
+// when the room discards its document because the server reported a new
+// epoch. Computed during render, from a ref, so the first render already
+// carries 1 and no effect ordering is involved.
+function useDocGeneration(doc: Y.Doc): number {
+    const ref = useRef<{ doc: Y.Doc | null; n: number }>({ doc: null, n: 0 })
+    if (ref.current.doc !== doc) {
+        ref.current = { doc, n: ref.current.n + 1 }
+    }
+    return ref.current.n
 }

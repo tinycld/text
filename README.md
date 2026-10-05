@@ -89,10 +89,13 @@ Change tracking (Google-Docs-style):
   attribute it.
 - **Review drawer** (`ReviewDrawer`, `OpenReviewDrawerButton`) — opens
   alongside the editor with three tabs:
-    - **Suggestions** — anchored and orphaned suggestions, per-row
-      Accept / Reject, **Accept all** / **Reject all** across every
-      open suggestion, click-to-focus that scrolls the editor to the
-      suggestion's range and highlights it (`click-to-focus.ts`)
+    - **Suggestions** — open anchored suggestions in document order,
+      per-row Accept / Reject, **Accept all** / **Reject all** across
+      every open anchored suggestion (shown only to users who can
+      resolve), click-to-focus that scrolls the editor to the
+      suggestion's range and highlights it (`click-to-focus.ts`).
+      Orphaned suggestions (map entries whose marks left the doc) are
+      deleted by the suggestion bridge and never listed.
     - **Activity** — reverse-chronological feed of edit events
       (60-second debounced windows of free typing) and resolved
       suggestion decisions, gated behind audience-presence (the log

@@ -2,6 +2,7 @@ import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useToastStore } from '@tinycld/core/lib/stores/toast-store'
+import type { UploadFile } from '@tinycld/core/lib/upload-file'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { NoFilePanel } from '@tinycld/drive/components/NoFilePanel'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
@@ -66,7 +67,7 @@ export default function TextIndex() {
     )
 
     const handleUpload = useCallback(
-        (files: File[]) => {
+        (files: UploadFile[]) => {
             void handleUploadFiles({
                 files,
                 createMutation: create.mutateAsync,
@@ -140,7 +141,7 @@ function TemplatePickerTrigger({ isVisible, onPress, disabled }: TemplatePickerT
 }
 
 interface UploadHandlerArgs {
-    files: File[]
+    files: UploadFile[]
     createMutation: ReturnType<typeof useCreateDriveItem>['mutateAsync']
     orgHref: ReturnType<typeof useOrgHref>
     addToast: ReturnType<typeof useToastStore.getState>['addToast']
@@ -191,7 +192,7 @@ async function handleUploadFiles({
     }
 }
 
-export function mimeForFile(file: File): string {
+export function mimeForFile(file: UploadFile): string {
     const explicit = (file.type || '').toLowerCase()
     if (explicit) return explicit
     const name = file.name.toLowerCase()

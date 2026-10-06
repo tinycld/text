@@ -19,7 +19,7 @@ function pickedPng(name = 'photo.png'): PickedImage {
     // also works, but a literal keeps the test independent of node
     // version quirks.
     return {
-        body: { size: 4, type: 'image/png' } as unknown as Blob,
+        body: new Blob(['abcd'], { type: 'image/png' }),
         name,
         mimeType: 'image/png',
     }
@@ -153,7 +153,7 @@ describe('handleImageInsert', () => {
         const upload: UploadMutate = vi.fn((_input, { onSuccess }) =>
             onSuccess({ itemId: 'x', finalName: 'x', parentId: '', file: 'x_sfx.jpg' })
         )
-        const body = { size: 99, type: 'image/jpeg' } as unknown as Blob
+        const body = new Blob(['x'.repeat(99)], { type: 'image/jpeg' })
         const deps = makeDeps({
             pickImage: () => Promise.resolve({ body, name: 'scan.jpg', mimeType: 'image/jpeg' }),
             upload,

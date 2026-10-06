@@ -11,10 +11,7 @@ import {
 } from '../tinycld/text/lib/extract-image-files'
 
 function fakeFile(type: string, name = 'x'): File {
-    // Real File constructor works under happy-dom / jsdom but we run
-    // under node. A duck-typed object is enough — the helpers only
-    // read `.type`.
-    return { type, name, size: 1 } as unknown as File
+    return new File(['x'], name, { type })
 }
 
 function fakeClipboardItem(kind: string, type: string, file: File | null) {

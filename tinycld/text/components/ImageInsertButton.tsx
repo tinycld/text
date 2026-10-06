@@ -1,6 +1,7 @@
 import { Tooltip } from '@tinycld/core/components/Tooltip'
 import { captureException } from '@tinycld/core/lib/errors'
 import { pb } from '@tinycld/core/lib/pocketbase'
+import { uploadFileFromUri } from '@tinycld/core/lib/upload-file'
 import { useCreateDriveItem } from '@tinycld/drive/lib/upload-to-drive'
 import type { ComponentType } from 'react'
 import { useCallback } from 'react'
@@ -122,12 +123,10 @@ async function pickImageNative(): Promise<PickedImage | null> {
     if (asset == null) return null
     const mimeType = asset.mimeType ?? 'image/png'
     const name = asset.name ?? 'image.png'
-    // RN's FormData polyfill accepts a `{ uri, name, type }` literal for
-    // file fields, which is exactly what useCreateDriveItem expects on
-    // native. No base64 round-trip required — the platform's URI points
-    // at the file the picker copied into the app's cache directory.
+    // The picker copied the image into the app's cache directory; it is
+    // uploaded from there without reading it into JS.
     return {
-        body: { uri: asset.uri, name, type: mimeType },
+        body: uploadFileFromUri(asset.uri, name, mimeType),
         name,
         mimeType,
     }

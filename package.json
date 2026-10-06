@@ -46,7 +46,7 @@
         "@tiptap/extension-text-align": "^3.29.2",
         "@tiptap/extension-text-style": "^3.29.2",
         "@tiptap/pm": "~3.29.2",
-        "expo-print": "^55.0.14",
+        "expo-print": "~57.0.2",
         "markdown-it": "^14.1.1",
         "prosemirror-model": "^1.25.11",
         "prosemirror-state": "^1.4.4",

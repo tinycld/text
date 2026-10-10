@@ -37,10 +37,10 @@ let commentLoading = false
 let mentionLoading = false
 
 const textCommentsInsert = vi.fn((row: Record<string, unknown>) => ({
-    isPersisted: { promise: Promise.resolve(row) },
+    when: () => Promise.resolve(row),
 }))
 const commentMentionsInsert = vi.fn((row: Record<string, unknown>) => ({
-    isPersisted: { promise: Promise.resolve(row) },
+    when: () => Promise.resolve(row),
 }))
 
 vi.mock('@tinycld/core/lib/pocketbase', () => ({
@@ -98,7 +98,7 @@ vi.mock('@tanstack/react-db', () => ({
 }))
 
 // `useMutation` wraps a generator into mutateAsync. The real version
-// awaits each yielded Transaction's `isPersisted.promise`; we mirror
+// awaits each yielded Transaction's `when('settled')`; we mirror
 // that here in-process so the addReply call resolves once every
 // insert has been called.
 vi.mock('@tinycld/core/lib/mutations', () => ({
@@ -106,8 +106,8 @@ vi.mock('@tinycld/core/lib/mutations', () => ({
         mutationFn: (
             vars: unknown
         ) => Generator<
-            | { isPersisted: { promise: Promise<unknown> } }
-            | Array<{ isPersisted: { promise: Promise<unknown> } }>,
+            | { when: (state: 'settled') => Promise<unknown> }
+            | Array<{ when: (state: 'settled') => Promise<unknown> }>,
             unknown,
             void
         >
@@ -118,9 +118,9 @@ vi.mock('@tinycld/core/lib/mutations', () => ({
             while (!next.done) {
                 const value = next.value
                 if (Array.isArray(value)) {
-                    await Promise.all(value.map(tx => tx.isPersisted.promise))
+                    await Promise.all(value.map(tx => tx.when('settled')))
                 } else {
-                    await value.isPersisted.promise
+                    await value.when('settled')
                 }
                 next = gen.next()
             }

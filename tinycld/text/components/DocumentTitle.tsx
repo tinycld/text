@@ -1,4 +1,5 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Controller, useForm, zodResolver } from '@tinycld/core/ui/form'
 import { useRef, useState } from 'react'
 import {
     type NativeSyntheticEvent,
@@ -9,7 +10,12 @@ import {
     View,
 } from 'react-native'
 import { useRenameDocument } from '../hooks/use-rename-document'
-import { EMPTY_NAME_ERROR, RENAME_FAILED_ERROR, resolveCommit } from './document-title-edit'
+import {
+    DOCUMENT_NAME_MAX_LENGTH,
+    documentNameSchema,
+    isUnchangedName,
+    RENAME_FAILED_ERROR,
+} from './document-title-edit'
 
 interface DocumentTitleProps {
     documentId: string
@@ -24,90 +30,24 @@ interface DocumentTitleProps {
 //
 // Edit-mode is genuine transient local UI state — no other component
 // cares whether the title is in edit mode — so useState is the right
-// primitive here. The rename mutation lives in useRenameDocument so
-// the title can show its pending/error state without re-implementing
-// the pbtsdb call.
+// primitive here. The draft itself lives in a form inside
+// DocumentTitleEditor, which mounts fresh on every edit so it always
+// starts from the current name. The rename mutation lives in
+// useRenameDocument so the title can show its pending/error state
+// without re-implementing the pbtsdb call.
 export function DocumentTitle({ documentId, name, isReadOnly }: DocumentTitleProps) {
     const { rename, isPending, error, reset } = useRenameDocument(documentId)
     const [isEditing, setIsEditing] = useState(false)
-    const [draft, setDraft] = useState(name)
-    const [inlineError, setInlineError] = useState<string | null>(null)
-    const inputRef = useRef<TextInput>(null)
-    // Escape unmounts the input synchronously, which triggers RN-web's
-    // onBlur on the same focused element a tick later. Without this
-    // guard the blur path would call handleCommit against the original
-    // draft (Escape didn't clear it), turning Escape into a noop only
-    // by accident. Set the flag before unmounting and the deferred
-    // blur becomes a real no-op.
-    const cancelledRef = useRef(false)
-    const fg = useThemeColor('foreground')
 
     const enterEditMode = () => {
         if (isReadOnly || isPending) return
-        setDraft(name)
-        setInlineError(null)
-        cancelledRef.current = false
         reset()
         setIsEditing(true)
     }
 
-    const exitWithoutSubmitting = () => {
-        cancelledRef.current = true
-        setIsEditing(false)
-        setInlineError(null)
-    }
-
-    const handleCommit = () => {
-        if (cancelledRef.current) {
-            cancelledRef.current = false
-            return
-        }
-        const outcome = resolveCommit(draft, name)
-        if (outcome.type === 'noop') {
-            if (outcome.reason === 'empty') {
-                setInlineError(EMPTY_NAME_ERROR)
-                // Hand focus back so the user can correct the value
-                // rather than silently bouncing them to the static
-                // title with an unexplained revert.
-                inputRef.current?.focus()
-                return
-            }
-            exitWithoutSubmitting()
-            return
-        }
-        rename(outcome.trimmedName)
-        setIsEditing(false)
-        setInlineError(null)
-    }
-
-    const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-        if (e.nativeEvent.key === 'Escape') {
-            exitWithoutSubmitting()
-        }
-    }
-
     if (isEditing) {
         return (
-            <View className="flex-1">
-                <TextInput
-                    ref={inputRef}
-                    value={draft}
-                    onChangeText={setDraft}
-                    autoFocus
-                    selectTextOnFocus
-                    onBlur={handleCommit}
-                    onSubmitEditing={handleCommit}
-                    onKeyPress={handleKeyPress}
-                    returnKeyType="done"
-                    blurOnSubmit
-                    accessibilityLabel="Document name"
-                    className="text-base font-semibold rounded-md border border-border bg-field-background px-2 py-1"
-                    style={{ color: fg }}
-                />
-                {inlineError != null ? (
-                    <Text className="text-xs text-danger mt-1">{inlineError}</Text>
-                ) : null}
-            </View>
+            <DocumentTitleEditor name={name} onRename={rename} onDone={() => setIsEditing(false)} />
         )
     }
 
@@ -131,4 +71,95 @@ export function DocumentTitle({ documentId, name, isReadOnly }: DocumentTitlePro
             ) : null}
         </View>
     )
+}
+
+interface DocumentTitleEditorProps {
+    name: string
+    onRename: (newName: string) => void
+    onDone: () => void
+}
+
+function useDocumentTitleEditor({ name, onRename, onDone }: DocumentTitleEditorProps) {
+    const inputRef = useRef<TextInput>(null)
+    // One edit can fire several commits: blurOnSubmit blurs the input
+    // right after Enter, and Escape unmounts the input, which makes
+    // RN-web fire onBlur on it a tick later. The first one settles the
+    // edit; the rest are no-ops, so a rename is never sent twice and
+    // Escape never turns into a commit.
+    const settledRef = useRef(false)
+    const {
+        control,
+        handleSubmit,
+        formState: { errors },
+    } = useForm({
+        resolver: zodResolver(documentNameSchema),
+        defaultValues: { name },
+    })
+
+    const submit = handleSubmit(
+        data => {
+            if (!isUnchangedName(data.name, name)) onRename(data.name)
+            onDone()
+        },
+        () => {
+            // Hand focus back so the user can correct the value rather
+            // than silently bouncing them to the static title with an
+            // unexplained revert.
+            settledRef.current = false
+            inputRef.current?.focus()
+        }
+    )
+
+    const commit = () => {
+        if (settledRef.current) return
+        settledRef.current = true
+        submit()
+    }
+
+    const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+        if (e.nativeEvent.key !== 'Escape') return
+        settledRef.current = true
+        onDone()
+    }
+
+    return { control, inputRef, commit, handleKeyPress, errorMessage: errors.name?.message }
+}
+
+function DocumentTitleEditor(props: DocumentTitleEditorProps) {
+    const { control, inputRef, commit, handleKeyPress, errorMessage } =
+        useDocumentTitleEditor(props)
+    const fg = useThemeColor('foreground')
+
+    return (
+        <View className="flex-1">
+            <Controller
+                control={control}
+                name="name"
+                render={({ field }) => (
+                    <TextInput
+                        ref={inputRef}
+                        value={field.value}
+                        onChangeText={field.onChange}
+                        autoFocus
+                        selectTextOnFocus
+                        maxLength={DOCUMENT_NAME_MAX_LENGTH}
+                        onBlur={commit}
+                        onSubmitEditing={commit}
+                        onKeyPress={handleKeyPress}
+                        returnKeyType="done"
+                        blurOnSubmit
+                        accessibilityLabel="Document name"
+                        className="text-base font-semibold rounded-md border border-border bg-field-background px-2 py-1"
+                        style={{ color: fg }}
+                    />
+                )}
+            />
+            <InlineError message={errorMessage} />
+        </View>
+    )
+}
+
+function InlineError({ message }: { message: string | undefined }) {
+    if (message == null) return null
+    return <Text className="text-xs text-danger mt-1">{message}</Text>
 }

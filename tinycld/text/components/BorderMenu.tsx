@@ -1,5 +1,6 @@
 import type { EditorCommands } from '@tinycld/core/lib/editor/types'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Controller, useForm, zodResolver } from '@tinycld/core/ui/form'
 import {
     Grid3x3,
     type LucideIcon,
@@ -9,9 +10,9 @@ import {
     SquareDashed,
     SquareDot,
 } from 'lucide-react-native'
-import { useState } from 'react'
 import { Modal, Platform, Pressable, Text, TextInput, View } from 'react-native'
 import type { CellBorderPreset, CellBorderStyle } from '../lib/cell-borders'
+import { borderMenuDefaults, borderMenuSchema } from './border-menu-schema'
 
 interface BorderMenuProps {
     isOpen: boolean
@@ -60,29 +61,42 @@ const STYLES: { id: CellBorderStyle; label: string }[] = [
 // currently selected cells. It's a centred Modal — same rationale as
 // LinkPopover / TableMenu (no platform-specific popover positioning).
 //
-// The user picks a preset (top row); the modal closes and the
-// setCellBorders command runs against the current selection. The
-// style/width/color controls at the bottom modify the next applied
-// preset; they persist in component state for the lifetime of the
-// modal so a user can experiment without re-opening.
+// The user picks a preset (top row); the style/width/color fields are
+// validated (see border-menu-schema.ts), then the modal closes and the
+// setCellBorders command runs against the current selection. An invalid
+// width or color keeps the modal open with the error under the field.
+// The fields keep their values for the lifetime of the component so a
+// user can experiment without re-entering them.
+function useBorderMenuForm(commands: EditorCommands, onClose: () => void) {
+    const {
+        control,
+        handleSubmit,
+        formState: { errors },
+    } = useForm({
+        resolver: zodResolver(borderMenuSchema),
+        defaultValues: borderMenuDefaults,
+    })
+
+    const apply = (preset: CellBorderPreset) =>
+        handleSubmit(border => {
+            commands.setCellBorders?.(preset, border)
+            onClose()
+        })()
+
+    return {
+        control,
+        apply,
+        widthError: errors.widthPx?.message,
+        colorError: errors.color?.message,
+    }
+}
+
 export function BorderMenu({ isOpen, onClose, commands }: BorderMenuProps) {
-    const [style, setStyle] = useState<CellBorderStyle>('solid')
-    const [widthPx, setWidthPx] = useState('1')
-    const [color, setColor] = useState('')
+    const { control, apply, widthError, colorError } = useBorderMenuForm(commands, onClose)
     const fg = useThemeColor('foreground')
     const placeholderColor = useThemeColor('field-placeholder')
 
     if (!isOpen) return null
-
-    const apply = (preset: CellBorderPreset) => {
-        const parsedWidth = Number.parseInt(widthPx, 10)
-        commands.setCellBorders?.(preset, {
-            style,
-            widthPx: Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 1,
-            color: color.trim() === '' ? null : color.trim(),
-        })
-        onClose()
-    }
 
     return (
         <Modal transparent animationType="fade" visible={isOpen} onRequestClose={onClose}>
@@ -108,42 +122,55 @@ export function BorderMenu({ isOpen, onClose, commands }: BorderMenuProps) {
                     <View className="h-px bg-border my-1" />
 
                     <Text className="text-xs font-medium text-muted-foreground">Style</Text>
-                    <View className="flex-row flex-wrap gap-1">
-                        {STYLES.map(s => (
-                            <StyleChip
-                                key={s.id}
-                                label={s.label}
-                                isActive={style === s.id}
-                                onPress={() => setStyle(s.id)}
-                            />
-                        ))}
-                    </View>
+                    <Controller
+                        control={control}
+                        name="style"
+                        render={({ field }) => (
+                            <StyleChips value={field.value} onChange={field.onChange} />
+                        )}
+                    />
 
                     <View className="flex-row gap-2">
                         <View className="flex-1">
                             <Text className="text-xs text-muted-foreground mb-1">Width (px)</Text>
-                            <TextInput
-                                value={widthPx}
-                                onChangeText={setWidthPx}
-                                placeholder="1"
-                                placeholderTextColor={placeholderColor}
-                                keyboardType="number-pad"
-                                className="px-2 py-1.5 rounded-md border border-border bg-field-background"
-                                style={{ color: fg }}
+                            <Controller
+                                control={control}
+                                name="widthPx"
+                                render={({ field }) => (
+                                    <TextInput
+                                        value={field.value}
+                                        onChangeText={field.onChange}
+                                        onBlur={field.onBlur}
+                                        placeholder="1"
+                                        placeholderTextColor={placeholderColor}
+                                        keyboardType="number-pad"
+                                        className="px-2 py-1.5 rounded-md border border-border bg-field-background"
+                                        style={{ color: fg }}
+                                    />
+                                )}
                             />
+                            <FieldError message={widthError} />
                         </View>
                         <View className="flex-1">
                             <Text className="text-xs text-muted-foreground mb-1">Color (CSS)</Text>
-                            <TextInput
-                                value={color}
-                                onChangeText={setColor}
-                                placeholder="#000 or theme"
-                                placeholderTextColor={placeholderColor}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                                className="px-2 py-1.5 rounded-md border border-border bg-field-background"
-                                style={{ color: fg }}
+                            <Controller
+                                control={control}
+                                name="color"
+                                render={({ field }) => (
+                                    <TextInput
+                                        value={field.value}
+                                        onChangeText={field.onChange}
+                                        onBlur={field.onBlur}
+                                        placeholder="#000 or theme"
+                                        placeholderTextColor={placeholderColor}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        className="px-2 py-1.5 rounded-md border border-border bg-field-background"
+                                        style={{ color: fg }}
+                                    />
+                                )}
                             />
+                            <FieldError message={colorError} />
                         </View>
                     </View>
 
@@ -177,6 +204,32 @@ function PresetTile({ preset, onPress }: { preset: PresetButton; onPress: () => 
             <Text className="text-xs text-foreground">{preset.label}</Text>
         </Pressable>
     )
+}
+
+function StyleChips({
+    value,
+    onChange,
+}: {
+    value: CellBorderStyle
+    onChange: (style: CellBorderStyle) => void
+}) {
+    return (
+        <View className="flex-row flex-wrap gap-1">
+            {STYLES.map(s => (
+                <StyleChip
+                    key={s.id}
+                    label={s.label}
+                    isActive={value === s.id}
+                    onPress={() => onChange(s.id)}
+                />
+            ))}
+        </View>
+    )
+}
+
+function FieldError({ message }: { message: string | undefined }) {
+    if (message == null) return null
+    return <Text className="text-xs text-danger mt-1">{message}</Text>
 }
 
 function StyleChip({

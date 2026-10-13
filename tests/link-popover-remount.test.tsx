@@ -7,7 +7,7 @@
 //
 // The replacement is a `<LinkPopoverContents key={...} />` remount —
 // React's reconciler unmounts the inner form whenever the key changes,
-// so the next render's `useState(initialUrl)` initialiser sees the
+// so the next mount's form `defaultValues: { url: initialUrl }` sees the
 // fresh seed. No effect needed. The biome-ignore goes away.
 //
 // The component itself is React Native (View / TextInput / Modal) and
@@ -78,8 +78,8 @@ describe('linkPopoverContentsKey', () => {
 //
 // React's reconciler treats two same-position children with different
 // keys as different elements and unmounts/remounts. That remount
-// resets every useState inside LinkPopoverContents back to its
-// initialiser, which reads `initialUrl` — the new URL becomes the
+// resets the form inside LinkPopoverContents back to its
+// defaultValues, which read `initialUrl` — the new URL becomes the
 // visible input value, even if the user had typed something else
 // during the previous open.
 //

@@ -268,10 +268,11 @@ Text registers itself as a `realtime.RoomKind` named `"text-doc"` (see
    into the server's doc, then fanned out to other peers. Nothing is
    written per edit.
 4. **Save** — the `SaveCoordinator` watches doc updates and triggers a
-   flush on a 3-second debounce or a 15-second ceiling, and starts a
-   final flush as soon as the last client leaves (it has 30 seconds to
-   finish). Failures retry with
-   exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap). While the server
+   flush on a 3-second debounce or a 15-second ceiling. A failed flush
+   retries with exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap). When
+   the last client leaves, a final flush starts at once if the doc has
+   unsaved changes; it has 30 seconds to finish, and a failure is logged,
+   not retried. While the server
    is read-only a save is deferred, not failed.
 5. **Park** — when the last client leaves, the broker keeps the Y.Doc
    in memory. A reopen within `realtime.ParkIdle` (30 min) lands on the

@@ -34,7 +34,8 @@ Editing features:
   (`LinkPopover`) for inline link editing
 - New from template — picks a Drive docx template and copies its bytes
   into a fresh doc (`@tinycld/drive`'s `TemplatePickerDialog` +
-  `useHasTemplates`; a template is just a Drive `.docx`)
+  `useHasTemplates`; a template is a Drive file whose name ends in
+  `.tmpl.docx`)
 - Markdown import and export — **Edit → Paste as Markdown** parses the
   clipboard as Markdown and inserts structured content; **File →
   Download (.md)** saves the document as Markdown alongside the
@@ -215,7 +216,7 @@ bytes back onto the drive_item's `file` field.
 │        │   └──┤ realtime_doc_checkpoints (core collection)      │    │
 │        │      └────────────────────────────────────────────────┘     │
 │        ▼                                                             │
-│   SaveCoordinator  (debounce 3s, ceiling 15s, teardown 30s)          │
+│   SaveCoordinator  (debounce 3s, ceiling 15s, final ≤30s)            │
 │        │                                                             │
 │        ▼                                                             │
 │   flush: Y.Doc → ProseMirror JSON → omnidoc → .docx bytes →      │
@@ -267,8 +268,9 @@ Text registers itself as a `realtime.RoomKind` named `"text-doc"` (see
    into the server's doc, then fanned out to other peers. Nothing is
    written per edit.
 4. **Save** — the `SaveCoordinator` watches doc updates and triggers a
-   flush on a 3-second debounce, a 15-second ceiling, or a 30-second
-   teardown when the last client leaves. Failures retry with
+   flush on a 3-second debounce or a 15-second ceiling, and starts a
+   final flush as soon as the last client leaves (it has 30 seconds to
+   finish). Failures retry with
    exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap). While the server
    is read-only a save is deferred, not failed.
 5. **Park** — when the last client leaves, the broker keeps the Y.Doc

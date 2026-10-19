@@ -170,9 +170,9 @@ Docs: [Automation rules](https://tinycld.org/docs/automation-rules)
 
 The short version: every document is a Yjs `Y.Doc` mirrored on the
 client and server; clients send CRDT update bytes to the server over a
-WebSocket; the server appends each update to a SQLite-backed
-write-ahead log before applying it; periodically (or when the last
-client leaves) the server serializes the doc to `.docx` and writes the
+WebSocket; the server applies each update in memory and writes
+nothing per edit; after a short debounce (or when the last client
+leaves) the server serializes the doc to `.docx` and writes the
 bytes back onto the drive_item's `file` field.
 
 ```
@@ -481,7 +481,7 @@ comments only.
 
 The `tinycld` binary is a Go CLI the server cross-compiles containing
 exactly its installed package set; users download it from **Settings →
-Personal → About**. This package's group is sourced from `cli/` and
+About**. This package's group is sourced from `cli/` and
 declared by a `cli` manifest block naming only the Go package and
 module (`{ package: 'cli', module: 'tinycld.org/packages/text/cli' }`);
 the manifest declares no scopes. The in-app help topic is

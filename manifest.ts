@@ -1,7 +1,7 @@
 const manifest = {
     name: 'Text',
     slug: 'text',
-    version: '0.4.3',
+    version: '0.4.4',
     description: 'Plain-text and rich-text documents.',
     routes: { directory: 'screens' },
     nav: {

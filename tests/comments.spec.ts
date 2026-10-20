@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_PASSWORD, TEST_USER_USERNAME } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     openFreshTextDocument,
@@ -176,11 +176,11 @@ test.describe('Text — Comments', () => {
             const pageA = await ctxA.newPage()
             const pageB = await ctxB.newPage()
 
-            await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(pageA, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
 
-            await loginAs(pageB, userB.email, userB.password)
+            await loginAs(pageB, userB.username, userB.password)
             await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
 
@@ -259,7 +259,7 @@ test.describe('Text — Comments', () => {
         const ctx = await browser.newContext()
         try {
             const authorPage = await ctx.newPage()
-            await loginAs(authorPage, author.email, author.password)
+            await loginAs(authorPage, author.username, author.password)
             await authorPage.goto(`/a/text/${itemId}`)
             await waitForEditor(authorPage)
 
@@ -299,7 +299,7 @@ test.describe('Text — Comments', () => {
         const viewerCtx = await browser.newContext()
         try {
             const viewer = await viewerCtx.newPage()
-            await loginAs(viewer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(viewer, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await viewer.goto(`/a/text/${itemId}`)
             await waitForEditor(viewer)
             await viewer.getByRole('button', { name: 'Comments', exact: true }).click()
@@ -338,7 +338,7 @@ async function fetchOtherUsers(
 
     const meRes = await request.post(`${PB_URL}/api/collections/users/auth-with-password`, {
         data: {
-            identity: process.env.TEST_USER_LOGIN ?? 'user@tinycld.org',
+            identity: process.env.TEST_USER_USERNAME ?? 'tester',
             password: process.env.TEST_USER_PW ?? 'TestUser1234!',
         },
     })

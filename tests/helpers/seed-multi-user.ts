@@ -35,6 +35,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_USER_PW ?? 'AdminPass1234!'
 export interface SecondUser {
     id: string
     email: string
+    username: string
     password: string
 }
 
@@ -65,6 +66,7 @@ export async function createSecondUser(label: string): Promise<SecondUser> {
 
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const email = `${label}-${suffix}@tinycld.org`
+    const username = `mu_${suffix.replace(/-/g, '_')}`
     const password = 'MultiUserTest1234!'
 
     const userRes = await fetch(`${PB_URL}/api/collections/users/records`, {
@@ -75,7 +77,7 @@ export async function createSecondUser(label: string): Promise<SecondUser> {
             password,
             passwordConfirm: password,
             name: `${label} tester ${suffix}`,
-            username: `mu_${suffix.replace(/-/g, '_')}`,
+            username,
             verified: true,
             role: 'member',
         }),
@@ -85,7 +87,7 @@ export async function createSecondUser(label: string): Promise<SecondUser> {
     }
     const user = (await userRes.json()) as { id: string }
 
-    return { id: user.id, email, password }
+    return { id: user.id, email, username, password }
 }
 
 // Grant `user` access to a drive item. Defaults to 'editor' (the common

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { login, TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { login, TEST_USER_PASSWORD, TEST_USER_USERNAME } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     FEATURE_DOC_HEADING,
@@ -113,11 +113,11 @@ test.describe('Text — Document editor', () => {
             const pageA = await ctxA.newPage()
             const pageB = await ctxB.newPage()
 
-            await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(pageA, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
 
-            await loginAs(pageB, userB.email, userB.password)
+            await loginAs(pageB, userB.username, userB.password)
             await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
 
@@ -145,12 +145,12 @@ test.describe('Text — Document editor', () => {
             const pageA = await ctxA.newPage()
             const pageB = await ctxB.newPage()
 
-            await loginAs(pageA, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(pageA, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await pageA.goto(`/a/text/${itemId}`)
             await waitForEditor(pageA)
             await expect(pageA.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()
 
-            await loginAs(pageB, userB.email, userB.password)
+            await loginAs(pageB, userB.username, userB.password)
             await pageB.goto(`/a/text/${itemId}`)
             await waitForEditor(pageB)
             await expect(pageB.getByText(FEATURE_DOC_HEADING).first()).toBeVisible()

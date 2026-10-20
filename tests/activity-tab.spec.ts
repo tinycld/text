@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_PASSWORD, TEST_USER_USERNAME } from '../../tinycld/tests/e2e/helpers'
 import { editorRoot, uniqueDocName, uploadDocxAsDriveItem, waitForEditor } from './_menubar-helpers'
 import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-multi-user'
 
@@ -57,11 +57,11 @@ test.describe('Text — Activity tab', () => {
             // second user — their presence in the room satisfies the
             // server's HasOtherWriter audience gate so EditEvents
             // produced by the writer get buffered + flushed.
-            await loginAs(writer, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(writer, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await writer.goto(`/a/text/${itemId}`)
             await waitForEditor(writer)
 
-            await loginAs(audience, userB.email, userB.password)
+            await loginAs(audience, userB.username, userB.password)
             await audience.goto(`/a/text/${itemId}`)
             await waitForEditor(audience)
 

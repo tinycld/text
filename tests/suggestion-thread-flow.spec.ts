@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../../tinycld/tests/e2e/helpers'
+import { TEST_USER_PASSWORD, TEST_USER_USERNAME } from '../../tinycld/tests/e2e/helpers'
 import {
     editorRoot,
     openFreshTextDocument,
@@ -139,7 +139,7 @@ test.describe('Text — Suggestion thread flow', () => {
         const ctx = await browser.newContext()
         try {
             const alicePage = await ctx.newPage()
-            await loginAs(alicePage, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+            await loginAs(alicePage, TEST_USER_USERNAME, TEST_USER_PASSWORD)
             await alicePage.goto(`/a/text/${itemId}`)
             await waitForEditor(alicePage)
 

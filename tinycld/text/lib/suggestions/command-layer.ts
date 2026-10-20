@@ -800,6 +800,10 @@ export function createSuggestionCommandPlugin(options: SuggestionCommandLayerOpt
         return session
     }
 
+    // The marks land through appendTransaction. @tiptap/y-tiptap 3.0.10 reads
+    // the Yjs document for an appended transaction's `before` doc, which is
+    // not synced yet, and throws on every keystroke ("Position tracking
+    // requires synchronized editor text"); the app shell pins 3.0.9.
     return new Plugin({
         key: PLUGIN_KEY,
         appendTransaction(transactions, oldState, newState) {

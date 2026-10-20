@@ -33,6 +33,7 @@ import { applyCellShading } from '../lib/apply-cell-shading'
 import { BorderedTableCell, BorderedTableHeader } from '../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../lib/editor/block-indent'
 import { CommentMark, snapshotCommentIds } from '../lib/editor/comment-mark'
+import { DOCX_INLINE_NODES } from '../lib/editor/docx-inline-nodes'
 import { DropCap } from '../lib/editor/drop-cap'
 import { SlashMenu } from '../lib/editor/slash-menu'
 import { EDITOR_CONTENT_STYLES } from '../lib/editor-content-styles'
@@ -421,6 +422,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                 BorderedTableHeader,
                 BorderedTableCell,
                 WrappedImage,
+                ...DOCX_INLINE_NODES,
                 CommentMark,
                 Collaboration.configure({
                     document: options.yDoc,

@@ -63,6 +63,18 @@ export const EDITOR_CONTENT_STYLES = `
     font-weight: 700;
     padding: 0.02em 0.08em 0 0;
 }
+/* A hard page break from a .docx (lib/editor/docx-inline-nodes.ts): an
+   inline atom shown as a dashed rule across the line. */
+.ProseMirror .tinycld-text-page-break {
+    display: block;
+    border-top: 1px dashed var(--editor-border, #d4d4d4);
+    margin: 0.75em 0;
+}
+.ProseMirror .tinycld-text-footnote-ref,
+.ProseMirror .tinycld-text-endnote-ref {
+    color: var(--editor-muted, #6b6b6b);
+    cursor: default;
+}
 .ProseMirror h1 {
     font-size: 2em;
     font-weight: 700;

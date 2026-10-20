@@ -357,3 +357,21 @@ func buildDocUpdateFrame(payload []byte) []byte {
 	copy(frame[clientIDLen+1:], payload)
 	return frame
 }
+
+// A checkpoint saved before the seed wrote each text run as one YXmlText
+// (its fingerprint is the bare file name) holds a document the client
+// binding cannot edit. The room must re-seed from the stored file instead
+// of restoring it.
+func TestCheckpoint_OldSeedLayoutReseeds(t *testing.T) {
+	env := newTextEnv(t)
+	item := seedDriveItem(t, env.app, "layout.docx", nil)
+	old := realtime.Checkpoint{Epoch: 1, Fingerprint: item.GetString("file"), State: []byte{0, 0}}
+	if err := env.store.Save(roomKindText, item.Id, old); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+
+	env.broker.JoinForTest(roomKindText, item.Id, realtime.NewClientForTest("editor"))
+	if got := env.broker.OpenedFromForTest(roomKindText, item.Id); got != "seed" {
+		t.Fatalf("reopened from %q; want seed", got)
+	}
+}

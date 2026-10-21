@@ -114,12 +114,7 @@ func SeedFromPMJSON(doc *ycrdt.Doc, pmJSON []byte) error {
 		return fmt.Errorf("translate: GetXmlFragment did not return *YXmlFragment")
 	}
 
-	for _, child := range root.Content {
-		if err := seedChildIntoFragment(frag, child); err != nil {
-			return err
-		}
-	}
-	return nil
+	return seedChildren(frag, root.Content)
 }
 
 // PMJSONFromYDoc reads the Y.Doc's XmlFragment and reconstructs the
@@ -143,34 +138,46 @@ func PMJSONFromYDoc(doc *ycrdt.Doc) ([]byte, error) {
 	return json.Marshal(root)
 }
 
-// seedChildIntoFragment inserts one PMNode (block- or inline-level)
-// into a YXmlFragment that's already integrated into a Doc. Children
-// are pushed onto the now-integrated parent recursively.
-func seedChildIntoFragment(parent *ycrdt.YXmlFragment, node PMNode) error {
-	switch node.Type {
-	case NodeTypeText:
-		text, err := buildXMLText(node)
-		if err != nil {
+// seedChildren pushes nodes into a YXmlFragment that's already integrated
+// into a Doc, in the shape y-prosemirror (y-tiptap) builds: each run of
+// adjacent text nodes is ONE YXmlText, its marks carried as formatting on
+// the text, and every other node is a YXmlElement. The client binding
+// matches editor children to Y children one to one; a run split across
+// several YXmlTexts makes it refuse every edit ("Position tracking
+// requires synchronized editor text").
+func seedChildren(parent *ycrdt.YXmlFragment, nodes []PMNode) error {
+	for i := 0; i < len(nodes); {
+		if nodes[i].Type == NodeTypeText {
+			end := i
+			for end < len(nodes) && nodes[end].Type == NodeTypeText {
+				end++
+			}
+			if text := buildXMLText(nodes[i:end]); text != nil {
+				parent.Push([]any{text})
+			}
+			i = end
+			continue
+		}
+		if err := seedElement(parent, nodes[i]); err != nil {
 			return err
 		}
-		parent.Push([]any{text})
-		return nil
-	default:
-		el := newXmlElement(node.Type)
-		for k, v := range node.Attrs {
-			el.SetAttribute(k, normalizeAttrValue(v))
-		}
-		parent.Push([]any{el})
-		// el now has a Doc; recursively push children into it. We
-		// use the embedded YXmlFragment because YXmlElement inherits
-		// its insert/push behavior from there.
-		for _, child := range node.Content {
-			if err := seedChildIntoFragment(&el.YXmlFragment, child); err != nil {
-				return err
-			}
-		}
-		return nil
+		i++
 	}
+	return nil
+}
+
+// seedElement pushes one non-text PMNode and, once it is integrated, its
+// children.
+func seedElement(parent *ycrdt.YXmlFragment, node PMNode) error {
+	el := newXmlElement(node.Type)
+	for k, v := range node.Attrs {
+		el.SetAttribute(k, normalizeAttrValue(v))
+	}
+	parent.Push([]any{el})
+	// el now has a Doc; push its children into it. We use the embedded
+	// YXmlFragment because YXmlElement inherits its insert/push behavior
+	// from there.
+	return seedChildren(&el.YXmlFragment, node.Content)
 }
 
 // normalizeAttrValue coerces JSON-decoded numbers into the concrete
@@ -197,20 +204,30 @@ func normalizeAttrValue(v any) any {
 	return v
 }
 
-// buildXMLText builds a YXmlText preloaded with the node's text and
-// any inline marks. The text gets a usable EH/DEH via newXmlText —
-// y-crdt's NewYXmlText does set EH/DEH on the embedded YText, but
-// it leaves Map nil; we patch it for symmetry with newXmlElement.
-// Insert calls on a freshly-constructed YXmlText buffer into Pending
-// and flush when the parent integrates it.
-func buildXMLText(node PMNode) (*ycrdt.YXmlText, error) {
-	text := newXmlText()
-	if node.Text == "" {
-		return text, nil
+// buildXMLText builds one YXmlText holding a run of adjacent text nodes,
+// each node's marks as the formatting of its part. It returns nil when the
+// run has no text. Every part carries an explicit attribute set (empty for
+// unmarked text): without one, Yjs gives inserted text the formatting
+// already in effect at that position, so plain text after bold would turn
+// bold. The delta applies when the parent integrates the text.
+func buildXMLText(run []PMNode) *ycrdt.YXmlText {
+	delta := make([]ycrdt.EventOperator, 0, len(run))
+	for _, node := range run {
+		if node.Text == "" {
+			continue
+		}
+		attrs := marksToAttributes(node.Marks)
+		if attrs == nil {
+			attrs = ycrdt.NewObject()
+		}
+		delta = append(delta, ycrdt.EventOperator{Insert: node.Text, Attributes: attrs, IsInsertDefined: true})
 	}
-	attrs := marksToAttributes(node.Marks)
-	text.Insert(0, node.Text, attrs)
-	return text, nil
+	if len(delta) == 0 {
+		return nil
+	}
+	text := newXmlText()
+	text.ApplyDelta(delta, true)
+	return text
 }
 
 // newXmlElement returns a YXmlElement with EH/DEH/Map pre-initialized.

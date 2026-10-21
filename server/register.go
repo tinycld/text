@@ -217,17 +217,24 @@ func registerRealtime(app core.App, runtime *Runtime) {
 	})
 }
 
-// driveItemFingerprint identifies the stored file a room is seeded from.
-// Every save writes the file under a fresh random suffix, so the name
-// alone changes whenever the content does — by this package's flush or by
-// anything else (an upload, a version restore).
+// seedLayout names the Y.Doc layout the seed builds. A checkpoint saved
+// under another layout does not match, so its room re-seeds from the stored
+// file. Layout 2 writes each run of adjacent text as one YXmlText, which the
+// client binding requires (see translate.SeedFromPMJSON); a layout-1
+// checkpoint opens as a document no one can edit.
+const seedLayout = "seed2"
+
+// driveItemFingerprint identifies the stored file a room is seeded from,
+// and the seed layout. Every save writes the file under a fresh random
+// suffix, so the name alone changes whenever the content does — by this
+// package's flush or by anything else (an upload, a version restore).
 func driveItemFingerprint(app core.App) realtime.FingerprintFn {
 	return func(roomID string) (string, error) {
 		item, err := app.FindRecordById(driveItemsCollection, roomID)
 		if err != nil {
 			return "", fmt.Errorf("text: fingerprint of %s: %w", roomID, err)
 		}
-		return item.GetString("file"), nil
+		return seedLayout + ":" + item.GetString("file"), nil
 	}
 }
 

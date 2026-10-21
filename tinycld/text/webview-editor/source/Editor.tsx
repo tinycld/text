@@ -25,6 +25,7 @@ import * as Y from 'yjs'
 import { BorderedTableCell, BorderedTableHeader } from '../../lib/bordered-table-cells'
 import { BlockIndent, MAX_INDENT_LEVEL } from '../../lib/editor/block-indent'
 import { CommentMark } from '../../lib/editor/comment-mark'
+import { DOCX_INLINE_NODES } from '../../lib/editor/docx-inline-nodes'
 import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
@@ -196,6 +197,7 @@ export function buildEditorExtensions(options: BuildEditorExtensionsOptions = {}
         BorderedTableHeader,
         BorderedTableCell,
         WrappedImage,
+        ...DOCX_INLINE_NODES,
         CommentMark,
         CodeShortcuts,
         FindReplaceExtension,

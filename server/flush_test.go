@@ -3,6 +3,7 @@ package text
 import (
 	"testing"
 
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 )
 
@@ -131,7 +132,7 @@ func TestDriveImageResolver_ReadsStorageOncePerBlob(t *testing.T) {
 	img := seedDriveItem(t, app, "photo.png", []byte("png-bytes-v1"))
 
 	var cache imageCache
-	resolve := makeDriveImageResolver(app, &cache)
+	resolve := makeDriveImageResolver(app, &cache, nil)
 
 	first, err := resolve(img.Id, "ignored")
 	if err != nil {
@@ -166,4 +167,61 @@ func TestDriveImageResolver_ReadsStorageOncePerBlob(t *testing.T) {
 	if _, ok := cache.get(img.Id + "/" + img.GetString("file")); ok {
 		t.Fatal("clear left an entry in the cache")
 	}
+}
+
+// An image inserted before attached_to existed is attached to the document
+// on the next save, when the document's owner inserted it, so the
+// document's viewers can load it. An image someone else uploaded is left
+// alone: a pasted src must not hand a stranger's image to this document.
+func TestDriveImageResolver_AttachesTheOwnersLegacyImage(t *testing.T) {
+	app := setupTestApp(t)
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newUser := func(email string) *core.Record {
+		u := core.NewRecord(users)
+		u.SetEmail(email)
+		u.SetPassword("Password123!")
+		if err := app.Save(u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	owner, other := newUser("owner@test.local"), newUser("other@test.local")
+	createdBy := func(rec *core.Record, u *core.Record) {
+		rec.Set("created_by", u.Id)
+		if err := app.Save(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc := seedDriveItem(t, app, "doc.docx", []byte("docx"))
+	createdBy(doc, owner)
+	mine := seedDriveItem(t, app, "mine.png", []byte("mine"))
+	createdBy(mine, owner)
+	theirs := seedDriveItem(t, app, "theirs.png", []byte("theirs"))
+	createdBy(theirs, other)
+
+	resolve := makeDriveImageResolver(app, nil, doc)
+	for _, img := range []*core.Record{mine, theirs} {
+		if _, err := resolve(img.Id, "ignored"); err != nil {
+			t.Fatalf("resolve %s: %v", img.GetString("name"), err)
+		}
+	}
+
+	if got := reload(t, app, mine).GetString("attached_to"); got != doc.Id {
+		t.Fatalf("owner's image attached_to = %q, want the document", got)
+	}
+	if got := reload(t, app, theirs).GetString("attached_to"); got != "" {
+		t.Fatalf("another user's image attached_to = %q, want it left alone", got)
+	}
+}
+
+func reload(t *testing.T, app core.App, rec *core.Record) *core.Record {
+	t.Helper()
+	fresh, err := app.FindRecordById(rec.Collection().Id, rec.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fresh
 }

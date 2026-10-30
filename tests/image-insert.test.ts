@@ -56,6 +56,20 @@ function makeDeps(overrides: {
 }
 
 describe('handleImageInsert', () => {
+    it('attaches the uploaded image to the document it is inserted into', async () => {
+        // Collaborators reach the image through the document's access
+        // (drive_items.attached_to); an unattached image is visible only to
+        // the person who inserted it.
+        const upload: UploadMutate = vi.fn((_input, { onSuccess }) =>
+            onSuccess({ itemId: 'rec_1', finalName: 'p.png', parentId: '', file: 'p_x.png' })
+        )
+        await handleImageInsert(vi.fn(), { ...makeDeps({ upload }), attachedTo: 'doc_42' })
+        expect(upload).toHaveBeenCalledWith(
+            expect.objectContaining({ attachedTo: 'doc_42' }),
+            expect.anything()
+        )
+    })
+
     it('inserts a URL built from the STORED file name, not the user-visible name', async () => {
         // Regression: PB serves files under the stored (suffixed) file
         // name, not the user-visible `name`. Building the persisted src

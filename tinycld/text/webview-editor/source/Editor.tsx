@@ -29,6 +29,8 @@ import { DOCX_INLINE_NODES } from '../../lib/editor/docx-inline-nodes'
 import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
+import { APP_IMAGE_AUTH } from '../../lib/image-auth-message'
+import type { ImageSrcAuth } from '../../lib/image-src-auth'
 import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
 import type { EditorModeStore } from '../../stores/editor-mode-store'
@@ -46,6 +48,8 @@ import {
     deriveCurrentTextColor,
     deriveImageSelection,
 } from './editor-state'
+import { setImageAuth } from './image-auth'
+import { createImageView } from './image-view'
 import {
     AWARENESS_CURSOR,
     AWARENESS_LEAVE,
@@ -91,6 +95,18 @@ const WrappedImage = Image.extend({
                     return { 'data-wrap': attrs.wrap }
                 },
             },
+        }
+    },
+    // See image-view.ts: the <img> carries the viewer's credential and is
+    // updated in place rather than rebuilt.
+    addNodeView() {
+        return ({ node }) => {
+            const view = createImageView(node.attrs)
+            return {
+                dom: view.dom,
+                update: updated => updated.type === node.type && view.update(updated.attrs),
+                destroy: view.destroy,
+            }
         }
     },
 })
@@ -144,6 +160,8 @@ interface InitPayload {
     initialState?: string
     /** Base64 `encodeAwarenessUpdate` of the peers already in the room. */
     peers?: string
+    /** How this viewer fetches the document's drive images. */
+    imageAuth?: ImageSrcAuth
 }
 
 interface BuildEditorExtensionsOptions {
@@ -410,7 +428,12 @@ export function Editor() {
                 return
             }
             if (parsed.namespace === 'app' && parsed.type === 'init') {
-                setInit(parsed.payload as InitPayload)
+                const payload = parsed.payload as InitPayload
+                setImageAuth(payload.imageAuth)
+                setInit(payload)
+            }
+            if (parsed.namespace === 'app' && parsed.type === APP_IMAGE_AUTH) {
+                setImageAuth(parsed.payload as ImageSrcAuth | undefined)
             }
         }
         window.addEventListener('message', onMessage)

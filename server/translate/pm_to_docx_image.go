@@ -8,6 +8,7 @@ package translate
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -141,6 +142,11 @@ func (b *builder) resolveDriveImage(src, driveItemID, fileName string) ([]byte, 
 		return nil, "", true, nil
 	}
 	data, err := b.imageResolver(driveItemID, fileName)
+	if errors.Is(err, ErrImageUnavailable) {
+		b.addWarning(WarningUnsupportedImageType,
+			fmt.Sprintf("drive image %s is unavailable to this document; dropped", driveItemID))
+		return nil, "", true, nil
+	}
 	if err != nil {
 		return nil, "", false, fmt.Errorf("translate: resolve drive image %s/%s: %w", driveItemID, fileName, err)
 	}

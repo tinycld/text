@@ -78,7 +78,12 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		// lives outside the marks themselves.
 		suggestionEntries := readSuggestionsMap(doc)
 
-		resolveImage := makeDriveImageResolver(app, &th.images)
+		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
+		if err != nil {
+			return fmt.Errorf("text: load drive_items %s: %w", driveItemID, err)
+		}
+
+		resolveImage := makeDriveImageResolver(app, &th.images, item)
 		docxBytes, _, err := translate.PMJSONToDocxWithResolverAndSuggestions(
 			ctx, pmJSON, resolveImage, suggestionEntries,
 		)
@@ -87,11 +92,6 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		}
 		if len(docxBytes) == 0 {
 			return fmt.Errorf("text: PMJSONToDocx produced empty bytes for %s", driveItemID)
-		}
-
-		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
-		if err != nil {
-			return fmt.Errorf("text: load drive_items %s: %w", driveItemID, err)
 		}
 
 		// Preserve the source format on save: a doc opened from .rtf is
@@ -174,6 +174,34 @@ func (c *imageCache) clear() {
 	c.bytes = nil
 }
 
+// attachLegacyImage attaches a root-level image inserted before drive_items had
+// attached_to to the document it appears in, so the document's viewers can
+// load it. Only when the document's owner uploaded it: a src pasted from
+// someone else's image must not hand that image to this document's viewers.
+// Best-effort: a failure leaves the image as it was and the save goes on.
+func attachLegacyImage(app core.App, image, doc *core.Record) {
+	if doc == nil || image.Id == doc.Id || image.GetString("attached_to") != "" {
+		return
+	}
+	// Inserted images live in the Drive root; an image filed in a folder
+	// is a file its owner manages, not part of this document.
+	if image.GetString("parent") != "" {
+		return
+	}
+	if image.Collection().Fields.GetByName("attached_to") == nil {
+		return
+	}
+	creator := image.GetString("created_by")
+	if creator == "" || creator != doc.GetString("created_by") {
+		return
+	}
+	image.Set("attached_to", doc.Id)
+	if err := app.Save(image); err != nil {
+		app.Logger().Warn("text: attach legacy image to its document failed",
+			"imageID", image.Id, "docID", doc.Id, "err", err)
+	}
+}
+
 // makeDriveImageResolver returns the ImageResolver the docx emitter uses
 // to embed inserted images. The editor stores inserted images as
 // /api/files/drive_items/<id>/<file> URLs (keeping the Y.Doc small);
@@ -182,13 +210,21 @@ func (c *imageCache) clear() {
 // current `file` field rather than the name parsed from the URL, so an
 // image whose blob was re-uploaded after insertion still resolves to the
 // live bytes instead of 404ing on a stale name. A nil cache reads storage
-// on every call.
-func makeDriveImageResolver(app core.App, cache *imageCache) translate.ImageResolver {
+// on every call. doc, when set, is the document being saved: see
+// attachLegacyImage.
+func makeDriveImageResolver(app core.App, cache *imageCache, doc *core.Record) translate.ImageResolver {
 	return func(driveItemID, _ string) ([]byte, error) {
 		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
 		if err != nil {
 			return nil, fmt.Errorf("find drive_items %s: %w", driveItemID, err)
 		}
+		// Only an image embeds. Any other item a src names (a PDF, a
+		// sheet) is dropped rather than copied into the docx, where every
+		// reader of the document could download it.
+		if !strings.HasPrefix(item.GetString("mime_type"), "image/") {
+			return nil, fmt.Errorf("drive_items %s is not an image: %w", driveItemID, translate.ErrImageUnavailable)
+		}
+		attachLegacyImage(app, item, doc)
 		stored := item.GetString("file")
 		if stored == "" {
 			return nil, fmt.Errorf("drive_items %s has no file", driveItemID)

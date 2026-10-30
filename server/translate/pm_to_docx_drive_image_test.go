@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -126,3 +127,23 @@ var errFakeResolver = &resolverErr{}
 type resolverErr struct{}
 
 func (*resolverErr) Error() string { return "boom" }
+
+// A resolver that refuses an item (not an image, or not one this document
+// may embed) drops the image with a warning; the save still succeeds, so
+// one bad src cannot stop a document from saving.
+func TestPMJSONToDocx_DriveImageUnavailableDropped(t *testing.T) {
+	pmJSON := buildImageDocJSON(t, "/api/files/drive_items/abc123/photo.png")
+	resolver := func(_, _ string) ([]byte, error) {
+		return nil, fmt.Errorf("item abc123: %w", ErrImageUnavailable)
+	}
+	docxBytes, warnings, err := PMJSONToDocxWithResolver(t.Context(), pmJSON, resolver)
+	if err != nil {
+		t.Fatalf("unavailable image failed the save: %v", err)
+	}
+	if len(docxBytes) == 0 {
+		t.Fatal("expected a docx")
+	}
+	if len(warnings) != 1 || warnings[0].Code != WarningUnsupportedImageType {
+		t.Fatalf("warnings = %+v, want one unsupported-image warning", warnings)
+	}
+}

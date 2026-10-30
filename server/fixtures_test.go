@@ -58,6 +58,8 @@ func setupTestApp(t *testing.T) *tests.TestApp {
 	// sibling's migration); tests need it present so the render
 	// handler's docx-only check has something to compare against.
 	items.Fields.Add(&core.TextField{Name: "mime_type"})
+	// parent is a relation in drive; a text id is enough for these tests.
+	items.Fields.Add(&core.TextField{Name: "parent"})
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		t.Fatalf("find users collection: %v", err)
@@ -69,6 +71,16 @@ func setupTestApp(t *testing.T) *tests.TestApp {
 	})
 	if err := app.Save(items); err != nil {
 		t.Fatalf("save drive_items collection: %v", err)
+	}
+	// attached_to (drive 2040000030) relates an inserted image to its
+	// document; it relates the collection to itself, so it needs the id.
+	items.Fields.Add(&core.RelationField{
+		Name:         "attached_to",
+		CollectionId: items.Id,
+		MaxSelect:    1,
+	})
+	if err := app.Save(items); err != nil {
+		t.Fatalf("add drive_items.attached_to: %v", err)
 	}
 	return app
 }

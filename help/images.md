@@ -15,7 +15,7 @@ There are three ways to get an image into the document:
 
 Inserted images upload to your drive and the document references them by URL — they don't bloat the document's collaborative state with embedded base64 bytes.
 
-An inserted image belongs to its document: everyone who can open the document sees it, including people who open it through a share link, and nobody else. It is deleted when the document is permanently deleted. Images inserted before this change become part of the document the next time its owner edits it; an image someone else inserted earlier stays visible only to that person and the people they shared it with.
+An inserted image belongs to its document: everyone who can open the document sees it, including people who open it through a share link, and nobody else. If you copy it into another document, people who can see only that other document do not see it; insert the image again there instead. Images inserted before this change become part of the document the next time its owner edits it; an image someone else inserted earlier stays visible only to that person and the people they shared it with.
 
 ## To resize an image
 

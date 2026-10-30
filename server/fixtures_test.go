@@ -58,6 +58,8 @@ func setupTestApp(t *testing.T) *tests.TestApp {
 	// sibling's migration); tests need it present so the render
 	// handler's docx-only check has something to compare against.
 	items.Fields.Add(&core.TextField{Name: "mime_type"})
+	// parent is a relation in drive; a text id is enough for these tests.
+	items.Fields.Add(&core.TextField{Name: "parent"})
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		t.Fatalf("find users collection: %v", err)

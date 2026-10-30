@@ -9,6 +9,7 @@ package translate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/color"
 	"strings"
@@ -128,8 +129,14 @@ func pmJSONToDocx(ctx context.Context, pmJSON []byte, resolver ImageResolver, en
 // identified by the drive_items record id and the stored file name parsed
 // out of an /api/files/drive_items/<id>/<file> src. Returning an error
 // aborts the flush (the image can't be embedded, so the docx would be
-// lossy); the server's SaveCoordinator retries.
+// lossy); the server's SaveCoordinator retries. An error wrapping
+// ErrImageUnavailable instead drops the image with a warning: the item will
+// never resolve (it is not an image, or not one the document may embed), so
+// retrying would only stop the document from ever saving.
 type ImageResolver func(driveItemID, fileName string) ([]byte, error)
+
+// ErrImageUnavailable marks a resolver refusal that drops the image.
+var ErrImageUnavailable = errors.New("translate: image unavailable")
 
 // builder walks a PM tree into a docx.Document. It carries the cross-call
 // state the model needs: list-numbering allocation, the revision/comment id

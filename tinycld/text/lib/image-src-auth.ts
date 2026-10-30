@@ -15,25 +15,19 @@ export type ImageSrcAuth =
 
 const DRIVE_FILES = '/api/files/drive_items/'
 
+// The URL is always rebuilt on the server's own base from the drive-file
+// path: whatever host the src names (absolute, protocol-relative, an earlier
+// address of this server) never receives the credential.
 export function resolveImageSrc(src: string, auth: ImageSrcAuth | undefined): string {
     if (!auth || src.includes('token=')) return src
     const at = src.indexOf(DRIVE_FILES)
-    if (at < 0 || !isOwnServer(src, auth.baseURL)) return src
-    if (auth.kind === 'token') {
-        return `${src}${src.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token)}`
-    }
-    const itemId = src.slice(at + DRIVE_FILES.length).split('/')[0]
-    if (!itemId) return src
-    return shareAttachmentUrl(auth.baseURL, itemId, auth.sessionToken)
-}
-
-// A root-relative src is this server's; an absolute one must share the
-// server's origin, or the credential would go to whatever host wrote it.
-function isOwnServer(src: string, baseURL: string): boolean {
-    if (src.startsWith('/')) return true
-    try {
-        return new URL(src).origin === new URL(baseURL).origin
-    } catch {
-        return false
-    }
+    if (at < 0) return src
+    const [itemId, fileName] = src
+        .slice(at + DRIVE_FILES.length)
+        .split(/[?#]/)[0]
+        .split('/')
+    if (!itemId || !fileName) return src
+    if (auth.kind === 'share') return shareAttachmentUrl(auth.baseURL, itemId, auth.sessionToken)
+    const base = auth.baseURL.replace(/\/+$/, '')
+    return `${base}${DRIVE_FILES}${itemId}/${fileName}?token=${encodeURIComponent(auth.token)}`
 }

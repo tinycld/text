@@ -1,10 +1,12 @@
 package text
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"tinycld.org/packages/text/translate"
 )
 
 // TestFlush_PersistsToDrive runs a full save cycle: bootstrap a doc
@@ -130,6 +132,10 @@ func TestSaveCoordinator_DebounceCadence(t *testing.T) {
 func TestDriveImageResolver_ReadsStorageOncePerBlob(t *testing.T) {
 	app := setupTestApp(t)
 	img := seedDriveItem(t, app, "photo.png", []byte("png-bytes-v1"))
+	img.Set("mime_type", "image/png")
+	if err := app.Save(img); err != nil {
+		t.Fatal(err)
+	}
 
 	var cache imageCache
 	resolve := makeDriveImageResolver(app, &cache, nil)
@@ -189,21 +195,23 @@ func TestDriveImageResolver_AttachesTheOwnersLegacyImage(t *testing.T) {
 		return u
 	}
 	owner, other := newUser("owner@test.local"), newUser("other@test.local")
-	createdBy := func(rec *core.Record, u *core.Record) {
+	seed := func(name, mime, parent string, u *core.Record) *core.Record {
+		rec := seedDriveItem(t, app, name, []byte(name))
 		rec.Set("created_by", u.Id)
+		rec.Set("mime_type", mime)
+		rec.Set("parent", parent)
 		if err := app.Save(rec); err != nil {
 			t.Fatal(err)
 		}
+		return rec
 	}
-	doc := seedDriveItem(t, app, "doc.docx", []byte("docx"))
-	createdBy(doc, owner)
-	mine := seedDriveItem(t, app, "mine.png", []byte("mine"))
-	createdBy(mine, owner)
-	theirs := seedDriveItem(t, app, "theirs.png", []byte("theirs"))
-	createdBy(theirs, other)
+	doc := seed("doc.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "", owner)
+	mine := seed("mine.png", "image/png", "", owner)
+	theirs := seed("theirs.png", "image/png", "", other)
+	filed := seed("filed.png", "image/png", "somefolder", owner)
 
 	resolve := makeDriveImageResolver(app, nil, doc)
-	for _, img := range []*core.Record{mine, theirs} {
+	for _, img := range []*core.Record{mine, theirs, filed} {
 		if _, err := resolve(img.Id, "ignored"); err != nil {
 			t.Fatalf("resolve %s: %v", img.GetString("name"), err)
 		}
@@ -214,6 +222,27 @@ func TestDriveImageResolver_AttachesTheOwnersLegacyImage(t *testing.T) {
 	}
 	if got := reload(t, app, theirs).GetString("attached_to"); got != "" {
 		t.Fatalf("another user's image attached_to = %q, want it left alone", got)
+	}
+	// Inserted images live in the Drive root; one the owner filed in a
+	// folder is a file they manage, not part of this document.
+	if got := reload(t, app, filed).GetString("attached_to"); got != "" {
+		t.Fatalf("owner's filed image attached_to = %q, want it left alone", got)
+	}
+}
+
+// Only images embed: an src naming any other drive item (a PDF, a sheet)
+// is dropped, never copied into the document's docx.
+func TestDriveImageResolver_RefusesANonImageItem(t *testing.T) {
+	app := setupTestApp(t)
+	pdf := seedDriveItem(t, app, "secret.pdf", []byte("%PDF"))
+	pdf.Set("mime_type", "application/pdf")
+	if err := app.Save(pdf); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := makeDriveImageResolver(app, nil, nil)(pdf.Id, "secret.png")
+	if !errors.Is(err, translate.ErrImageUnavailable) {
+		t.Fatalf("err = %v, want ErrImageUnavailable", err)
 	}
 }
 

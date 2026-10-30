@@ -174,13 +174,18 @@ func (c *imageCache) clear() {
 	c.bytes = nil
 }
 
-// attachLegacyImage attaches an image inserted before drive_items had
+// attachLegacyImage attaches a root-level image inserted before drive_items had
 // attached_to to the document it appears in, so the document's viewers can
 // load it. Only when the document's owner uploaded it: a src pasted from
 // someone else's image must not hand that image to this document's viewers.
 // Best-effort: a failure leaves the image as it was and the save goes on.
 func attachLegacyImage(app core.App, image, doc *core.Record) {
 	if doc == nil || image.Id == doc.Id || image.GetString("attached_to") != "" {
+		return
+	}
+	// Inserted images live in the Drive root; an image filed in a folder
+	// is a file its owner manages, not part of this document.
+	if image.GetString("parent") != "" {
 		return
 	}
 	if image.Collection().Fields.GetByName("attached_to") == nil {
@@ -212,6 +217,12 @@ func makeDriveImageResolver(app core.App, cache *imageCache, doc *core.Record) t
 		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
 		if err != nil {
 			return nil, fmt.Errorf("find drive_items %s: %w", driveItemID, err)
+		}
+		// Only an image embeds. Any other item a src names (a PDF, a
+		// sheet) is dropped rather than copied into the docx, where every
+		// reader of the document could download it.
+		if !strings.HasPrefix(item.GetString("mime_type"), "image/") {
+			return nil, fmt.Errorf("drive_items %s is not an image: %w", driveItemID, translate.ErrImageUnavailable)
 		}
 		attachLegacyImage(app, item, doc)
 		stored := item.GetString("file")

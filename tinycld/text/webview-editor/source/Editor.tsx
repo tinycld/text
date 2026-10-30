@@ -30,7 +30,7 @@ import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
 import { APP_IMAGE_AUTH } from '../../lib/image-auth-message'
-import { type ImageSrcAuth, resolveImageSrc } from '../../lib/image-src-auth'
+import type { ImageSrcAuth } from '../../lib/image-src-auth'
 import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
 import type { EditorModeStore } from '../../stores/editor-mode-store'
@@ -48,7 +48,8 @@ import {
     deriveCurrentTextColor,
     deriveImageSelection,
 } from './editor-state'
-import { currentImageAuth, setImageAuth } from './image-auth'
+import { setImageAuth } from './image-auth'
+import { createImageView } from './image-view'
 import {
     AWARENESS_CURSOR,
     AWARENESS_LEAVE,
@@ -96,22 +97,16 @@ const WrappedImage = Image.extend({
             },
         }
     },
-    // The stored src is a tokenless drive-file URL, served behind drive's
-    // view rule, so the rendered <img> carries the viewer's credential. A node
-    // view (not renderHTML) keeps the credential out of copied HTML.
+    // See image-view.ts: the <img> carries the viewer's credential and is
+    // updated in place rather than rebuilt.
     addNodeView() {
-        return ({ HTMLAttributes }) => {
-            const img = document.createElement('img')
-            for (const [name, value] of Object.entries(HTMLAttributes)) {
-                if (value != null) img.setAttribute(name, String(value))
+        return ({ node }) => {
+            const view = createImageView(node.attrs)
+            return {
+                dom: view.dom,
+                update: updated => updated.type === node.type && view.update(updated.attrs),
+                destroy: view.destroy,
             }
-            img.setAttribute(
-                'src',
-                resolveImageSrc(String(HTMLAttributes.src ?? ''), currentImageAuth())
-            )
-            // Rebuilt on every change to the node, which reads the latest
-            // credential and attributes without diffing them.
-            return { dom: img, update: () => false }
         }
     },
 })

@@ -627,45 +627,6 @@ func (h *textDocHandle) publishEditEvent(event EditEvent) ([]byte, error) {
 	return writeEditEvent(h.doc, event)
 }
 
-// replaceContentFromDocx replaces the live document's content with a
-// version's docx and returns the delta to broadcast. The content changes as
-// new operations, so every connected peer converges on the restored text;
-// merging the version's old Yjs state would change nothing, because the
-// newer document already contains it.
-//
-// Runs under the handle mutex like ApplyUpdate / stampAuthorship, so a
-// peer's edit cannot interleave with the replace. A recover turns a
-// y-crdt panic into an error instead of crashing the request.
-func (h *textDocHandle) replaceContentFromDocx(ctx context.Context, docxBytes []byte) ([]byte, error) {
-	pmJSON, _, entries, err := translate.DocxToPMJSONWithSuggestions(ctx, docxBytes)
-	if err != nil {
-		return nil, fmt.Errorf("text: parse restored docx: %w", err)
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed || h.doc == nil {
-		return nil, fmt.Errorf("text: restore on closed room %s", h.id)
-	}
-	h.lastActivity = now()
-	beforeSV := ycrdt.EncodeStateVector(h.doc, nil, ycrdt.NewUpdateEncoderV1())
-	var replaceErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				replaceErr = fmt.Errorf("text: restore panic for room %s: %v", h.id, r)
-			}
-		}()
-		replaceErr = translate.ReplaceFromPMJSON(h.doc, pmJSON)
-		if replaceErr == nil {
-			seedSuggestionsMap(h.doc, entries)
-		}
-	}()
-	if replaceErr != nil {
-		return nil, replaceErr
-	}
-	return ycrdt.EncodeStateAsUpdate(h.doc, beforeSV), nil
-}
-
 // EncodeStateAsUpdate returns the bytes a new joiner needs to catch
 // up to the room's current state. Wrapped by the broker in a
 // MsgSyncReply frame.

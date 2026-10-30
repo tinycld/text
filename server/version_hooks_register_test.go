@@ -16,7 +16,7 @@ func TestRegisterVersionHooks_CoversEveryEditableMime(t *testing.T) {
 
 	for _, mime := range []string{docxMimeType, rtfMimeType, rtfMimeTypeAlt} {
 		hook := versionhooks.For(mime)
-		if hook.OnSnapshot == nil || hook.OnRestore == nil || hook.Render == nil {
+		if hook.OnSnapshot == nil || hook.Render == nil {
 			t.Fatalf("no version hook for %s", mime)
 		}
 	}

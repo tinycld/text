@@ -131,7 +131,13 @@ export async function waitForEditor(page: Page): Promise<void> {
 // (Rename, Move to trash, Make a copy) can't poison siblings, and so a
 // comment/edit from one scenario can't leak into another's view.
 export async function openTextDocument(page: Page, label: string): Promise<string> {
-    const itemId = await uploadDocxAsDriveItem(uniqueDocName(label))
+    return openNamedTextDocument(page, uniqueDocName(label))
+}
+
+// openTextDocument under a caller-chosen name, for a spec that must find the
+// document again by name (in Drive's listing, for one).
+export async function openNamedTextDocument(page: Page, name: string): Promise<string> {
+    const itemId = await uploadDocxAsDriveItem(name)
     await login(page)
     await page.goto(`/a/text/${itemId}`)
     await waitForEditor(page)

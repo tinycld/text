@@ -150,6 +150,8 @@ func registerRealtime(app core.App, runtime *Runtime) {
 		Checkpoints:     checkpoints,
 		Fingerprint:     driveItemFingerprint(app),
 		FlushDirty:      saveCoordinator.FlushDirty,
+		// Automatic versions: drive listens on core/editcheckpoint.
+		EditCheckpoints: true,
 		// Wrap OnRoomCreate so the runtime also gets a handle to the
 		// *realtime.Room reference — the authorship stamper uses it to
 		// broadcast server-originated delta updates back to peers via

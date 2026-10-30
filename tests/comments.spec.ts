@@ -91,8 +91,11 @@ test.describe('Text — Comments', () => {
 
         // Re-select everything and delete. The mark vanishes with the
         // underlying text; the bridge fires `comment.removed` and the
-        // host hook merges the id into orphanedCommentIds.
-        await editorRoot(page).click()
+        // host hook merges the id into orphanedCommentIds. Focus, not a
+        // click: the whole body is now anchored, and a click on marked
+        // text opens the drawer again (useCommentTapHandler).
+        await expect(page.getByRole('dialog')).toBeHidden()
+        await editorRoot(page).focus()
         await page.keyboard.down(meta)
         await page.keyboard.press('a')
         await page.keyboard.up(meta)

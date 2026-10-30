@@ -33,7 +33,7 @@ import {
     Undo2,
 } from 'lucide-react-native'
 import { forwardRef, useState } from 'react'
-import { Platform, Pressable, View } from 'react-native'
+import { Platform, Pressable, View, type ViewInstance } from 'react-native'
 import type { EditorModeStore } from '../stores/editor-mode-store'
 import type { ReviewDrawerStore } from '../stores/review-drawer-store'
 import { BorderMenu } from './BorderMenu'
@@ -532,7 +532,7 @@ interface FormatButtonProps {
 // between the Menu and this Pressable — the Menu clones FormatButton (a
 // real component that forwards the ref), not the tooltip, so the nesting
 // here is fine.
-const FormatButton = forwardRef<View, FormatButtonProps>(function FormatButton(
+const FormatButton = forwardRef<ViewInstance, FormatButtonProps>(function FormatButton(
     { icon: Icon, accessibilityLabel, isActive, disabled, onPress, iconColor, activeColor },
     ref
 ) {

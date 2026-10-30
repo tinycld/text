@@ -1,3 +1,4 @@
+import { downloadFromUrl } from '@tinycld/core/file-viewer/file-url'
 import { useEditorMount } from '@tinycld/core/lib/editor/editor-mount'
 import { captureException } from '@tinycld/core/lib/errors'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
@@ -8,6 +9,7 @@ import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDi
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
 import { exportItem } from '@tinycld/drive/lib/export-pdf'
+import { itemFileUrl } from '@tinycld/drive/lib/item-file-url'
 import {
     fromTemplateName,
     isTemplateName,
@@ -17,6 +19,7 @@ import {
 import { router } from 'expo-router'
 import { lazy, Suspense, useState } from 'react'
 import type { PMNode } from '../../lib/markdown/types'
+import { DOCX_MIME_TYPE } from '../../lib/mime'
 import type { MenuBarProps } from './MenuBar'
 import { SaveVersionDialog } from './SaveVersionDialog'
 
@@ -65,8 +68,9 @@ export function FileMenu(props: MenuBarProps) {
         )
     }
 
-    // "Export as template" reuses the folder-picker copy flow (which
-    // force-flushes the live room first), saving the current doc as a
+    // "Export as template" reuses the folder-picker copy flow (the copy
+    // reads this room's current state through drive's stable file
+    // endpoint), saving the current doc as a
     // `.tmpl.docx`. Hidden when the doc is already a template so we never
     // double-suffix.
     const isAlreadyTemplate = isTemplateName(props.documentName, TEMPLATE_EXTENSIONS.docx)
@@ -86,22 +90,14 @@ export function FileMenu(props: MenuBarProps) {
         setTrashOpen(false)
     }
 
-    // Dynamic-imported to break a require cycle: pocketbase.ts imports the
-    // generated tinycld-config (to register collections), tinycld-config
-    // imports text/provider, the provider eagerly imports screens/[id] for
-    // share-route dispatch, and the screen pulls this menu — completing the
-    // loop if FileMenu imports pb at module scope. Pulling pb only at click
-    // time keeps the cycle open.
+    // Drive's stable file endpoint: the server flushes this room first, so
+    // the download holds the edits on screen, and the URL has no blob name
+    // in it, so it stays valid across saves. downloadFromUrl saves on web
+    // and opens the share sheet on native.
     const downloadSource = async () => {
         if (!props.sourceFile) return
-        const { pb } = await import('@tinycld/core/lib/pocketbase')
-        const url = pb.files.getURL(
-            { collectionId: 'drive_items', id: props.documentId },
-            props.sourceFile
-        )
-        if (typeof window !== 'undefined') {
-            window.open(url, '_blank')
-        }
+        const url = await itemFileUrl(props.documentId)
+        downloadFromUrl(url, props.documentName, DOCX_MIME_TYPE)
     }
 
     // Tiptap's getJSON returns the editor's current PM JSON tree. We

@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { strFromU8, unzipSync } from 'fflate'
 
 import { editorRoot, openFreshTextDocument, openMenubarMenu } from './_menubar-helpers'
 
@@ -315,5 +317,29 @@ test.describe('Text — Menubar', () => {
             expect(decoded).toContain('@tinycld/text')
             expect(decoded).toContain('**Platform:** web')
         })
+    })
+})
+
+// Download (.docx) goes through drive's stable file endpoint, which flushes
+// the live room before serving. The file must therefore hold text typed a
+// moment before the click — not the last debounced save — and the browser
+// must receive it as a download named after the document.
+test.describe('Text — Download', () => {
+    test('Download (.docx) holds the text typed just before it', async ({ page }) => {
+        const marker = 'FreshDownloadMarker'
+        await openFreshTextDocument(page, 'menubar-download')
+        await editorRoot(page).click()
+        await page.keyboard.type(` ${marker}`)
+
+        const downloadPromise = page.waitForEvent('download')
+        await openMenubarMenu(page, 'File')
+        await page.getByRole('menuitem', { name: 'Download (.docx)' }).click()
+        const download = await downloadPromise
+
+        expect(download.suggestedFilename()).toMatch(/\.docx$/)
+        const path = await download.path()
+        const docx = unzipSync(new Uint8Array(readFileSync(path)))
+        const documentXml = strFromU8(docx['word/document.xml'])
+        expect(documentXml).toContain(marker)
     })
 })

@@ -246,16 +246,14 @@
                     "text": "Top of this Page"
                 },
                 {
-                    "type": "text",
-                    "text": "\n"
+                    "type": "hardBreak"
                 },
                 {
                     "type": "text",
                     "text": "Sample Document"
                 },
                 {
-                    "type": "text",
-                    "text": "\n"
+                    "type": "hardBreak"
                 },
                 {
                     "type": "text",
@@ -2598,16 +2596,7 @@
                     "text": "This is an example of columns. With columns, the page is split into two or more horizontal sections. Unlike tables, in which you usually read across a row and then down to the next, in columns, you read down a column and then across to the next."
                 },
                 {
-                    "type": "text",
-                    "text": "\n",
-                    "marks": [
-                        {
-                            "type": "textStyle",
-                            "attrs": {
-                                "fontFamily": "Arial Unicode MS"
-                            }
-                        }
-                    ]
+                    "type": "hardBreak"
                 }
             ]
         },

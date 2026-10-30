@@ -10,6 +10,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	ycrdt "github.com/skyterra/y-crdt"
 
+	"tinycld.org/core/htmldiff"
 	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
@@ -43,7 +44,25 @@ func makeSnapshotVersionHook(runtime *Runtime) versionhooks.Hook {
 	return versionhooks.Hook{
 		OnSnapshot: makeSnapshotVersionHookFn(runtime),
 		Render:     renderVersion,
+		Diff:       diffVersions,
 	}
+}
+
+// diffVersions renders both versions and marks what changed from `from` to
+// `to`. Both renders are already sanitized; htmldiff adds only its marks
+// and escaped text.
+func diffVersions(ctx context.Context, app core.App, item, from, to *core.Record, authUserID string) (string, error) {
+	toHTML, err := renderVersion(ctx, app, item, to, authUserID)
+	if err != nil {
+		return "", err
+	}
+	fromHTML := ""
+	if from != nil {
+		if fromHTML, err = renderVersion(ctx, app, item, from, authUserID); err != nil {
+			return "", err
+		}
+	}
+	return htmldiff.Diff(fromHTML, toHTML)
 }
 
 // renderVersion renders a version's own docx for the history preview.

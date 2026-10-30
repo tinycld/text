@@ -49,3 +49,32 @@ func TestRenderVersion_RendersTheVersionNotTheItem(t *testing.T) {
 		t.Fatalf("html = %q", html)
 	}
 }
+
+func TestDiffVersions_MarksWordChanges(t *testing.T) {
+	app := setupTestApp(t)
+	item := seedDocxRecord(t, app, "item.docx", "alpha gamma delta")
+	from := seedDocxRecord(t, app, "from.docx", "alpha beta delta")
+	to := seedDocxRecord(t, app, "to.docx", "alpha gamma delta")
+
+	html, err := diffVersions(context.Background(), app, item, from, to, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "<del>beta</del>") || !strings.Contains(html, "<ins>gamma</ins>") {
+		t.Fatalf("html = %q", html)
+	}
+}
+
+func TestDiffVersions_NoFromMarksAllInserted(t *testing.T) {
+	app := setupTestApp(t)
+	item := seedDocxRecord(t, app, "item.docx", "first")
+	to := seedDocxRecord(t, app, "to.docx", "first")
+
+	html, err := diffVersions(context.Background(), app, item, nil, to, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `data-diff="ins"`) {
+		t.Fatalf("html = %q", html)
+	}
+}

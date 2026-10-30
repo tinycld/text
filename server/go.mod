@@ -3,7 +3,7 @@ module tinycld.org/packages/text
 go 1.27.1
 
 require (
-	github.com/nathanstitt/omnidoc v1.1.0
+	github.com/nathanstitt/omnidoc v1.1.1
 	github.com/pocketbase/pocketbase v0.40.4
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
 	golang.org/x/image v0.44.0

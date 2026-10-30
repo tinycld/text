@@ -37,10 +37,10 @@ import type { MentionSuggestion } from '@tinycld/core/ui/comments'
 // authed comments surface runs under.
 export function useMentionSuggestions(query: string): MentionSuggestion[] {
     const mount = useEditorMountOptional()
-    const { user } = useAuth()
+    const { user } = useAuth({ throwIfAnon: false })
 
     return useMentionCandidates(query, {
         disabled: mount != null && !mount.capabilities.canMention,
-        currentUserId: mount?.identity.userId ?? user.id,
+        currentUserId: mount?.identity.userId ?? user?.id ?? '',
     })
 }

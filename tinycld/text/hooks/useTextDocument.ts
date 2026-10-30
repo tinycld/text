@@ -31,7 +31,8 @@ export function useTextDocument(
         onSuggestionMessage?: (kind: string, payload: unknown) => void
     } = {}
 ) {
-    const { user } = useAuth()
+    // Anonymous share visitors have no account; see screens/[id].tsx.
+    const { user } = useAuth({ throwIfAnon: false })
     const hello = typedServerHello(room)
     const slot = typedServerSlot(room)
     // The screen instantiates the store and threads it through

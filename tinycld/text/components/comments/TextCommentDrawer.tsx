@@ -33,7 +33,7 @@ export function TextCommentDrawer({
 
     const drawerIsOpen = isOpen && storeDriveItemId === driveItemId
 
-    const { user } = useAuth()
+    const { user } = useAuth({ throwIfAnon: false })
     const { reply, editBody, resolve, reopen, remove } = useCommentMutations()
 
     const { threadsByCommentId, orphanedCommentIds } = documentComments
@@ -50,7 +50,7 @@ export function TextCommentDrawer({
             isOpen={drawerIsOpen}
             onClose={close}
             groups={groups}
-            currentUserId={user.id}
+            currentUserId={user?.id ?? ''}
             focusedThreadId={focusedThreadId}
             onJump={group => {
                 focusThread(group.threads[0]?.root.id ?? null)

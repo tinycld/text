@@ -29,6 +29,8 @@ import { DOCX_INLINE_NODES } from '../../lib/editor/docx-inline-nodes'
 import { DropCap } from '../../lib/editor/drop-cap'
 import { SlashMenu } from '../../lib/editor/slash-menu'
 import { findReplacePlugin } from '../../lib/find-replace-plugin'
+import { APP_IMAGE_AUTH } from '../../lib/image-auth-message'
+import { type ImageSrcAuth, resolveImageSrc } from '../../lib/image-src-auth'
 import { buildSuggestionEditorExtensions } from '../../lib/suggestions/build-extensions'
 import { countWords } from '../../lib/word-count'
 import type { EditorModeStore } from '../../stores/editor-mode-store'
@@ -46,6 +48,7 @@ import {
     deriveCurrentTextColor,
     deriveImageSelection,
 } from './editor-state'
+import { currentImageAuth, setImageAuth } from './image-auth'
 import {
     AWARENESS_CURSOR,
     AWARENESS_LEAVE,
@@ -91,6 +94,24 @@ const WrappedImage = Image.extend({
                     return { 'data-wrap': attrs.wrap }
                 },
             },
+        }
+    },
+    // The stored src is a tokenless drive-file URL, served behind drive's
+    // view rule, so the rendered <img> carries the viewer's credential. A node
+    // view (not renderHTML) keeps the credential out of copied HTML.
+    addNodeView() {
+        return ({ HTMLAttributes }) => {
+            const img = document.createElement('img')
+            for (const [name, value] of Object.entries(HTMLAttributes)) {
+                if (value != null) img.setAttribute(name, String(value))
+            }
+            img.setAttribute(
+                'src',
+                resolveImageSrc(String(HTMLAttributes.src ?? ''), currentImageAuth())
+            )
+            // Rebuilt on every change to the node, which reads the latest
+            // credential and attributes without diffing them.
+            return { dom: img, update: () => false }
         }
     },
 })
@@ -144,6 +165,8 @@ interface InitPayload {
     initialState?: string
     /** Base64 `encodeAwarenessUpdate` of the peers already in the room. */
     peers?: string
+    /** How this viewer fetches the document's drive images. */
+    imageAuth?: ImageSrcAuth
 }
 
 interface BuildEditorExtensionsOptions {
@@ -410,7 +433,12 @@ export function Editor() {
                 return
             }
             if (parsed.namespace === 'app' && parsed.type === 'init') {
-                setInit(parsed.payload as InitPayload)
+                const payload = parsed.payload as InitPayload
+                setImageAuth(payload.imageAuth)
+                setInit(payload)
+            }
+            if (parsed.namespace === 'app' && parsed.type === APP_IMAGE_AUTH) {
+                setImageAuth(parsed.payload as ImageSrcAuth | undefined)
             }
         }
         window.addEventListener('message', onMessage)

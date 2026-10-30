@@ -44,8 +44,8 @@ export function useResolveSuggestionService(options: {
     // See screens/[id].tsx for the read-only design decision.
     disabled?: boolean
 }): UseResolveSuggestionService {
-    const { user } = useAuth()
-    const userId = user.id
+    const { user } = useAuth({ throwIfAnon: false })
+    const userId = user?.id ?? ''
     const { editor, yDoc, disabled } = options
     const [isPending, setIsPending] = useState(false)
 

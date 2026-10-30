@@ -63,10 +63,27 @@ test.describe('Text — version history', () => {
         // be inside it (a button inside a button is invalid HTML).
         await expect(versionList(page).locator('button button')).toHaveCount(0)
 
-        await page.getByRole('button', { name: 'Rename', exact: true }).click()
-        await page.getByPlaceholder('Version name').fill('Approved')
-        await page.getByRole('button', { name: 'Save', exact: true }).click()
-        await expect(versionList(page).getByRole('button', { name: 'Approved' })).toBeVisible()
+        // Rename edits the title in place: Rename → Save, Restore → Cancel.
+        const list = versionList(page)
+        await list.getByRole('button', { name: 'Rename', exact: true }).click()
+        const nameField = list.getByRole('textbox', { name: 'Version name' })
+        await nameField.fill('Not kept')
+        await list.getByRole('button', { name: 'Cancel', exact: true }).click()
+        await expect(nameField).toHaveCount(0)
+        await expect(list.getByRole('button', { name: 'Initial draft' })).toBeVisible()
+
+        await list.getByRole('button', { name: 'Rename', exact: true }).click()
+        await expect(list.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0)
+        await nameField.fill('Reviewed by legal')
+        await list.getByRole('button', { name: 'Save', exact: true }).click()
+        await expect(list.getByRole('button', { name: 'Reviewed by legal' })).toBeVisible()
+
+        // Enter saves too.
+        await list.getByRole('button', { name: 'Rename', exact: true }).click()
+        await nameField.fill('Approved')
+        await nameField.press('Enter')
+        await expect(nameField).toHaveCount(0)
+        await expect(list.getByRole('button', { name: 'Approved' })).toBeVisible()
 
         await page.getByRole('button', { name: 'Restore', exact: true }).click()
         await page.getByRole('dialog').getByRole('button', { name: 'Restore', exact: true }).click()

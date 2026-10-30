@@ -1,6 +1,7 @@
 package text
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 
 	"tinycld.org/core/versionhooks"
+	"tinycld.org/packages/text/translate"
 )
 
 // versionStateFilename is the on-disk filename used when storing the
@@ -44,7 +46,15 @@ func makeSnapshotVersionHook(runtime *Runtime) versionhooks.Hook {
 	return versionhooks.Hook{
 		OnSnapshot: makeSnapshotVersionHookFn(runtime),
 		OnRestore:  makeRestoreVersionHookFn(runtime),
+		Render:     renderVersion,
 	}
+}
+
+// renderVersion renders a version's own docx for the history preview.
+// RenderItemHTML reads the record's `file` and `mime_type`, which a version
+// row carries too.
+func renderVersion(ctx context.Context, app core.App, _ *core.Record, version *core.Record, authUserID string) (string, error) {
+	return RenderItemHTML(ctx, app, version, translate.ImageModeURL, authUserID)
 }
 
 // makeSnapshotVersionHookFn returns the OnSnapshot implementation.

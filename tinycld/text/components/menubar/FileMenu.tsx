@@ -166,7 +166,7 @@ export function FileMenu(props: MenuBarProps) {
                 <Menu.Item label="Save version" onSelect={() => setSaveVersionOpen(true)} />
                 <Menu.Item
                     label="Version history"
-                    onSelect={() => router.push(versionHistoryHref(props.documentId))}
+                    onSelect={() => router.push(versionHistoryHref(props.documentId, 'text'))}
                 />
                 <Menu.Separator />
                 <Menu.Item

@@ -43,6 +43,10 @@ test.describe('Text — version history', () => {
         await saveVersion(page, 'Reviewed')
 
         await openHistory(page)
+        // History opened from Text stays in Text: its own route, no Drive
+        // sidebar.
+        await expect(page).toHaveURL(/\/a\/text\/history\//)
+        await expect(page.getByText('Shared with me', { exact: true })).toHaveCount(0)
         await versionList(page).getByRole('button', { name: 'Initial draft' }).click()
         await expect(preview(page).getByText(first)).toBeVisible()
         await expect(preview(page).getByText(second)).toHaveCount(0)

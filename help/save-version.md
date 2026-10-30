@@ -16,16 +16,15 @@ Your document auto-saves continuously — changes go to Drive within seconds. **
 3. Add a short description (optional but recommended — empty submits a timestamp). The description can be up to 500 characters.
 4. Click **Save**.
 
-The new version appears in Drive's version history for this document. The current file isn't modified — saving a version is a snapshot, not a save-as.
+The new version appears in the document's version history. The current file isn't modified — saving a version is a snapshot, not a save-as.
 
 ## Seeing and restoring versions
 
-Versions live on the underlying Drive item:
+1. Choose **File → Version history**.
+2. Click a version in the list to preview it. Your document does not change.
+3. Click **Rename** to change the version's label, or **Restore** to make it the current document.
 
-1. **File → Details** to open Drive's detail panel.
-2. Switch to the **Versions** tab.
-3. Each version shows its description, timestamp, size, and the person who saved it.
-4. Click a version to restore it as the current document. The version you replace is itself snapshotted first, so restores are never destructive.
+A restore keeps the history: the state you replace stays in the list, and a "Restored from …" version is added. If other people have the document open, their editors show the restored content at once.
 
 See [Drive versions](help://drive:versions) for more on managing version history.
 

@@ -37,10 +37,13 @@ import type { MentionSuggestion } from '@tinycld/core/ui/comments'
 // authed comments surface runs under.
 export function useMentionSuggestions(query: string): MentionSuggestion[] {
     const mount = useEditorMountOptional()
+    // No user means an anonymous share visitor, who must never enumerate
+    // the roster; the search is disabled for them outright rather than
+    // relying on useAuth() throwing (the share view renders this screen).
     const { user } = useAuth({ throwIfAnon: false })
 
     return useMentionCandidates(query, {
-        disabled: mount != null && !mount.capabilities.canMention,
+        disabled: !user || (mount != null && !mount.capabilities.canMention),
         currentUserId: mount?.identity.userId ?? user?.id ?? '',
     })
 }

@@ -1,5 +1,6 @@
 import { registerPreview, registerShareEditor } from '@tinycld/core/file-viewer/registry'
 import { lazy, type ReactNode } from 'react'
+import { PREVIEW_CSS } from './components/preview-css'
 import { TextPreview } from './components/TextPreview'
 import './lib/open-in-text-action'
 import './lib/open-in-text-drive-action'
@@ -20,7 +21,7 @@ const TextEditorFromMount = lazy(() =>
 // imported by core's package orchestrator exactly once during boot, so the
 // registry stays free of duplicate entries.
 for (const mime of TEXT_EDITOR_MIME_TYPES) {
-    registerPreview(mime, { preview: TextPreview })
+    registerPreview(mime, { preview: TextPreview, htmlCss: PREVIEW_CSS })
     registerShareEditor(mime, { component: TextEditorFromMount })
 }
 

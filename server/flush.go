@@ -127,7 +127,7 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		regionHash, indexHash, model := buildPreview(resolveImage, pmJSON)
 		item.Set("thumb_region_hash", regionHash)
 		item.Set("index_hash", indexHash)
-		previewqueue.Stash(driveItemID, previewqueue.Payload{
+		previewqueue.Stash(app, driveItemID, previewqueue.Payload{
 			Plaintext:  model.plaintext,
 			RegionHash: regionHash,
 			IndexHash:  indexHash,

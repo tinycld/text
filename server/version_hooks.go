@@ -32,19 +32,16 @@ func registerVersionHooks(runtime *Runtime) {
 }
 
 // makeSnapshotVersionHook returns the drive VersionHook: on snapshot it
-// captures the live server doc's Yjs state + metadata onto the version row;
-// on restore it brings an open document to the restored content.
+// captures the live server doc's Yjs state + metadata onto the version row.
+// It has no restore step: drive restores through realtime.WriteItem, which
+// closes the document's rooms first, and the editors reload from the
+// restored file.
 //
-// Both OnSnapshot and OnRestore gracefully no-op when the room isn't
-// live — a text doc whose collaboration session has been evicted from
-// memory (or never opened) has no in-memory Y.Doc to capture from /
-// apply to. The docx round-trip (which drive owns) still works for the
-// content; only the protected roots (clientAuthors / clientFirstSeen /
-// editEvents) are lost in that case.
+// OnSnapshot no-ops when the room isn't live: a document no one has open
+// has no in-memory Y.Doc to capture, and the version keeps only its file.
 func makeSnapshotVersionHook(runtime *Runtime) versionhooks.Hook {
 	return versionhooks.Hook{
 		OnSnapshot: makeSnapshotVersionHookFn(runtime),
-		OnRestore:  makeRestoreVersionHookFn(runtime),
 		Render:     renderVersion,
 	}
 }
@@ -81,45 +78,6 @@ func makeSnapshotVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *c
 		version.Set("version_metadata", string(metadataJSON))
 		if err := app.Save(version); err != nil {
 			return fmt.Errorf("text: snapshot save version: %w", err)
-		}
-		return nil
-	}
-}
-
-// makeRestoreVersionHookFn returns the OnRestore implementation. Drive has
-// already put the version's file back on the item. A closed document reads
-// that file when it next opens. An open one does not: its room keeps its
-// own document and would save it over the restored file. So for a live
-// room the hook replaces the document content with the version's, as new
-// edits, and broadcasts them so every open editor shows the restored text.
-func makeRestoreVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *core.Record) error {
-	return func(app core.App, item *core.Record, version *core.Record) error {
-		handle := runtime.handleFor(item.Id)
-		if handle == nil {
-			return nil
-		}
-		room := runtime.RoomFor(item.Id)
-		if room == nil {
-			return fmt.Errorf("text: restore room missing for live handle %s", item.Id)
-		}
-		ctx := context.Background()
-		raw, err := readDriveItemBytes(app, version)
-		if err != nil {
-			return fmt.Errorf("text: read restored version: %w", err)
-		}
-		docxBytes, err := sourceBytesToDocx(ctx, version.GetString("mime_type"), raw)
-		if err != nil {
-			return fmt.Errorf("text: normalize restored version: %w", err)
-		}
-		delta, err := handle.replaceContentFromDocx(ctx, docxBytes)
-		if err != nil {
-			return fmt.Errorf("text: restore live content: %w", err)
-		}
-		if len(delta) == 0 {
-			return nil
-		}
-		if err := room.PublishDocUpdate(delta); err != nil {
-			return fmt.Errorf("text: restore broadcast: %w", err)
 		}
 		return nil
 	}

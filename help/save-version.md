@@ -24,7 +24,7 @@ The new version appears in the document's version history. The current file isn'
 2. Click a version in the list to preview it. Your document does not change.
 3. Click **Rename** to change the version's label, or **Restore** to make it the current document.
 
-A restore keeps the history: the state you replace stays in the list, and a "Restored from …" version is added. If other people have the document open, their editors show the restored content at once.
+A restore keeps the history: the state you replace stays in the list, and a "Restored from …" version is added. If the document is open in an editor, it first saves its last edits, which stay in the list as a version. Then every open editor reloads with the restored contents.
 
 See [Drive versions](help://drive:versions) for more on managing version history.
 

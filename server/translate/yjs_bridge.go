@@ -117,32 +117,6 @@ func SeedFromPMJSON(doc *ycrdt.Doc, pmJSON []byte) error {
 	return seedChildren(frag, root.Content)
 }
 
-// ReplaceFromPMJSON replaces the whole document content with pmJSON, in one
-// transaction, as new operations. A restore uses it on a live document:
-// every peer that applies the resulting update converges on the restored
-// content, which merging an older state cannot do.
-func ReplaceFromPMJSON(doc *ycrdt.Doc, pmJSON []byte) error {
-	var root PMNode
-	if err := json.Unmarshal(pmJSON, &root); err != nil {
-		return fmt.Errorf("translate: unmarshal pmJSON: %w", err)
-	}
-	if root.Type != NodeTypeDoc {
-		return fmt.Errorf("translate: pmJSON root must be type=doc, got %q", root.Type)
-	}
-	frag, ok := doc.GetXmlFragment(xmlFragmentName).(*ycrdt.YXmlFragment)
-	if !ok {
-		return fmt.Errorf("translate: GetXmlFragment did not return *YXmlFragment")
-	}
-	var seedErr error
-	doc.Transact(func(*ycrdt.Transaction) {
-		if n := frag.GetLength(); n > 0 {
-			frag.Delete(0, n)
-		}
-		seedErr = seedChildren(frag, root.Content)
-	}, nil)
-	return seedErr
-}
-
 // PMJSONFromYDoc reads the Y.Doc's XmlFragment and reconstructs the
 // PMNode tree as JSON. The output is normalized: nil maps and empty
 // slices are omitted via PMNode's `,omitempty` tags.

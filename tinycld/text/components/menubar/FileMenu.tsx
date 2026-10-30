@@ -16,6 +16,7 @@ import {
     TEMPLATE_EXTENSIONS,
     toTemplateName,
 } from '@tinycld/drive/lib/template-naming'
+import { versionHistoryHref } from '@tinycld/drive/lib/version-history-href'
 import { router } from 'expo-router'
 import { lazy, Suspense, useState } from 'react'
 import type { PMNode } from '../../lib/markdown/types'
@@ -163,6 +164,10 @@ export function FileMenu(props: MenuBarProps) {
                     <Menu.Item label="Share" onSelect={() => setShareOpen(true)} />
                 )}
                 <Menu.Item label="Save version" onSelect={() => setSaveVersionOpen(true)} />
+                <Menu.Item
+                    label="Version history"
+                    onSelect={() => router.push(versionHistoryHref(props.documentId, 'text'))}
+                />
                 <Menu.Separator />
                 <Menu.Item
                     label="Download (.docx)"

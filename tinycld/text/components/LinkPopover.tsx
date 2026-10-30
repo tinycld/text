@@ -65,7 +65,7 @@ function useLinkForm(initialUrl: string, onInsert: (url: string) => void) {
     })
     return {
         control,
-        submit: handleSubmit(data => onInsert(data.url)),
+        submit: () => void handleSubmit(data => onInsert(data.url))(),
         errorMessage: errors.url?.message,
     }
 }

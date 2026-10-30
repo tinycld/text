@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 import { login, TEST_USER_PASSWORD, TEST_USER_USERNAME } from '../../tinycld/tests/e2e/helpers'
 
-export const PB_URL = 'http://127.0.0.1:7200'
+export const PB_URL = `http://127.0.0.1:${process.env.E2E_PORT ?? 7200}`
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 

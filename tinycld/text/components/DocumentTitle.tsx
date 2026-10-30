@@ -2,11 +2,11 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Controller, useForm, zodResolver } from '@tinycld/core/ui/form'
 import { useRef, useState } from 'react'
 import {
-    type NativeSyntheticEvent,
     Pressable,
     Text,
     TextInput,
-    type TextInputKeyPressEventData,
+    type TextInputInstance,
+    type TextInputKeyPressEvent,
     View,
 } from 'react-native'
 import { useRenameDocument } from '../hooks/use-rename-document'
@@ -80,7 +80,7 @@ interface DocumentTitleEditorProps {
 }
 
 function useDocumentTitleEditor({ name, onRename, onDone }: DocumentTitleEditorProps) {
-    const inputRef = useRef<TextInput>(null)
+    const inputRef = useRef<TextInputInstance>(null)
     // One edit can fire several commits: blurOnSubmit blurs the input
     // right after Enter, and Escape unmounts the input, which makes
     // RN-web fire onBlur on it a tick later. The first one settles the
@@ -116,7 +116,7 @@ function useDocumentTitleEditor({ name, onRename, onDone }: DocumentTitleEditorP
         submit()
     }
 
-    const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const handleKeyPress = (e: TextInputKeyPressEvent) => {
         if (e.nativeEvent.key !== 'Escape') return
         settledRef.current = true
         onDone()

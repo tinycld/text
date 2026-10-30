@@ -5,7 +5,7 @@ import { useOpenMenu } from '@tinycld/core/ui/menubar'
 import { Popover, usePopoverContext } from '@tinycld/core/ui/popover'
 import type { ComponentType } from 'react'
 import { forwardRef, useCallback } from 'react'
-import { Platform, Pressable, View } from 'react-native'
+import { Platform, Pressable, View, type ViewInstance } from 'react-native'
 
 interface TextColorButtonProps {
     // Lucide-style icon — `<Baseline>` for text color, `<Highlighter>`
@@ -120,52 +120,54 @@ interface ColorTriggerButtonProps {
 // measures and the onPress that toggles it, while the tooltip still
 // wraps the Pressable from outside (Tooltip is a Fragment on
 // native and must not sit between the surface and its trigger).
-const ColorTriggerButton = forwardRef<View, ColorTriggerButtonProps>(function ColorTriggerButton(
-    { icon: Icon, accessibilityLabel, color, disabled, iconColor, isOpen, onPress },
-    ref
-) {
-    // Stop the mousedown from moving DOM focus off the ProseMirror
-    // editor — same rationale as FormatButton in DocumentToolbar.tsx.
-    const webProps =
-        Platform.OS === 'web'
-            ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
-            : {}
+const ColorTriggerButton = forwardRef<ViewInstance, ColorTriggerButtonProps>(
+    function ColorTriggerButton(
+        { icon: Icon, accessibilityLabel, color, disabled, iconColor, isOpen, onPress },
+        ref
+    ) {
+        // Stop the mousedown from moving DOM focus off the ProseMirror
+        // editor — same rationale as FormatButton in DocumentToolbar.tsx.
+        const webProps =
+            Platform.OS === 'web'
+                ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
+                : {}
 
-    // The underline bar shows the active color; when no color is
-    // applied the bar is transparent (no visible underline) so the
-    // button reads as "no color set" rather than "neutral-grey
-    // color set." Matches Google Docs's affordance: empty underline
-    // when no color is chosen, tinted underline after one is picked.
-    const underlineColor = color || 'transparent'
+        // The underline bar shows the active color; when no color is
+        // applied the bar is transparent (no visible underline) so the
+        // button reads as "no color set" rather than "neutral-grey
+        // color set." Matches Google Docs's affordance: empty underline
+        // when no color is chosen, tinted underline after one is picked.
+        const underlineColor = color || 'transparent'
 
-    return (
-        <Tooltip label={accessibilityLabel}>
-            <Pressable
-                ref={ref}
-                accessibilityRole="button"
-                accessibilityLabel={accessibilityLabel}
-                accessibilityState={{ disabled, expanded: isOpen }}
-                disabled={disabled}
-                onPress={onPress}
-                {...webProps}
-                className="rounded-md p-1.5"
-                style={{ opacity: disabled ? 0.4 : 1 }}
-                hitSlop={
-                    Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
-                }
-            >
-                <View className="items-center justify-center" style={{ gap: 1 }}>
-                    <Icon size={16} color={iconColor} />
-                    <View
-                        style={{
-                            height: 3,
-                            width: 16,
-                            backgroundColor: underlineColor,
-                            borderRadius: 1,
-                        }}
-                    />
-                </View>
-            </Pressable>
-        </Tooltip>
-    )
-})
+        return (
+            <Tooltip label={accessibilityLabel}>
+                <Pressable
+                    ref={ref}
+                    accessibilityRole="button"
+                    accessibilityLabel={accessibilityLabel}
+                    accessibilityState={{ disabled, expanded: isOpen }}
+                    disabled={disabled}
+                    onPress={onPress}
+                    {...webProps}
+                    className="rounded-md p-1.5"
+                    style={{ opacity: disabled ? 0.4 : 1 }}
+                    hitSlop={
+                        Platform.OS === 'web' ? undefined : { top: 6, bottom: 6, left: 4, right: 4 }
+                    }
+                >
+                    <View className="items-center justify-center" style={{ gap: 1 }}>
+                        <Icon size={16} color={iconColor} />
+                        <View
+                            style={{
+                                height: 3,
+                                width: 16,
+                                backgroundColor: underlineColor,
+                                borderRadius: 1,
+                            }}
+                        />
+                    </View>
+                </Pressable>
+            </Tooltip>
+        )
+    }
+)

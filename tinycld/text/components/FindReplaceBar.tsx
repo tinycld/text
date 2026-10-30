@@ -1,7 +1,15 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { ChevronDown, ChevronUp, Replace, ReplaceAll, X } from 'lucide-react-native'
 import { useEffect, useRef } from 'react'
-import { Platform, Pressable, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import {
+    Platform,
+    Pressable,
+    Text,
+    TextInput,
+    type TextInputInstance,
+    useWindowDimensions,
+    View,
+} from 'react-native'
 import { useFindReplaceEditor } from '../lib/find-replace-editor-context'
 import { useFindReplaceStore } from '../lib/stores/find-replace-store'
 import { useFindReplaceControllerState } from '../lib/use-find-replace-controller-state'
@@ -35,7 +43,7 @@ export function FindReplaceBar({ isVisible }: FindReplaceBarProps) {
     const close = useFindReplaceStore(s => s.close)
     const controller = useFindReplaceEditor()
     const controllerState = useFindReplaceControllerState(controller)
-    const inputRef = useRef<TextInput>(null)
+    const inputRef = useRef<TextInputInstance>(null)
     const mutedFg = useThemeColor('muted-foreground')
     // At narrow widths (iPhone-mini-class 375pt logical) the original
     // bar's two min-w-[180px] inputs + 5 button row + Replace/Replace-all

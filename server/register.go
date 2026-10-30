@@ -136,7 +136,7 @@ func registerShared(app *pocketbase.PocketBase) {
 func registerRealtime(app core.App, runtime *Runtime) {
 	checkpoints := realtime.NewPocketBaseCheckpointStore(app)
 	flush := makeProductionFlush(app, runtime)
-	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator := realtime.NewSaveCoordinator(app, flush)
 	saveCoordinator.SetKind(roomKindText)
 
 	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{

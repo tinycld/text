@@ -270,7 +270,7 @@ func TestRealtime_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
 	runtime := NewRuntime()
 
 	flush := makeProductionFlush(app, runtime)
-	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator := realtime.NewSaveCoordinator(app, flush)
 	saveCoordinator.SetKind(roomKindText)
 
 	// Mirror text.Register's RegisterRoomKindWith call. Authorize is

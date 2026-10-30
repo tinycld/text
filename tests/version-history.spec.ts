@@ -128,7 +128,10 @@ test.describe('Text — version history', () => {
         await openHistory(page)
         await versionList(page).getByRole('button', { name: 'Base' }).click()
         await page.getByRole('radio', { name: 'Compare with current document' }).click()
-        await expect(preview(page).locator('[data-diff="ins"]', { hasText: added })).toBeVisible()
+        const addedBlock = preview(page).locator('[data-diff="ins"]', { hasText: added })
+        await expect(addedBlock).toBeVisible()
         await expect(preview(page).locator('[data-diff]', { hasText: kept })).toHaveCount(0)
+        // The mark must show: a background color, not just an attribute.
+        await expect(addedBlock).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     })
 })

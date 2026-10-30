@@ -21,11 +21,10 @@ import {
 //      can't be reconstructed from docx alone, so the Phase 4 work
 //      threads them through a side channel in drive_item_versions.
 //   3. Type additional content.
-//   4. POST /api/drive/versions/restore. The drive restore handler
-//      snapshots the current state first, then writes the version's
-//      file + invokes versionhooks.OnRestore. The text hook calls
-//      applyVersionRestore which folds the captured Yjs state back
-//      into the live server doc.
+//   4. Leave the doc, then POST /api/drive/versions/restore. Drive
+//      refuses a restore while the room is open; once it closes, the
+//      handler snapshots the current state, writes the version's file
+//      and invokes versionhooks.OnRestore.
 //   5. Reload the doc page; the editor sees the restored Yjs state
 //      and the original content is back.
 //
@@ -94,36 +93,29 @@ test.describe('Text — Version snapshot + restore', () => {
         await page.keyboard.type(v2Marker, { delay: 20 })
         await expect(page.getByText(v2Marker)).toBeVisible()
 
-        // Navigate the page away from the doc BEFORE issuing the
-        // restore. Once this tab's WebSocket disconnects (the only
-        // client in the room) the broker fires OnEmpty, the
-        // SaveCoordinator does its teardown-flush synchronously
-        // (DefaultTeardownTimeout caps the wait), and the server-side
-        // handle closes (room.go:remove sets serverDoc.Close). The
-        // restore can then overwrite drive_items.file in peace, and a
-        // subsequent navigation re-opens the room with a FRESH
-        // bootstrap from the v1 docx — bypassing the CRDT merge that
-        // would otherwise preserve the v2 content in the still-live
-        // Y.Doc.
+        // Leave the doc before restoring: drive refuses a restore while an
+        // editor room has the item open (the room's next save would
+        // overwrite the restored bytes). The room closes after this tab's
+        // WebSocket drops and the teardown flush lands, so poll until the
+        // restore is admitted; a refused attempt changes nothing. The bound
+        // is the teardown flush's own cap (DefaultTeardownTimeout, 30 s).
         await page.goto('/')
-        // Buffer past the teardown flush + the broker's removeRoom
-        // call so a follow-up navigation actually rebootstraps.
-        await page.waitForTimeout(3_000)
-
-        // Now issue the restore. The drive handler overwrites
-        // drive_items.file with v1's bytes; the OnRestore hook tries
-        // to fold yjs_state into the live doc, but the room is now
-        // closed so the hook no-ops (no live handle to apply against).
-        // The next bootstrap will read the v1 docx fresh.
-        const restoreRes = await fetch(`${PB_URL}/api/drive/versions/restore`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: token,
-            },
-            body: JSON.stringify({ item: itemId, version: versionId }),
-        })
-        expect(restoreRes.ok).toBe(true)
+        await expect
+            .poll(
+                async () => {
+                    const res = await fetch(`${PB_URL}/api/drive/versions/restore`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: token,
+                        },
+                        body: JSON.stringify({ item: itemId, version: versionId }),
+                    })
+                    return res.status
+                },
+                { timeout: 30_000 }
+            )
+            .toBe(200)
 
         // Re-open the doc. New room, fresh bootstrap from the just-
         // restored v1 docx; the editor mounts the v1 content with no

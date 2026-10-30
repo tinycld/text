@@ -140,6 +140,8 @@ test.describe('Text — version history', () => {
         await expect(preview(page).locator('[data-diff="ins"]', { hasText: added })).toBeVisible()
         await expect(preview(page).getByText(kept)).toBeVisible()
         await expect(preview(page).locator('[data-diff]', { hasText: kept })).toHaveCount(0)
+        // Who made the changes: the editors recorded on the compared range.
+        await expect(page.getByLabel('Changed by')).toContainText('Test User')
     })
 
     test('compare a version with the current document, unsaved edits included', async ({

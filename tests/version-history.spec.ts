@@ -78,4 +78,19 @@ test.describe('Text — version history', () => {
         await page.getByRole('button', { name: 'Back' }).click()
         await expect(versionList(page)).toBeVisible()
     })
+
+    test('an automatic version appears after the idle time', async ({ page }) => {
+        await openTextDocument(page, 'version-auto')
+        const marker = `auto state ${Date.now()}`
+        await typeAtEnd(page, marker)
+
+        // TINYCLD_VERSION_IDLE_MS=2000 (playwright.config.ts): the server
+        // makes the version itself, after the idle time or when the editor
+        // leaves the room. The list is live, so it appears without a reload.
+        await openHistory(page)
+        const autoRow = versionList(page).getByText('Auto', { exact: true }).first()
+        await expect(autoRow).toBeVisible()
+        await autoRow.click()
+        await expect(preview(page).getByText(marker)).toBeVisible()
+    })
 })

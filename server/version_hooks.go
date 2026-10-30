@@ -20,6 +20,15 @@ import (
 // versions never collide on the same key.
 const versionStateFilename = "yjs_state.bin"
 
+// registerVersionHooks registers the hook under every MIME type Text edits:
+// drive dispatches version hooks by drive_items.mime_type.
+func registerVersionHooks(runtime *Runtime) {
+	hook := makeSnapshotVersionHook(runtime)
+	for _, mime := range []string{docxMimeType, rtfMimeType, rtfMimeTypeAlt} {
+		versionhooks.Register(mime, hook)
+	}
+}
+
 // makeSnapshotVersionHook returns the drive VersionHook that captures
 // the live server doc's Yjs state into drive_item_versions.yjs_state +
 // drive_item_versions.version_metadata on snapshot, and reverses the

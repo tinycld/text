@@ -14,7 +14,6 @@ import (
 	"tinycld.org/core/offboard"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
-	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -108,13 +107,13 @@ func registerShared(app *pocketbase.PocketBase) {
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 
 	// Cross-package version hooks: when drive snapshots or restores a
-	// drive_item_versions row for an item of type "text", call into the
+	// drive_item_versions row for a document Text edits, call into the
 	// text runtime to capture / apply the live Y.Doc state (which carries
 	// the protected roots — clientAuthors, clientFirstSeen, editEvents —
 	// that the docx round-trip can't preserve). Registered before the
 	// realtime block so a snapshot HTTP request that races with the very
 	// first room creation finds the hook in place.
-	versionhooks.Register("text", makeSnapshotVersionHook(runtime))
+	registerVersionHooks(runtime)
 
 	registerRealtime(app, runtime)
 

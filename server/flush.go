@@ -12,6 +12,7 @@ import (
 	_ "image/png"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
@@ -77,8 +78,9 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		// lives outside the marks themselves.
 		suggestionEntries := readSuggestionsMap(doc)
 
+		resolveImage := makeDriveImageResolver(app, &th.images)
 		docxBytes, _, err := translate.PMJSONToDocxWithResolverAndSuggestions(
-			ctx, pmJSON, makeDriveImageResolver(app), suggestionEntries,
+			ctx, pmJSON, resolveImage, suggestionEntries,
 		)
 		if err != nil {
 			return fmt.Errorf("text: PMJSONToDocx for %s: %w", driveItemID, err)
@@ -122,7 +124,7 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 		// drive hook can compare hashes and skip redundant thumbnail /
 		// search-index regeneration. Image handling never fails the flush:
 		// any decode error just yields a text-only thumbnail.
-		regionHash, indexHash, model := buildPreview(app, pmJSON)
+		regionHash, indexHash, model := buildPreview(resolveImage, pmJSON)
 		item.Set("thumb_region_hash", regionHash)
 		item.Set("index_hash", indexHash)
 		previewqueue.Stash(driveItemID, previewqueue.Payload{
@@ -139,6 +141,39 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 	}
 }
 
+// imageCache holds image bytes by the blob name they were read from, for
+// the life of one room. Every save embeds every image in the document, and
+// a storage read per image per save is the largest avoidable cost of a
+// save; a room's images rarely change. The key is the stored blob name,
+// which PocketBase changes on every write, so a re-uploaded image is a
+// miss and never served from stale bytes.
+type imageCache struct {
+	mu    sync.Mutex
+	bytes map[string][]byte
+}
+
+func (c *imageCache) get(key string) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, ok := c.bytes[key]
+	return b, ok
+}
+
+func (c *imageCache) put(key string, b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.bytes == nil {
+		c.bytes = map[string][]byte{}
+	}
+	c.bytes[key] = b
+}
+
+func (c *imageCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.bytes = nil
+}
+
 // makeDriveImageResolver returns the ImageResolver the docx emitter uses
 // to embed inserted images. The editor stores inserted images as
 // /api/files/drive_items/<id>/<file> URLs (keeping the Y.Doc small);
@@ -146,8 +181,9 @@ func makeProductionFlush(app core.App, _ *Runtime) realtime.FlushFn {
 // drive_items record via the PocketBase filesystem. We read the record's
 // current `file` field rather than the name parsed from the URL, so an
 // image whose blob was re-uploaded after insertion still resolves to the
-// live bytes instead of 404ing on a stale name.
-func makeDriveImageResolver(app core.App) translate.ImageResolver {
+// live bytes instead of 404ing on a stale name. A nil cache reads storage
+// on every call.
+func makeDriveImageResolver(app core.App, cache *imageCache) translate.ImageResolver {
 	return func(driveItemID, _ string) ([]byte, error) {
 		item, err := app.FindRecordById(driveItemsCollection, driveItemID)
 		if err != nil {
@@ -156,6 +192,12 @@ func makeDriveImageResolver(app core.App) translate.ImageResolver {
 		stored := item.GetString("file")
 		if stored == "" {
 			return nil, fmt.Errorf("drive_items %s has no file", driveItemID)
+		}
+		cacheKey := driveItemID + "/" + stored
+		if cache != nil {
+			if b, ok := cache.get(cacheKey); ok {
+				return b, nil
+			}
 		}
 
 		fsys, err := app.NewFilesystem()
@@ -173,6 +215,9 @@ func makeDriveImageResolver(app core.App) translate.ImageResolver {
 		data, err := io.ReadAll(reader)
 		if err != nil {
 			return nil, fmt.Errorf("read drive_items %s bytes: %w", driveItemID, err)
+		}
+		if cache != nil {
+			cache.put(cacheKey, data)
 		}
 		return data, nil
 	}
@@ -197,7 +242,7 @@ const previewMaxLineWidth = 90
 // the plaintext alone, since images aren't searchable text. Any failure in
 // image handling is swallowed — the worst case is a text-only thumbnail, and
 // the flush must never fail because an image couldn't be decoded.
-func buildPreview(app core.App, pmJSON []byte) (regionHash, indexHash string, bundle previewBundle) {
+func buildPreview(resolve translate.ImageResolver, pmJSON []byte) (regionHash, indexHash string, bundle previewBundle) {
 	var root translate.PMNode
 	if err := json.Unmarshal(pmJSON, &root); err != nil {
 		// A malformed snapshot shouldn't reach here (we just round-tripped
@@ -208,7 +253,7 @@ func buildPreview(app core.App, pmJSON []byte) (regionHash, indexHash string, bu
 
 	plaintext := pmPlainText(&root)
 
-	decodedImage, imageIdentity := firstParagraphImage(app, &root)
+	decodedImage, imageIdentity := firstParagraphImage(resolve, &root)
 
 	region, regionHash := textpreview.FirstRegionText(plaintext + imageIdentity)
 	indexHash = textpreview.Hash(plaintext)
@@ -302,7 +347,7 @@ func regionLines(region string) []string {
 // a decoded image plus a stable identity string (the src URL for drive
 // images, or a content hash for data: URIs) that changes whenever the image
 // changes. On any error it returns (nil, "") — a text-only thumbnail.
-func firstParagraphImage(app core.App, root *translate.PMNode) (image.Image, string) {
+func firstParagraphImage(resolve translate.ImageResolver, root *translate.PMNode) (image.Image, string) {
 	if root == nil || len(root.Content) == 0 {
 		return nil, ""
 	}
@@ -315,7 +360,7 @@ func firstParagraphImage(app core.App, root *translate.PMNode) (image.Image, str
 		return nil, ""
 	}
 
-	imgBytes, identity, ok := resolveImageBytes(app, src)
+	imgBytes, identity, ok := resolveImageBytes(resolve, src)
 	if !ok {
 		return nil, ""
 	}
@@ -344,13 +389,12 @@ func findFirstImage(n *translate.PMNode) *translate.PMNode {
 
 // resolveImageBytes fetches the raw bytes for an image src and returns a
 // stable identity string for it. Drive-file URLs resolve via the same
-// PocketBase-backed resolver the docx emitter uses, identified by their src
-// URL; data: URIs decode the base64 body and are identified by a content
-// hash. Returns ok=false on any failure.
-func resolveImageBytes(app core.App, src string) (data []byte, identity string, ok bool) {
+// resolver the docx emitter uses (so the bytes come from its cache),
+// identified by their src URL; data: URIs decode the base64 body and are
+// identified by a content hash. Returns ok=false on any failure.
+func resolveImageBytes(resolve translate.ImageResolver, src string) (data []byte, identity string, ok bool) {
 	if driveItemID, fileName, isDrive := parseDriveImageSrc(src); isDrive {
-		resolver := makeDriveImageResolver(app)
-		b, err := resolver(driveItemID, fileName)
+		b, err := resolve(driveItemID, fileName)
 		if err != nil {
 			return nil, "", false
 		}

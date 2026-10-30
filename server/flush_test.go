@@ -2,6 +2,8 @@ package text
 
 import (
 	"testing"
+
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 )
 
 // TestFlush_PersistsToDrive runs a full save cycle: bootstrap a doc
@@ -118,4 +120,50 @@ func TestFlush_MissingDriveItemReturnsErr(t *testing.T) {
 // downstream packages drive cadence tests directly. Track separately.
 func TestSaveCoordinator_DebounceCadence(t *testing.T) {
 	t.Skip("SaveCoordinator interval fields are unexported; cadence is exercised in core's save_coordinator_test.go")
+}
+
+// TestDriveImageResolver_ReadsStorageOncePerBlob: the resolver serves a
+// second request for the same image from the room's cache, and a record
+// that names a different blob (the image was re-uploaded) is a miss, so a
+// save never embeds stale bytes.
+func TestDriveImageResolver_ReadsStorageOncePerBlob(t *testing.T) {
+	app := setupTestApp(t)
+	img := seedDriveItem(t, app, "photo.png", []byte("png-bytes-v1"))
+
+	var cache imageCache
+	resolve := makeDriveImageResolver(app, &cache)
+
+	first, err := resolve(img.Id, "ignored")
+	if err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	if string(first) != "png-bytes-v1" {
+		t.Fatalf("first resolve = %q", first)
+	}
+	if _, ok := cache.get(img.Id + "/" + img.GetString("file")); !ok {
+		t.Fatal("the resolved bytes were not cached under the stored blob name")
+	}
+
+	// Replace the stored blob behind the resolver's back: PocketBase stores
+	// it under a new name, so the cache must miss and re-read.
+	replaced, err := filesystem.NewFileFromBytes([]byte("png-bytes-v2"), "photo.png")
+	if err != nil {
+		t.Fatalf("NewFileFromBytes: %v", err)
+	}
+	img.Set("file", replaced)
+	if err := app.Save(img); err != nil {
+		t.Fatalf("save replaced image: %v", err)
+	}
+	second, err := resolve(img.Id, "ignored")
+	if err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if string(second) != "png-bytes-v2" {
+		t.Fatalf("second resolve = %q; want the re-uploaded bytes", second)
+	}
+
+	cache.clear()
+	if _, ok := cache.get(img.Id + "/" + img.GetString("file")); ok {
+		t.Fatal("clear left an entry in the cache")
+	}
 }

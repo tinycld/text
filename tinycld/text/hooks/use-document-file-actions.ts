@@ -20,7 +20,6 @@ export function useDocumentFileActions(documentId: string): DocumentFileActions 
     const actions = useDriveItemFileActions({
         itemId: documentId,
         onTrashed,
-        roomKind: 'text-doc',
     })
     // Guests (no org membership) can't rename/trash/copy/open-in-drive.
     // Return inert handlers so any still-mounted control is a no-op.

@@ -4,12 +4,13 @@
 //
 //   1. Open a fresh document, edit it, then File → Export as template… →
 //      confirm the folder. This creates a `<name>.tmpl.docx` drive file
-//      from the live document (force-flushed first).
+//      from the live document: the copy reads the source through drive's
+//      stable file endpoint, which flushes the live room on the server.
 //   2. Go to the text index, open the "From template…" picker, find the
 //      just-created template, and pick it.
 //   3. Verify a new document opens containing the text typed in step 1 —
-//      which proves the force-flush captured live edits, not just the
-//      last debounced save.
+//      which proves the server-side flush captured live edits, not just
+//      the last debounced save.
 
 import { expect, type Page, test } from '@playwright/test'
 
@@ -69,8 +70,8 @@ test.describe('Text — Document templates', () => {
         await row.click()
 
         // A new document opens; its content includes the marker we typed
-        // before exporting — proving the force-flush captured the live edit
-        // into the template, not just the last debounced save.
+        // before exporting — proving the server-side flush captured the live
+        // edit into the template, not just the last debounced save.
         //
         // Scope to `.last()`: the app shell keeps the prior doc's screen
         // mounted (freezeOnBlur), so two .ProseMirror editors briefly

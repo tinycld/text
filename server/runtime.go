@@ -536,6 +536,11 @@ type textDocHandle struct {
 	doc          *ycrdt.Doc // nil after Close
 	closed       bool
 	lastActivity time.Time // updated on every ApplyUpdate / EncodeStateAsUpdate
+
+	// images holds the bytes of every drive image the docx emitter has
+	// embedded for this room, so a save reads each image from storage once
+	// per room instead of once per save. See imageCache.
+	images imageCache
 }
 
 // LastActivity returns the timestamp of the most recent ApplyUpdate /
@@ -684,6 +689,7 @@ func (h *textDocHandle) Close() error {
 	}
 	h.closed = true
 	h.doc = nil
+	h.images.clear()
 	h.runtime.closeDoc(h.id)
 	return nil
 }

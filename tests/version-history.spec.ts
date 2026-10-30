@@ -51,6 +51,18 @@ test.describe('Text — version history', () => {
         await expect(preview(page).getByText(first)).toBeVisible()
         await expect(preview(page).getByText(second)).toHaveCount(0)
 
+        // Rename and Restore sit on the active version's row, not in the
+        // toolbar, and only there.
+        await expect(
+            versionList(page).getByRole('button', { name: 'Rename', exact: true })
+        ).toHaveCount(1)
+        await expect(
+            versionList(page).getByRole('button', { name: 'Restore', exact: true })
+        ).toHaveCount(1)
+        // The row's own click target is a button on web; the actions must not
+        // be inside it (a button inside a button is invalid HTML).
+        await expect(versionList(page).locator('button button')).toHaveCount(0)
+
         await page.getByRole('button', { name: 'Rename', exact: true }).click()
         await page.getByPlaceholder('Version name').fill('Approved')
         await page.getByRole('button', { name: 'Save', exact: true }).click()

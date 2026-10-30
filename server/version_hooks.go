@@ -31,10 +31,9 @@ func registerVersionHooks(runtime *Runtime) {
 	}
 }
 
-// makeSnapshotVersionHook returns the drive VersionHook that captures
-// the live server doc's Yjs state into drive_item_versions.yjs_state +
-// drive_item_versions.version_metadata on snapshot, and reverses the
-// dance on restore.
+// makeSnapshotVersionHook returns the drive VersionHook: on snapshot it
+// captures the live server doc's Yjs state + metadata onto the version row;
+// on restore it brings an open document to the restored content.
 //
 // Both OnSnapshot and OnRestore gracefully no-op when the room isn't
 // live — a text doc whose collaboration session has been evicted from
@@ -87,40 +86,34 @@ func makeSnapshotVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *c
 	}
 }
 
-// makeRestoreVersionHookFn returns the OnRestore implementation. Reads
-// the version's yjs_state file, applies it to the live server doc under
-// the handle mutex, then broadcasts the delta over the room so existing
-// peers converge.
-//
-// No-ops when the version has no yjs_state (pre-Phase 4 versions, or a
-// version snapshotted while the room was dormant) or the room isn't
-// currently live. The docx-based restore (drive's part) has already
-// rebuilt the doc content from the docx blob; the protected roots are
-// the only thing we'd recover here, and absent yjs_state we can't.
+// makeRestoreVersionHookFn returns the OnRestore implementation. Drive has
+// already put the version's file back on the item. A closed document reads
+// that file when it next opens. An open one does not: its room keeps its
+// own document and would save it over the restored file. So for a live
+// room the hook replaces the document content with the version's, as new
+// edits, and broadcasts them so every open editor shows the restored text.
 func makeRestoreVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *core.Record) error {
 	return func(app core.App, item *core.Record, version *core.Record) error {
-		stateBytes, err := readYjsStateBytes(app, version)
-		if err != nil {
-			return fmt.Errorf("text: read yjs_state: %w", err)
-		}
-		if len(stateBytes) == 0 {
-			slog.Info("text: restore version has no yjs_state; protected roots not recovered",
-				"itemID", item.Id, "versionID", version.Id)
-			return nil
-		}
 		handle := runtime.handleFor(item.Id)
 		if handle == nil {
-			slog.Info("text: restore room not live; yjs_state not applied",
-				"itemID", item.Id, "versionID", version.Id)
 			return nil
 		}
 		room := runtime.RoomFor(item.Id)
 		if room == nil {
 			return fmt.Errorf("text: restore room missing for live handle %s", item.Id)
 		}
-		delta, err := handle.applyVersionRestore(stateBytes)
+		ctx := context.Background()
+		raw, err := readDriveItemBytes(app, version)
 		if err != nil {
-			return fmt.Errorf("text: restore apply: %w", err)
+			return fmt.Errorf("text: read restored version: %w", err)
+		}
+		docxBytes, err := sourceBytesToDocx(ctx, version.GetString("mime_type"), raw)
+		if err != nil {
+			return fmt.Errorf("text: normalize restored version: %w", err)
+		}
+		delta, err := handle.replaceContentFromDocx(ctx, docxBytes)
+		if err != nil {
+			return fmt.Errorf("text: restore live content: %w", err)
 		}
 		if len(delta) == 0 {
 			return nil
@@ -130,29 +123,6 @@ func makeRestoreVersionHookFn(runtime *Runtime) func(core.App, *core.Record, *co
 		}
 		return nil
 	}
-}
-
-// readYjsStateBytes reads the version's yjs_state file via the
-// PocketBase filesystem. Returns nil bytes (with nil error) when the
-// field is empty — older versions pre-date Phase 4. A genuine read
-// failure surfaces an error so the restore path can log it.
-func readYjsStateBytes(app core.App, version *core.Record) ([]byte, error) {
-	filename := version.GetString("yjs_state")
-	if filename == "" {
-		return nil, nil
-	}
-	fsys, err := app.NewFilesystem()
-	if err != nil {
-		return nil, fmt.Errorf("open filesystem: %w", err)
-	}
-	defer fsys.Close()
-	key := version.BaseFilesPath() + "/" + filename
-	rdr, err := fsys.GetReader(key)
-	if err != nil {
-		return nil, fmt.Errorf("get reader for %s: %w", key, err)
-	}
-	defer rdr.Close()
-	return readCappedBytes(rdr, MaxDocxBytes)
 }
 
 // captureYjsStateAndMetadata reads the live doc under h.mu and returns

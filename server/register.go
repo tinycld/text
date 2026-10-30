@@ -113,7 +113,7 @@ func registerShared(app *pocketbase.PocketBase) {
 	// that the docx round-trip can't preserve). Registered before the
 	// realtime block so a snapshot HTTP request that races with the very
 	// first room creation finds the hook in place.
-	registerVersionHooks(runtime)
+	registerVersionHooks(app, runtime)
 
 	registerRealtime(app, runtime)
 

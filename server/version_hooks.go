@@ -25,10 +25,10 @@ const versionStateFilename = "yjs_state.bin"
 
 // registerVersionHooks registers the hook under every MIME type Text edits:
 // drive dispatches version hooks by drive_items.mime_type.
-func registerVersionHooks(runtime *Runtime) {
+func registerVersionHooks(app core.App, runtime *Runtime) {
 	hook := makeSnapshotVersionHook(runtime)
 	for _, mime := range []string{docxMimeType, rtfMimeType, rtfMimeTypeAlt} {
-		versionhooks.Register(mime, hook)
+		versionhooks.Register(app, mime, hook)
 	}
 }
 

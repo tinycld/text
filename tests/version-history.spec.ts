@@ -93,4 +93,23 @@ test.describe('Text — version history', () => {
         await autoRow.click()
         await expect(preview(page).getByText(marker)).toBeVisible()
     })
+
+    test('show changes marks the paragraph added since the previous version', async ({ page }) => {
+        await openTextDocument(page, 'version-compare')
+        const kept = `kept line ${Date.now()}`
+        await typeAtEnd(page, kept)
+        await saveVersion(page, 'Before')
+        const added = `added gamma line ${Date.now()}`
+        await typeAtEnd(page, added)
+        await saveVersion(page, 'After')
+
+        await openHistory(page)
+        await versionList(page).getByRole('button', { name: 'After' }).click()
+        await page.getByRole('switch', { name: 'Show changes' }).click()
+        // Word-level marks are covered by core htmldiff's Go tests; here the
+        // whole new paragraph carries the added mark and the old one none.
+        await expect(preview(page).locator('[data-diff="ins"]', { hasText: added })).toBeVisible()
+        await expect(preview(page).getByText(kept)).toBeVisible()
+        await expect(preview(page).locator('[data-diff]', { hasText: kept })).toHaveCount(0)
+    })
 })

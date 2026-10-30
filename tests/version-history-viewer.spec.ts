@@ -18,7 +18,9 @@ import { createSecondUser, loginAs, shareDriveItemWith } from './helpers/seed-mu
 // user and the share are seeded the way the other multi-user specs do; the
 // version itself is made through the UI.
 test.describe('Text — version history for a viewer', () => {
-    test('a viewer previews versions without Restore or Rename', async ({ browser }) => {
+    test('a viewer previews and compares versions without Restore or Rename', async ({
+        browser,
+    }) => {
         const docName = uniqueDocName('version-viewer')
         const itemId = await uploadDocxAsDriveItem(docName)
         const viewer = await createSecondUser('version-viewer')
@@ -60,6 +62,9 @@ test.describe('Text — version history for a viewer', () => {
                 .getByRole('button', { name: 'Shared draft' })
                 .click()
             await expect(page.locator('iframe[title="Version preview"]')).toBeVisible()
+            await expect(
+                page.getByRole('radio', { name: 'Compare with current document' })
+            ).toBeVisible()
             await expect(page.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0)
             await expect(page.getByRole('button', { name: 'Rename', exact: true })).toHaveCount(0)
         } finally {

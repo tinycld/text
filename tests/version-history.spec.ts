@@ -105,11 +105,30 @@ test.describe('Text — version history', () => {
 
         await openHistory(page)
         await versionList(page).getByRole('button', { name: 'After' }).click()
-        await page.getByRole('switch', { name: 'Show changes' }).click()
+        await page.getByRole('radio', { name: 'Compare with previous version' }).click()
         // Word-level marks are covered by core htmldiff's Go tests; here the
         // whole new paragraph carries the added mark and the old one none.
         await expect(preview(page).locator('[data-diff="ins"]', { hasText: added })).toBeVisible()
         await expect(preview(page).getByText(kept)).toBeVisible()
+        await expect(preview(page).locator('[data-diff]', { hasText: kept })).toHaveCount(0)
+    })
+
+    test('compare a version with the current document, unsaved edits included', async ({
+        page,
+    }) => {
+        await openTextDocument(page, 'version-vs-current')
+        const kept = `base line ${Date.now()}`
+        await typeAtEnd(page, kept)
+        await saveVersion(page, 'Base')
+        // Typed after the last version and never saved as one: the compare
+        // must include it, because the server saves open edits first.
+        const added = `typed since base ${Date.now()}`
+        await typeAtEnd(page, added)
+
+        await openHistory(page)
+        await versionList(page).getByRole('button', { name: 'Base' }).click()
+        await page.getByRole('radio', { name: 'Compare with current document' }).click()
+        await expect(preview(page).locator('[data-diff="ins"]', { hasText: added })).toBeVisible()
         await expect(preview(page).locator('[data-diff]', { hasText: kept })).toHaveCount(0)
     })
 })

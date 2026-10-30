@@ -134,4 +134,48 @@ test.describe('Text — version history', () => {
         // The mark must show: a background color, not just an attribute.
         await expect(addedBlock).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     })
+
+    test('⌘/Ctrl-click a second version to compare the two', async ({ page }) => {
+        await openTextDocument(page, 'version-pick-base')
+        const first = `first pick ${Date.now()}`
+        await typeAtEnd(page, first)
+        await saveVersion(page, 'Pick one')
+        await typeAtEnd(page, `middle pick ${Date.now()}`)
+        await saveVersion(page, 'Pick two')
+        const last = `last pick ${Date.now()}`
+        await typeAtEnd(page, last)
+        await saveVersion(page, 'Pick three')
+
+        await openHistory(page)
+        await versionList(page).getByRole('button', { name: 'Pick three' }).click()
+        // Older base, picked second: the compare still runs older → newer.
+        await versionList(page)
+            .getByRole('button', { name: 'Pick one' })
+            .click({ modifiers: ['ControlOrMeta'] })
+
+        await expect(page.getByText('Comparing with Pick one')).toBeVisible()
+        await expect(preview(page).locator('[data-diff="ins"]', { hasText: last })).toBeVisible()
+        await expect(preview(page).locator('[data-diff]', { hasText: first })).toHaveCount(0)
+
+        await page.getByRole('button', { name: 'Clear comparison' }).click()
+        await expect(page.getByText('Comparing with Pick one')).toHaveCount(0)
+        await expect(preview(page).locator('[data-diff]')).toHaveCount(0)
+    })
+
+    test('phone: long-press a version to compare it with the one you open', async ({ page }) => {
+        await openTextDocument(page, 'version-long-press')
+        await typeAtEnd(page, `phone base ${Date.now()}`)
+        await saveVersion(page, 'Phone base')
+        const later = `phone later ${Date.now()}`
+        await typeAtEnd(page, later)
+        await saveVersion(page, 'Phone later')
+        await openHistory(page)
+
+        await page.setViewportSize({ width: 390, height: 844 })
+        // A held press is a long-press on web too (Pressable's onLongPress).
+        await versionList(page).getByRole('button', { name: 'Phone base' }).click({ delay: 800 })
+        await versionList(page).getByRole('button', { name: 'Phone later' }).click()
+        await expect(page.getByText('Comparing with Phone base')).toBeVisible()
+        await expect(preview(page).locator('[data-diff="ins"]', { hasText: later })).toBeVisible()
+    })
 })

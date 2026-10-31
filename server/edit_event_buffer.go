@@ -1,11 +1,17 @@
 package text
 
 import (
+	"fmt"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
+
+	"tinycld.org/core/logging"
 )
+
+var editEventLog = logging.ForPackage("text")
 
 // WindowDuration is the debounce window for editEvents emission.
 // Per spec: 60s between observed updates from a clientID closes the
@@ -112,6 +118,7 @@ func (b *editEventBuffer) Note(clientID uint32, authorID string, nodeIDs []EditE
 			affectedNodes: nodeIDs,
 		}
 		w.timer = time.AfterFunc(WindowDuration, func() {
+			defer b.recoverFlush(clientID)
 			b.Flush(clientID)
 		})
 		if len(w.affectedNodes) > SampleNodesPerEvent {
@@ -187,5 +194,15 @@ func (b *editEventBuffer) FlushAll() {
 	b.mu.Unlock()
 	for _, cid := range clientIDs {
 		b.Flush(cid)
+	}
+}
+
+// recoverFlush ends a panic in a timer-driven flush. The timer runs the flush
+// on its own goroutine, where a panic would end the process and every app in
+// it; this window's event is lost, the room keeps working.
+func (b *editEventBuffer) recoverFlush(clientID uint32) {
+	if r := recover(); r != nil {
+		editEventLog.Error("edit event flush panicked", "roomID", b.roomID, "clientID", clientID,
+			"panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 	}
 }

@@ -154,3 +154,31 @@ func TestEditEventBuffer_FlushAll_DrainsAllWindows(t *testing.T) {
 	}
 	buf.mu.Unlock()
 }
+
+// The window flush runs on a timer goroutine and writes the Y.Doc. A panic
+// there must end that flush only, not the process.
+func TestEditEventBuffer_TimerFlushPanicIsContained(t *testing.T) {
+	withShortWindow(t, 20*time.Millisecond)
+	panicked := make(chan struct{})
+	flushed := make(chan EditEvent, 1)
+	b := newEditEventBuffer("room-1", func(_ string, e EditEvent) {
+		if e.ClientID == 1 {
+			close(panicked)
+			panic("publish exploded")
+		}
+		flushed <- e
+	})
+
+	b.Note(1, "author-a", nil)
+	<-panicked
+	b.Note(2, "author-b", nil)
+
+	select {
+	case e := <-flushed:
+		if e.ClientID != 2 {
+			t.Fatalf("flushed client %d, want 2", e.ClientID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the buffer stopped flushing after one flush panicked")
+	}
+}

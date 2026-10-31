@@ -41,7 +41,12 @@ export const autoVersionsItem = (page: Page) =>
 export async function turnOnAutoVersions(page: Page) {
     await openMenubarMenu(page, 'File')
     const item = autoVersionsItem(page)
-    await expect(item).not.toBeChecked()
+    // Store an explicit 'on': the document may start on through the shared
+    // org setting, which another worker can turn off at any time.
+    if ((await item.getAttribute('aria-checked')) === 'true') {
+        await item.click()
+        await expect(item).not.toBeChecked()
+    }
     await item.click()
     await expect(item).toBeChecked()
     await page.keyboard.press('Escape')

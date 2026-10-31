@@ -1,35 +1,16 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { editorRoot, openMenubarMenu, openTextDocument } from './_menubar-helpers'
+import {
+    openHistory,
+    preview,
+    saveVersion,
+    turnOnAutoVersions,
+    typeAtEnd,
+    versionList,
+} from './_version-helpers'
 
 // Version history from the Text File menu: versions are made with
 // File → Save version, and every check goes through the history screen.
-
-const meta = process.platform === 'darwin' ? 'Meta' : 'Control'
-
-async function typeAtEnd(page: Page, text: string) {
-    await editorRoot(page).click()
-    await page.keyboard.press(`${meta}+End`)
-    await page.keyboard.press('Enter')
-    await page.keyboard.type(text, { delay: 20 })
-    await expect(editorRoot(page).getByText(text)).toBeVisible()
-}
-
-async function saveVersion(page: Page, label: string) {
-    await openMenubarMenu(page, 'File')
-    await page.getByRole('menuitem', { name: 'Save version' }).click()
-    const input = page.getByPlaceholder('What changed in this version?')
-    await input.fill(label)
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(input).toBeHidden()
-}
-
-async function openHistory(page: Page) {
-    await openMenubarMenu(page, 'File')
-    await page.getByRole('menuitem', { name: 'Version history' }).click()
-}
-
-const versionList = (page: Page) => page.getByRole('list', { name: 'Versions' })
-const preview = (page: Page) => page.frameLocator('iframe[title="Version preview"]')
 
 test.describe('Text — version history', () => {
     test('preview, rename and restore from the File menu', async ({ page }) => {
@@ -110,6 +91,8 @@ test.describe('Text — version history', () => {
 
     test('an automatic version appears after the idle time', async ({ page }) => {
         await openTextDocument(page, 'version-auto')
+        // Automatic versions are opt-in.
+        await turnOnAutoVersions(page)
         const marker = `auto state ${Date.now()}`
         await typeAtEnd(page, marker)
 

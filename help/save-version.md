@@ -28,6 +28,8 @@ A restore keeps the history: the state you replace stays in the list, and a "Res
 
 See [Drive versions](help://drive:versions) for more on managing version history.
 
+Automatic versions are off unless your organization turns them on. To turn them on or off for this document, choose **File → Automatically version while editing**. A check mark shows they are on.
+
 ## When to save a version
 
 - Before a major rewrite or before deleting sections you might want back.

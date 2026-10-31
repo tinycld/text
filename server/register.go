@@ -113,7 +113,7 @@ func registerShared(app *pocketbase.PocketBase) {
 	// that the docx round-trip can't preserve). Registered before the
 	// realtime block so a snapshot HTTP request that races with the very
 	// first room creation finds the hook in place.
-	registerVersionHooks(runtime)
+	registerVersionHooks(app, runtime)
 
 	registerRealtime(app, runtime)
 
@@ -136,10 +136,10 @@ func registerShared(app *pocketbase.PocketBase) {
 func registerRealtime(app core.App, runtime *Runtime) {
 	checkpoints := realtime.NewPocketBaseCheckpointStore(app)
 	flush := makeProductionFlush(app, runtime)
-	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator := realtime.NewSaveCoordinator(app, flush)
 	saveCoordinator.SetKind(roomKindText)
 
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	realtime.RegisterRoomKindWith(app, roomKindText, realtime.RoomKindOptions{
 		Authorize: makeAuthorize(app),
 		// Anonymous editable-link visitors: admit only when the share
 		// link is still live and grants edit. Mirrors calc.
@@ -210,7 +210,7 @@ func registerRealtime(app core.App, runtime *Runtime) {
 	// A deleted document leaves nothing behind: its parked Y.Doc is
 	// closed and its checkpoint row removed.
 	app.OnRecordAfterDeleteSuccess("drive_items").BindFunc(func(e *core.RecordEvent) error {
-		if err := realtime.DropRoom(roomKindText, e.Record.Id); err != nil {
+		if err := realtime.DropRoom(app, roomKindText, e.Record.Id); err != nil {
 			app.Logger().Warn("text: checkpoint cleanup on drive_items delete failed",
 				"itemID", e.Record.Id, "err", err)
 		}

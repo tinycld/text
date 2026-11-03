@@ -1,4 +1,5 @@
 import { Tooltip } from '@tinycld/core/components/Tooltip'
+import { useEditorMountOptional } from '@tinycld/core/lib/editor/editor-mount'
 import { captureException } from '@tinycld/core/lib/errors'
 import { pb } from '@tinycld/core/lib/pocketbase'
 import { uploadFileFromUri } from '@tinycld/core/lib/upload-file'
@@ -50,14 +51,16 @@ export function ImageInsertButton({
 // URI that bloats every Y.Doc update.
 export function useImageInsert(onInsert: (url: string) => void): () => void {
     const createDriveItem = useCreateDriveItem()
+    const documentId = useEditorMountOptional()?.itemId
     return useCallback(() => {
         void handleImageInsert(onInsert, {
             pickImage,
             upload: createDriveItem.mutate,
             buildURL: buildInsertedImageURL,
             captureException,
+            attachedTo: documentId,
         })
-    }, [onInsert, createDriveItem.mutate])
+    }, [onInsert, createDriveItem.mutate, documentId])
 }
 
 // Builds the URL the editor STORES in the document for an inserted image.

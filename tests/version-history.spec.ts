@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorRoot, openMenubarMenu, openTextDocument } from './_menubar-helpers'
+import { editorRoot, openTextDocument } from './_menubar-helpers'
 import {
     openHistory,
     preview,

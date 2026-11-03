@@ -30,6 +30,9 @@ interface HandleImageInsertDeps {
     // requires a network round-trip to fetch.
     buildURL: (collectionId: string, itemId: string, storedFile: string) => Promise<string>
     captureException: (tag: string, err: unknown) => void
+    // The document the image goes into. The upload is attached to it so the
+    // document's viewers can see the image (drive_items.attached_to).
+    attachedTo?: string
 }
 
 // Orchestrates picker → drive upload → onInsert(url). Lives in its own
@@ -55,6 +58,7 @@ export async function handleImageInsert(
             body: picked.body,
             name: picked.name,
             mimeType: picked.mimeType,
+            attachedTo: deps.attachedTo,
         },
         {
             onSuccess: result => {

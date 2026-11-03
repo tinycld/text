@@ -1,5 +1,6 @@
 import { useAuth } from '@tinycld/core/lib/auth'
 import type { EditorMessage } from '@tinycld/core/lib/editor/message-bus/types'
+import { makeMessage } from '@tinycld/core/lib/editor/message-bus/types'
 import { AwarenessWebViewHost } from '@tinycld/core/lib/editor/rich/awareness-webview-host'
 import { YjsWebViewHost } from '@tinycld/core/lib/editor/rich/yjs-webview-host'
 import { useWebViewEditor } from '@tinycld/core/lib/editor/use-webview-editor'
@@ -8,6 +9,7 @@ import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { publishUiMessage } from '../lib/anchored-overlay/ui-message-bus'
 import { colorForUser } from '../lib/color-for-user'
+import { APP_IMAGE_AUTH } from '../lib/image-auth-message'
 import {
     dispatchFindReplaceMessage,
     makeNativeFindReplaceController,
@@ -23,6 +25,7 @@ import {
     dispatchCommentMessage,
 } from './native-comment-bridge'
 import type { DocumentEditorResult } from './use-document-editor'
+import { useImageSrcAuth } from './use-image-src-auth'
 
 export interface UseDocumentEditorOptions {
     yDoc: Y.Doc
@@ -70,7 +73,8 @@ export interface UseDocumentEditorOptions {
 // type strings (including the camelCase list names) must match the cases in
 // webview-editor/source/bridges/format-bridge.ts.
 export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEditorResult {
-    const { user } = useAuth()
+    // Anonymous share visitors have no account; see screens/[id].tsx.
+    const { user } = useAuth({ throwIfAnon: false })
     const userId = user?.id ?? ''
     const userName = user?.name ?? ''
     const userColor = userId ? colorForUser(userId) : '#999'
@@ -105,6 +109,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     )
     useEffect(() => () => awarenessHost.destroy(), [awarenessHost])
 
+    const imageAuth = useImageSrcAuth()
+
     const initPayload = useMemo(() => {
         const peersAtHandshake = awarenessHost.encodePeers()
         return {
@@ -123,8 +129,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
             // a slightly stale seed is not a lost edit.
             initialState: yjsHost.encodeState(),
             ...(peersAtHandshake ? { peers: peersAtHandshake } : {}),
+            imageAuth,
         }
     }, [
+        imageAuth,
         generation,
         options.editable,
         options.placeholder,
@@ -255,6 +263,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // is where they get a real poster. It reports "not sent" until a pooled
     // page exists, which the relays already treat as such rather than an error.
     posterRef.current = result.postMessage ?? null
+
+    // init goes out once per generation, so a rotated file token reaches a
+    // page that is already up through its own message.
+    useEffect(() => {
+        posterRef.current?.(makeMessage('app', APP_IMAGE_AUTH, imageAuth))
+    }, [imageAuth])
 
     // The poster is stable for the hook's life, but the comment bridge and the
     // find-replace controller below are memoized once and read it through a

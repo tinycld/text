@@ -1,3 +1,4 @@
+import { useEditorMountOptional } from '@tinycld/core/lib/editor/editor-mount'
 import type {
     EditorCommands,
     EditorHandle,
@@ -233,6 +234,7 @@ type CreateMutate = ReturnType<typeof useCreateDriveItem>['mutate']
 function uploadAndInsertImage(
     file: File,
     mutate: CreateMutate,
+    attachedTo: string | undefined,
     onInserted: (url: string) => void
 ): void {
     mutate(
@@ -240,6 +242,7 @@ function uploadAndInsertImage(
             body: file,
             name: file.name || 'pasted-image.png',
             mimeType: file.type || 'image/png',
+            attachedTo,
         },
         {
             onSuccess: result => {
@@ -274,6 +277,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
     // 8MB base64 data URI that round-trips through every collaborator's
     // Y.Doc update payload.
     const createDriveItem = useCreateDriveItem()
+    // Read from a ref: the paste/drop handlers are built once at editor
+    // mount, and the mount's item id arrives with the editor's context.
+    const mountItemId = useEditorMountOptional()?.itemId
+    const attachedToRef = useRef(mountItemId)
+    attachedToRef.current = mountItemId
 
     // Stash the slash-menu image callback behind a ref so changes in
     // its identity (which happens any time the surrounding screen re-
@@ -332,9 +340,14 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     const files = extractImageFilesFromPaste(event)
                     if (files.length === 0) return false
                     for (const file of files) {
-                        uploadAndInsertImage(file, createDriveItem.mutate, src => {
-                            tiptapEditor?.chain().focus().setImage({ src }).run()
-                        })
+                        uploadAndInsertImage(
+                            file,
+                            createDriveItem.mutate,
+                            attachedToRef.current,
+                            src => {
+                                tiptapEditor?.chain().focus().setImage({ src }).run()
+                            }
+                        )
                     }
                     return true
                 },
@@ -342,9 +355,14 @@ export function useDocumentEditor(options: UseDocumentEditorOptions): DocumentEd
                     const files = extractImageFilesFromDrop(event)
                     if (files.length === 0) return false
                     for (const file of files) {
-                        uploadAndInsertImage(file, createDriveItem.mutate, src => {
-                            tiptapEditor?.chain().focus().setImage({ src }).run()
-                        })
+                        uploadAndInsertImage(
+                            file,
+                            createDriveItem.mutate,
+                            attachedToRef.current,
+                            src => {
+                                tiptapEditor?.chain().focus().setImage({ src }).run()
+                            }
+                        )
                     }
                     return true
                 },

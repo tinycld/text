@@ -96,21 +96,16 @@ describe('useMentionSuggestions', () => {
         })
     })
 
-    // The mount-less path leaves the search ENABLED, which is only safe
-    // because `useAuth()` throws for an anonymous viewer (it defaults to
-    // `throwIfAnon: true`), so the hook cannot run at all without an authed
-    // identity. That default is core's, and `useAuth` is MOCKED here — making
-    // the mock throw and asserting it throws is a tautology, so the assertion
-    // lives against the real hook in
-    // core/lib/__tests__/use-auth-anon.test.tsx. What this test can pin is the
-    // delegation: the hook reads the identity from `useAuth` with no options,
-    // so it gets that throwing default rather than opting out of it.
-    it('reads the authed identity with no opt-out of the anonymous guard', () => {
+    // The mount-less path leaves the search ENABLED for a signed-in user.
+    // An anonymous share visitor has no user, and must never enumerate the
+    // roster: with no user the search is disabled whatever the mount says.
+    it('disables the search for a viewer with no user', () => {
         editorMountMock.mockReturnValueOnce(null)
+        authMock.mockReturnValueOnce({ user: undefined })
         renderHook(() => useMentionSuggestions('ali'))
-        expect(authMock).toHaveBeenCalled()
-        for (const [options] of authMock.mock.calls) {
-            expect(options?.throwIfAnon).not.toBe(false)
-        }
+        expect(useMentionCandidatesMock).toHaveBeenCalledWith('ali', {
+            disabled: true,
+            currentUserId: '',
+        })
     })
 })

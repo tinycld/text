@@ -219,8 +219,10 @@ function DocumentScreen({ itemName, itemFile, room, driveItemId }: DocumentScree
     // focusedSuggestionId from doc A can't focus an unrelated row in
     // doc B after navigation.
     const reviewDrawerStore = useMemo(() => createReviewDrawerStore(), [])
-    const { user } = useAuth()
-    const userId = user.id
+    // The share route renders this screen for an anonymous visitor too, who
+    // has no account: useAuth() would throw, so read the user optionally.
+    const { user } = useAuth({ throwIfAnon: false })
+    const userId = user?.id ?? ''
     useEffect(() => {
         if (userId) {
             modeStore.getState().setIdentity({ userId })

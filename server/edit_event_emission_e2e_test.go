@@ -31,7 +31,6 @@ import (
 // AND additionally pins that BOTH writers' frames emit when each
 // other is present as audience.
 func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	// Shorten the debounce window so the test completes in ~200ms
 	// instead of the production 60s. Restored on cleanup so other
@@ -50,7 +49,8 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 	// serverDoc, OnRoomCreate registers the *Room + per-room buffer,
 	// OnDocUpdateContent drives the stamper → buffer.Note path. No
 	// Journal — PublishDocUpdate handles nil journal gracefully.
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
@@ -63,7 +63,6 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	conn := realtime.NewClientForTest(alice.userID)
 
 	// Single source doc → both frames carry the same clientID. The
@@ -137,7 +136,6 @@ func TestEditEvents_SoloWriterSkipsEmissionByDesign(t *testing.T) {
 // pass (HasOtherWriter) sees the peer as present when each frame
 // fires.
 func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	origWindow := WindowDuration
 	WindowDuration = 50 * time.Millisecond
@@ -150,7 +148,8 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 
 	runtime := NewRuntime()
 
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
@@ -163,7 +162,6 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	aliceConn := realtime.NewClientForTest(alice.userID)
 	bobConn := realtime.NewClientForTest(bob.Id)
 
@@ -280,7 +278,6 @@ func TestEditEvents_TwoWriters_EmitsBothEvents(t *testing.T) {
 // implementation (HasOtherWriter) excludes the sender from the
 // audience-presence check.
 func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	origWindow := WindowDuration
 	WindowDuration = 50 * time.Millisecond
@@ -293,7 +290,8 @@ func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
 
 	runtime := NewRuntime()
 
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
@@ -306,7 +304,6 @@ func TestEditEvents_WriterWithReadOnlyViewerPresentSkipsEmission(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	aliceConn := realtime.NewClientForTest(alice.userID)
 	viewerConn := realtime.NewClientForTest(viewer.Id)
 	// Flip the viewer's read-only flag the way OnConnect would for a

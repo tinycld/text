@@ -14,7 +14,6 @@ import (
 	"tinycld.org/core/offboard"
 	"tinycld.org/core/realtime"
 	"tinycld.org/core/sharelink"
-	"tinycld.org/core/versionhooks"
 	"tinycld.org/packages/text/translate"
 )
 
@@ -108,13 +107,13 @@ func registerShared(app *pocketbase.PocketBase) {
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 
 	// Cross-package version hooks: when drive snapshots or restores a
-	// drive_item_versions row for an item of type "text", call into the
+	// drive_item_versions row for a document Text edits, call into the
 	// text runtime to capture / apply the live Y.Doc state (which carries
 	// the protected roots — clientAuthors, clientFirstSeen, editEvents —
 	// that the docx round-trip can't preserve). Registered before the
 	// realtime block so a snapshot HTTP request that races with the very
 	// first room creation finds the hook in place.
-	versionhooks.Register("text", makeSnapshotVersionHook(runtime))
+	registerVersionHooks(app, runtime)
 
 	registerRealtime(app, runtime)
 
@@ -137,10 +136,10 @@ func registerShared(app *pocketbase.PocketBase) {
 func registerRealtime(app core.App, runtime *Runtime) {
 	checkpoints := realtime.NewPocketBaseCheckpointStore(app)
 	flush := makeProductionFlush(app, runtime)
-	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator := realtime.NewSaveCoordinator(app, flush)
 	saveCoordinator.SetKind(roomKindText)
 
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	realtime.RegisterRoomKindWith(app, roomKindText, realtime.RoomKindOptions{
 		Authorize: makeAuthorize(app),
 		// Anonymous editable-link visitors: admit only when the share
 		// link is still live and grants edit. Mirrors calc.
@@ -151,6 +150,8 @@ func registerRealtime(app core.App, runtime *Runtime) {
 		Checkpoints:     checkpoints,
 		Fingerprint:     driveItemFingerprint(app),
 		FlushDirty:      saveCoordinator.FlushDirty,
+		// Automatic versions: drive listens on core/editcheckpoint.
+		EditCheckpoints: true,
 		// Wrap OnRoomCreate so the runtime also gets a handle to the
 		// *realtime.Room reference — the authorship stamper uses it to
 		// broadcast server-originated delta updates back to peers via
@@ -209,7 +210,7 @@ func registerRealtime(app core.App, runtime *Runtime) {
 	// A deleted document leaves nothing behind: its parked Y.Doc is
 	// closed and its checkpoint row removed.
 	app.OnRecordAfterDeleteSuccess("drive_items").BindFunc(func(e *core.RecordEvent) error {
-		if err := realtime.DropRoom(roomKindText, e.Record.Id); err != nil {
+		if err := realtime.DropRoom(app, roomKindText, e.Record.Id); err != nil {
 			app.Logger().Warn("text: checkpoint cleanup on drive_items delete failed",
 				"itemID", e.Record.Id, "err", err)
 		}

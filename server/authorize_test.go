@@ -17,12 +17,11 @@ import (
 // registered closure rejects nil auth without touching the DB. This
 // mirrors calc/server/realtime_authorize_test.go.
 func TestRegisterRealtimeRegisters(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	app := pocketbase.New()
 	Register(app)
 
-	authorize := realtime.LookupForTest(roomKindText)
+	authorize := realtime.LookupForTest(app, roomKindText)
 	if authorize == nil {
 		t.Fatalf("Register did not register the %q room kind", roomKindText)
 	}
@@ -33,11 +32,9 @@ func TestRegisterRealtimeRegisters(t *testing.T) {
 }
 
 // TestRegisterRealtimeDuplicatePanics confirms calling Register twice
-// surfaces as a panic from realtime.RegisterRoomKindWith. Guards
-// against accidental double-init at startup.
+// on one app surfaces as a panic from realtime.RegisterRoomKindWith. This
+// guards against accidental double-init at startup.
 func TestRegisterRealtimeDuplicatePanics(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
-
 	app := pocketbase.New()
 	Register(app)
 
@@ -47,6 +44,17 @@ func TestRegisterRealtimeDuplicatePanics(t *testing.T) {
 		}
 	}()
 	Register(app)
+}
+
+// Two apps in one process each register the text kind on their own broker.
+func TestRegisterRealtimeOnTwoApps(t *testing.T) {
+	a, b := pocketbase.New(), pocketbase.New()
+	Register(a)
+	Register(b)
+
+	if realtime.LookupForTest(a, roomKindText) == nil || realtime.LookupForTest(b, roomKindText) == nil {
+		t.Fatal("each app must hold its own text room kind")
+	}
 }
 
 // TestAuthorize_DeniesNilAuth: a nil auth record must always be

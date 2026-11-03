@@ -69,13 +69,13 @@ type textEnv struct {
 
 func newTextEnv(t *testing.T) *textEnv {
 	t.Helper()
-	t.Cleanup(realtime.ResetRegistryForTest)
 	app := setupTestApp(t)
 	addCheckpointCollection(t, app)
 	runtime := NewRuntime()
 	runtime.SetBootstrap(makeDocxBootstrap(app, runtime))
 	registerRealtime(app, runtime)
-	broker := realtime.NewBroker()
+	// The kind registerRealtime registered lives on app's own broker.
+	broker := realtime.BrokerFor(app)
 	t.Cleanup(broker.Close)
 	return &textEnv{app: app, broker: broker, runtime: runtime, store: realtime.NewPocketBaseCheckpointStore(app)}
 }
@@ -189,7 +189,6 @@ func TestCheckpoint_DeleteDropsTheParkedDocumentAndRow(t *testing.T) {
 // Core's broker-integration test then closes the loop: a non-nil error
 // from this exact function drops the frame before the document.
 func TestRealtime_RejectsClientAuthorshipWrite(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	// pocketbase.New() is enough for Register: it touches only the hook
 	// registry (OnRecordAfterDeleteSuccess) and the realtime room-kind
@@ -197,7 +196,7 @@ func TestRealtime_RejectsClientAuthorshipWrite(t *testing.T) {
 	app := pocketbase.New()
 	Register(app)
 
-	opts, ok := realtime.LookupOptionsForTest(roomKindText)
+	opts, ok := realtime.LookupOptionsForTest(app, roomKindText)
 	if !ok {
 		t.Fatalf("Register did not register the %q room kind", roomKindText)
 	}
@@ -258,7 +257,6 @@ func TestRealtime_RejectsClientAuthorshipWrite(t *testing.T) {
 // The two tests are complementary: that one guards Register's wiring,
 // this one guards the broker's route() integration.
 func TestRealtime_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	app := setupTestApp(t)
 
@@ -270,13 +268,14 @@ func TestRealtime_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
 	runtime := NewRuntime()
 
 	flush := makeProductionFlush(app, runtime)
-	saveCoordinator := realtime.NewSaveCoordinator(flush)
+	saveCoordinator := realtime.NewSaveCoordinator(app, flush)
 	saveCoordinator.SetKind(roomKindText)
 
 	// Mirror text.Register's RegisterRoomKindWith call. Authorize is
 	// required by the registry but the join path bypasses it (only
 	// handleConnect calls it), so a permissive no-op is fine here.
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate:    saveCoordinator.OnRoomCreate,
@@ -294,7 +293,6 @@ func TestRealtime_EditorWritesOK_ClientAuthorshipBlocked(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	client := realtime.NewClientForTest("editor-user-id")
 
 	// Frame 1: legitimate write to the "default" XML fragment (the

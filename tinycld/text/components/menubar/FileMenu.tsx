@@ -7,6 +7,7 @@ import { Menu, MenuBarMenu } from '@tinycld/core/ui/menubar'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { TemplatePickerDialog } from '@tinycld/drive/components/TemplatePickerDialog'
 import { useHasTemplates } from '@tinycld/drive/hooks/use-template-items'
+import { useAutoVersions } from '@tinycld/drive/hooks/useAutoVersions'
 import { useCopyDriveItem } from '@tinycld/drive/lib/copy-drive-item'
 import { exportItem } from '@tinycld/drive/lib/export-pdf'
 import { itemFileUrl } from '@tinycld/drive/lib/item-file-url'
@@ -16,6 +17,7 @@ import {
     TEMPLATE_EXTENSIONS,
     toTemplateName,
 } from '@tinycld/drive/lib/template-naming'
+import { versionHistoryHref } from '@tinycld/drive/lib/version-history-href'
 import { router } from 'expo-router'
 import { lazy, Suspense, useState } from 'react'
 import type { PMNode } from '../../lib/markdown/types'
@@ -163,6 +165,11 @@ export function FileMenu(props: MenuBarProps) {
                     <Menu.Item label="Share" onSelect={() => setShareOpen(true)} />
                 )}
                 <Menu.Item label="Save version" onSelect={() => setSaveVersionOpen(true)} />
+                <Menu.Item
+                    label="Version history"
+                    onSelect={() => router.push(versionHistoryHref(props.documentId, 'text'))}
+                />
+                <AutoVersionsItem documentId={props.documentId} />
                 <Menu.Separator />
                 <Menu.Item
                     label="Download (.docx)"
@@ -237,5 +244,18 @@ export function FileMenu(props: MenuBarProps) {
                 </Suspense>
             )}
         </>
+    )
+}
+
+// Automatic versions for this document; shown to users who can edit it.
+function AutoVersionsItem({ documentId }: { documentId: string }) {
+    const autoVersions = useAutoVersions(documentId)
+    if (!autoVersions.canChange) return null
+    return (
+        <Menu.CheckboxItem
+            label="Automatically version while editing"
+            isChecked={autoVersions.isOn}
+            onToggle={autoVersions.toggle}
+        />
     )
 }

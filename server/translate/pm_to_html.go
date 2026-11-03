@@ -468,6 +468,8 @@ func (r *htmlRenderer) writeInline(n PMNode) {
 		r.writeFootnoteReference(n, "footnote")
 	case NodeTypeEndnoteReference:
 		r.writeFootnoteReference(n, "endnote")
+	case NodeTypeHardBreak:
+		r.b.WriteString(`<br>`)
 	case NodeTypePageBreak:
 		// PM emits page breaks at block level (handled by writeBlock)
 		// but a stray inline one renders as an inline <hr> fallback.

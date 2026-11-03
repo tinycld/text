@@ -34,6 +34,8 @@ func (b *builder) inlineContent(nodes []PMNode) ([]docx.ParaChild, error) {
 			}
 		case NodeTypePageBreak:
 			out = append(out, docx.ParaChild{Run: &docx.Run{Break: docx.BreakPage}})
+		case NodeTypeHardBreak:
+			out = append(out, docx.ParaChild{Run: &docx.Run{Break: docx.BreakLine}})
 		case NodeTypeFootnoteReference:
 			out = append(out, b.noteReferenceChild(n, true))
 		case NodeTypeEndnoteReference:

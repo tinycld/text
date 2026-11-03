@@ -187,7 +187,7 @@ func (p *docxParser) walkRun(r docx.Run, out *[]PMNode, extraMarks []PMMark) {
 	case docx.BreakPage:
 		collected = append(collected, PMNode{Type: NodeTypePageBreak})
 	case docx.BreakLine, docx.BreakColumn:
-		collected = append(collected, PMNode{Type: NodeTypeText, Text: "\n"})
+		collected = append(collected, PMNode{Type: NodeTypeHardBreak})
 	}
 	_ = p.flushRun(out, collected, marks, extraMarks)
 }

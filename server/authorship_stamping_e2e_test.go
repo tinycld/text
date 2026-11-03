@@ -34,7 +34,6 @@ import (
 // ClientAuthorshipBlocked. The wiring fields below are the same values
 // Register sets (cross-reference register.go).
 func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	app := setupAuthTestApp(t)
 
@@ -55,7 +54,8 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 	// stamper's PublishDocUpdate handles nil Journal gracefully (Room
 	// only journals when opts.Journal != nil), keeping the test focused
 	// on the stamping invariants rather than journal plumbing.
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
@@ -68,7 +68,6 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	aliceConn := realtime.NewClientForTest(alice.userID)
 	bobConn := realtime.NewClientForTest(bob.Id)
 
@@ -154,7 +153,6 @@ func TestAuthorshipStamping_EndToEnd_TwoUsers(t *testing.T) {
 // either grow the map (different key) or churn the existing entry's
 // value (which would also show up as a doc-state delta).
 func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
-	t.Cleanup(realtime.ResetRegistryForTest)
 
 	app := setupAuthTestApp(t)
 	alice := seedAuthorshipFixture(t, app, "alice@e2e.test", "doc.docx")
@@ -162,7 +160,8 @@ func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
 
 	runtime := NewRuntime()
 
-	realtime.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
+	broker := realtime.NewBroker()
+	broker.RegisterRoomKindWith(roomKindText, realtime.RoomKindOptions{
 		Authorize:       func(_ *core.Record, _ string) error { return nil },
 		RuntimeProvider: runtime,
 		OnRoomCreate: func(_ string, _ realtime.DocHandle, room *realtime.Room) {
@@ -175,7 +174,6 @@ func TestAuthorshipStamping_IdempotentOnSecondFrame(t *testing.T) {
 		UpdateContentValidator: validateUpdate,
 	})
 
-	broker := realtime.NewBroker()
 	conn := realtime.NewClientForTest(alice.userID)
 
 	// Single source doc — both frames are encoded from the same Y.Doc, so

@@ -35,19 +35,22 @@ type PMMark struct {
 // Node type constants. Keep this list in sync with the editor schema
 // in @tinycld/core/lib/editor/use-document-editor.web.tsx.
 const (
-	NodeTypeDoc               = "doc"
-	NodeTypeParagraph         = "paragraph"
-	NodeTypeHeading           = "heading"
-	NodeTypeBulletList        = "bulletList"
-	NodeTypeOrderedList       = "orderedList"
-	NodeTypeListItem          = "listItem"
-	NodeTypeBlockquote        = "blockquote"
-	NodeTypeTable             = "table"
-	NodeTypeTableRow          = "tableRow"
-	NodeTypeTableCell         = "tableCell"
-	NodeTypeImage             = "image"
-	NodeTypeText              = "text"
-	NodeTypePageBreak         = "pageBreak"
+	NodeTypeDoc         = "doc"
+	NodeTypeParagraph   = "paragraph"
+	NodeTypeHeading     = "heading"
+	NodeTypeBulletList  = "bulletList"
+	NodeTypeOrderedList = "orderedList"
+	NodeTypeListItem    = "listItem"
+	NodeTypeBlockquote  = "blockquote"
+	NodeTypeTable       = "table"
+	NodeTypeTableRow    = "tableRow"
+	NodeTypeTableCell   = "tableCell"
+	NodeTypeImage       = "image"
+	NodeTypeText        = "text"
+	NodeTypePageBreak   = "pageBreak"
+	// NodeTypeHardBreak is a line break inside a paragraph (the editor's
+	// Shift+Enter); a docx w:br with no type.
+	NodeTypeHardBreak         = "hardBreak"
 	NodeTypeFootnoteReference = "footnoteReference"
 	NodeTypeEndnoteReference  = "endnoteReference"
 	// NodeTypeCodeBlock is a preformatted block whose text content is
@@ -69,7 +72,7 @@ var SupportedNodeTypes = map[string]bool{
 	NodeTypeBlockquote: true, NodeTypeTable: true, NodeTypeTableRow: true,
 	NodeTypeTableCell: true, NodeTypeImage: true, NodeTypeText: true,
 	NodeTypePageBreak: true, NodeTypeFootnoteReference: true, NodeTypeEndnoteReference: true,
-	NodeTypeCodeBlock: true,
+	NodeTypeCodeBlock: true, NodeTypeHardBreak: true,
 }
 
 // Mark type constants.

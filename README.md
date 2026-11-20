@@ -42,14 +42,14 @@ Editing features:
   canonical `.docx` (`lib/markdown/`)
 - PDF export — **File → Download (.pdf)** renders the stored `.docx`
   to PDF on the server through drive's `exportItem` (`FileMenu`); like
-  **Download (.docx)** it reflects the last flushed state, not
-  unflushed keystrokes
+  **Download (.docx)** the server flushes the live room first, so the
+  file holds the edits on screen
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
   state can be restored later. When the room is live the row stores
   both the canonical `.docx` blob and the raw Yjs snapshot. A restore
-  does not read the Yjs snapshot: drive restores the `.docx`, closes
-  the document's rooms, and the editors reload from the restored file,
+  does not read the Yjs snapshot: drive closes the document's rooms
+  first, writes the restored `.docx`, and the editors reload from it,
   so the protected roots (authorship, edit events) are not recovered.
   On a dormant room the snapshot step is a no-op and no `yjs_state` is
   written.

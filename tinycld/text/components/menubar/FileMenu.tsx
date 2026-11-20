@@ -140,8 +140,8 @@ export function FileMenu(props: MenuBarProps) {
     }
 
     // Exports the stored .docx blob to PDF on the server (omnidoc). Like
-    // Download (.docx), this reflects the last persisted state, not unflushed
-    // live edits — the live room auto-persists on a debounce.
+    // Download (.docx), the server flushes the live room first, so the file
+    // holds the edits on screen.
     const downloadPdf = () => {
         exportItem(props.documentId, props.documentName, 'pdf')
     }

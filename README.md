@@ -47,20 +47,22 @@ Editing features:
 - Manual version snapshots — **File → Save version** flushes the
   current Y.Doc to a labeled `drive_item_versions` row so a named
   state can be restored later. When the room is live the row stores
-  both the canonical `.docx` blob and the raw Yjs snapshot, so a
-  restore round-trips suggestions and authorship metadata. Snapshot and
-  restore both no-op gracefully on a dormant room — no `yjs_state` is
-  written, and the protected roots (authorship, edit events) are not
-  recovered.
+  both the canonical `.docx` blob and the raw Yjs snapshot. A restore
+  does not read the Yjs snapshot: drive restores the `.docx`, closes
+  the document's rooms, and the editors reload from the restored file,
+  so the protected roots (authorship, edit events) are not recovered.
+  On a dormant room the snapshot step is a no-op and no `yjs_state` is
+  written.
 - Find and replace (`FindReplaceBar`) — open via ⌘F on web or via
   **Edit → Find…** on iOS / Android (the bar is wired on every platform;
   the ⌘F shortcut binding is web-only)
 - Undo / redo via Y.UndoManager
 - Print (browser print on web, iOS print sheet on iPad)
 - Live presence — peer cursors and selections through Yjs awareness
-- Document context menu and File menu actions (rename, make a copy,
-  share, move to trash, details) via `useDocumentFileActions` and
-  drive's `ShareDialogConnected`
+- File menu actions (rename, make a copy, share, move to trash,
+  details) via `useDocumentFileActions` and drive's
+  `ShareDialogConnected`; the document context menu has the editing
+  actions (cut, copy, paste, link, comment, table operations)
 - Save status indicator and reconnecting indicator wired to the
   realtime room's state
 - Word count badge
@@ -400,8 +402,8 @@ text/
         bootstrap.go        docx → Y.Doc on first open
         flush.go            Y.Doc → docx → drive_items.file
         oauth_scopes.go     text:read / text:write scope registration
-        version_hooks.go    drive VersionHook: manual version snapshots
-                            capture / restore the live Yjs state
+        version_hooks.go    drive VersionHook: a manual version snapshot
+                            captures the live Yjs state; render and diff
         suggestions_authz.go            per-frame validator: reject
                                         client writes to server-owned
                                         authorship roots
@@ -415,8 +417,8 @@ text/
                             + RendererVersion for the preview endpoint
         checkpoint_e2e_test.go  end-to-end park / evict / reopen / cleanup
     tinycld/text/           TypeScript source
-        provider.tsx        registers TextPreview (registerPreview +
-                            registerShareEditor) + drive actions
+        provider.tsx        registers TextPreview (registerPreview), the
+                            editor screen (registerShareEditor) + drive actions
         screens/            index + [id]
         components/         toolbar, menubar, popovers, dialogs
             menubar/        File/Edit/Format/Insert/Help menus
